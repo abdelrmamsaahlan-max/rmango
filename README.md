@@ -37,7 +37,7 @@ Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) 
 
 The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
 
-Installed Windows builds check GitHub Releases after startup and every four hours. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+Installed Windows builds check GitHub Releases shortly after startup and every five minutes while the app is open. Updates download in the background, but installation always waits for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
 
 ## Automatic updates
 
