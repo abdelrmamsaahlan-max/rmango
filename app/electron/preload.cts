@@ -35,6 +35,7 @@ const api = {
   connectRoblox: () => ipcRenderer.invoke('mcp:connect'),
   disconnectRoblox: () => ipcRenderer.invoke('mcp:disconnect'),
   getMcpState: () => ipcRenderer.invoke('mcp:state'),
+  selectStudioInstance: (studioId: string) => ipcRenderer.invoke('mcp:select-studio', studioId),
   listMcpTools: () => ipcRenderer.invoke('mcp:list-tools'),
   runDiagnostics: () => ipcRenderer.invoke('mcp:diagnostics'),
   loadMessages: () => ipcRenderer.invoke('chat:load'),
