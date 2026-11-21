@@ -184,6 +184,8 @@ function App() {
         event.preventDefault();
         setSettingsSection('general');
         setSettingsOpen(true);
+      } else if (event.key === 'Escape' && settingsOpen) {
+        setSettingsOpen(false);
       }
     };
     window.addEventListener('keydown', onSettingsShortcut);
@@ -692,22 +694,32 @@ function App() {
   }
 
   async function handleDefaultProfileChange(profile: CloudProfile) {
+    const previous = cloudProfile;
     setCloudProfile(profile);
-    await savePreferences({ defaultCloudProfile: profile });
+    if (!await savePreferences({ defaultCloudProfile: profile })) setCloudProfile(previous);
   }
 
   async function handleLocalHistoryChange(enabled: boolean) {
+    const previous = saveLocalChatHistory;
     setSaveLocalChatHistory(enabled);
     const saved = await savePreferences({ saveLocalChatHistory: enabled });
-    if (saved && !enabled) {
+    if (!saved) {
+      setSaveLocalChatHistory(previous);
+      return;
+    }
+    if (!enabled) {
       setToast('Local chat caching is off. Cloud conversation history remains in your account.');
     }
   }
 
   async function handleInspectorDefaultChange(enabled: boolean) {
+    const previous = showInspectorByDefault;
     setShowInspectorByDefault(enabled);
     setRightPanelOpen(enabled);
-    await savePreferences({ showInspectorByDefault: enabled });
+    if (!await savePreferences({ showInspectorByDefault: enabled })) {
+      setShowInspectorByDefault(previous);
+      setRightPanelOpen(previous);
+    }
   }
 
   async function handleRefreshUsage() {
@@ -1277,12 +1289,12 @@ function App() {
         <div className="topbar-divider"/>
         <button type="button" className="workspace-crumb" title={appState?.projectPath || "Open a Roblox project folder"} onClick={() => void handleOpenProject()}><FolderOpen size={15}/><span>{appState?.projectPath ? appState.projectPath.split(String.fromCharCode(92)).pop()?.split('/').pop() : "Open project"}</span><ChevronDown size={13}/></button>
         <div className="topbar-spacer"/>
-        <button className={'runtime-pill ' + (cloudReady ? 'ready' : '')} onClick={() => setSettingsOpen(true)}>
+        <button className={'runtime-pill ' + (cloudReady ? 'ready' : '')} onClick={() => { setSettingsSection('usage'); setSettingsOpen(true); }}>
           <span className="runtime-dot"/>{cloudStatusLabel}
         </button>
         {cloudState?.signedIn
-          ? <button className="top-settings" onClick={() => setSettingsOpen(true)} title="Cloud account">{cloudState.email || 'Account'}</button>
-          : <button className="top-settings" onClick={() => setSettingsOpen(true)}>Sign in</button>}
+          ? <button className="top-settings" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }} title="Cloud account">{cloudState.email || 'Account'}</button>
+          : <button className="top-settings" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}>Sign in</button>}
         <div className={'connection-pill ' + (studioReady ? 'connected' : '')}>
           <span className="status-dot"/>{studioReady ? 'Studio ready' : studioConnected ? 'MCP bridge online' : 'Studio offline'}
         </div>
@@ -1298,7 +1310,7 @@ function App() {
             : updateState?.status === 'downloaded' ? <Download size={13}/> : <RefreshCw size={13}/>}
           {updateState?.status === 'downloaded' ? 'Install update' : 'Check updates'}
         </button>
-        <button className="top-settings" onClick={() => setSettingsOpen(true)}><Settings2 size={15}/> Settings</button>
+        <button className="top-settings" onClick={() => { setSettingsSection('general'); setSettingsOpen(true); }}><Settings2 size={15}/> Settings</button>
         <div className="avatar"><MangoMark size={25}/></div>
       </header>
 
@@ -1337,7 +1349,7 @@ function App() {
           <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
           <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
           <div className="rail-spacer"/>
-          <button className="rail-button" title="Settings" onClick={() => setSettingsOpen(true)}><Settings2 size={18}/></button>
+          <button className="rail-button" title="Settings" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}><Settings2 size={18}/></button>
         </nav>
 
         <aside className={"left-sidebar " + (leftSidebarOpen ? "visible" : "")}>
@@ -1461,7 +1473,7 @@ function App() {
             <div className="integration-row">
               <div className="integration-icon local"><Sparkles size={14}/></div>
               <div><strong>Rmango Cloud AI</strong><span>{cloudState?.signedIn ? (cloudReady ? 'Connected · ' + (currentProfile?.profileLabel || 'Profile ready') : 'Account connected') : cloudState?.configured ? 'Sign in required' : 'Backend not configured'}</span></div>
-              <button className="subtle-icon" title="Cloud account and models" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/></button>
+              <button className="subtle-icon" title="Cloud account and models" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}><Settings2 size={13}/></button>
             </div>
           </div>
         </aside>
@@ -1491,7 +1503,7 @@ function App() {
                       <strong>{cloudState?.configured ? 'Connect your Rmango account' : 'Rmango Cloud setup required'}</strong>
                       <span>{cloudState?.message || 'Cloud model inference is remote. No local AI runtime or model downloads are needed.'}</span>
                     </div>
-                    <button onClick={() => setSettingsOpen(true)}>{cloudState?.configured ? 'Sign in' : 'Details'} <ArrowRight size={13}/></button>
+                    <button onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}>{cloudState?.configured ? 'Sign in' : 'Details'} <ArrowRight size={13}/></button>
                   </div>}
 
                   <div className="quick-grid">
@@ -1616,7 +1628,7 @@ function App() {
                 <span className="map-node-copy"><small>PROJECT</small><strong>{appState?.projectPath ? appState.projectPath.split(String.fromCharCode(92)).pop()?.split('/').pop() : 'No project open'}</strong><em>{projectFiles.length} indexed files · click to open</em></span>
               </button>
               <span className={'map-wire ' + (cloudReady ? 'live' : '')}/>
-              <button type="button" className="map-node ai-node" onClick={() => setSettingsOpen(true)}>
+              <button type="button" className="map-node ai-node" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}>
                 <span className="map-node-icon"><Sparkles size={18}/></span>
                 <span className="map-node-copy"><small>RMANGO AI</small><strong>{cloudReady ? 'Cloud engine' : 'AI service'}</strong><em>{cloudReady ? (currentProfile?.profileLabel || 'Ready for prompts') : (cloudState?.message || 'Cloud setup required')}</em></span>
               </button>
@@ -1644,8 +1656,8 @@ function App() {
               <div className="local-meta"><span>INFERENCE</span><strong>Remote cloud</strong><span>DEVICE</span><strong>Interface only</strong></div>
             </div>
             {cloudState?.signedIn
-              ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Cloud model manager <ArrowRight size={13}/></button>
-              : <button className="primary-action" onClick={() => setSettingsOpen(true)}><LockKeyhole size={13}/> Sign in to Rmango <ArrowRight size={13}/></button>}
+              ? <button className="primary-action" onClick={() => { setSettingsSection('ai'); setSettingsOpen(true); }}><Settings2 size={13}/> Cloud model manager <ArrowRight size={13}/></button>
+              : <button className="primary-action" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}><LockKeyhole size={13}/> Sign in to Rmango <ArrowRight size={13}/></button>}
             {cloudReady && <div className="connect-help">
               <strong>{currentProfile?.profileLabel || 'Cloud model profiles'}</strong>
               <span>{currentProfile?.name || 'Choose a model profile below the chat composer.'}</span>
