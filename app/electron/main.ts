@@ -879,7 +879,7 @@ async function connectRoblox() {
   try {
     const transport = new StdioClientTransport({
       command: 'cmd.exe',
-      args: ['/d', '/s', '/c', '\\"' + mcpBat + '\\"'],
+      args: ['/d', '/s', '/c', '"' + mcpBat + '"'],
       env: getStudioProcessEnvironment(),
     });
     const client = new Client({ name: 'rmango-desktop', version: app.getVersion() }, { capabilities: {} });
