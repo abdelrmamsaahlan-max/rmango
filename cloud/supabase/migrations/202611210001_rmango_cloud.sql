@@ -199,6 +199,8 @@ alter table public.usage_events enable row level security;
 create policy "profile read own" on public.user_profiles for select to authenticated using (user_id = (select auth.uid()));
 create policy "profile update own display fields" on public.user_profiles for update to authenticated
 using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke update on public.user_profiles from authenticated;
+grant update(display_name, updated_at) on public.user_profiles to authenticated;
 
 create policy "projects owner all" on public.projects for all to authenticated
 using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
@@ -237,6 +239,13 @@ create policy "studio connectors owner all" on public.studio_connectors for all 
 using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
 create policy "studio commands owner select" on public.studio_commands for select to authenticated
 using (owner_id = (select auth.uid()));
+create policy "studio commands owner insert" on public.studio_commands for insert to authenticated
+with check (
+  owner_id = (select auth.uid()) and exists (
+    select 1 from public.studio_connectors sc
+    where sc.id = connector_id and sc.owner_id = (select auth.uid()) and sc.disconnected_at is null
+  )
+);
 create policy "studio commands owner approval" on public.studio_commands for update to authenticated
 using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
 
@@ -248,6 +257,7 @@ using (owner_id = (select auth.uid()));
 
 -- Usage reservations are atomic and tied to auth.uid(); no user-supplied user_id is trusted.
 create or replace function public.reserve_ai_request(
+  p_user_id uuid,
   p_request_id uuid,
   p_model_profile text,
   p_estimated_tokens integer
@@ -255,16 +265,17 @@ create or replace function public.reserve_ai_request(
 language plpgsql
 security definer
 set search_path = ''
-as $$
+as $
 declare
-  v_user_id uuid := auth.uid();
+  v_user_id uuid := p_user_id;
   v_policy public.usage_policies%rowtype;
   v_today_requests bigint;
   v_month_requests bigint;
   v_today_tokens bigint;
   v_month_tokens bigint;
 begin
-  if v_user_id is null then raise exception 'authentication_required'; end if;
+  if current_setting('request.jwt.claim.role', true) <> 'service_role' then raise exception 'service_role_required'; end if;
+  if v_user_id is null then raise exception 'invalid_user'; end if;
   if p_request_id is null or p_estimated_tokens < 0 then raise exception 'invalid_request'; end if;
   if p_model_profile not in ('fast','developer','think','vision','agent') then raise exception 'invalid_model_profile'; end if;
 
@@ -319,6 +330,7 @@ end;
 $$;
 
 create or replace function public.complete_ai_request(
+  p_user_id uuid,
   p_request_id uuid,
   p_model_profile text,
   p_model_id text,
@@ -332,10 +344,11 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_user_id uuid := auth.uid();
+  v_user_id uuid := p_user_id;
   v_reservation public.usage_reservations%rowtype;
 begin
-  if v_user_id is null then raise exception 'authentication_required'; end if;
+  if current_setting('request.jwt.claim.role', true) <> 'service_role' then raise exception 'service_role_required'; end if;
+  if v_user_id is null then raise exception 'invalid_user'; end if;
   perform pg_advisory_xact_lock(hashtextextended(v_user_id::text, 0));
   select * into v_reservation from public.usage_reservations
     where request_id = p_request_id and owner_id = v_user_id for update;
@@ -352,25 +365,26 @@ begin
 end;
 $$;
 
-create or replace function public.cancel_ai_request(p_request_id uuid)
+create or replace function public.cancel_ai_request(p_user_id uuid, p_request_id uuid)
 returns void
 language plpgsql
 security definer
 set search_path = ''
-as $$
-declare v_user_id uuid := auth.uid();
+as $
+declare v_user_id uuid := p_user_id;
 begin
-  if v_user_id is null then raise exception 'authentication_required'; end if;
+  if current_setting('request.jwt.claim.role', true) <> 'service_role' then raise exception 'service_role_required'; end if;
+  if v_user_id is null then raise exception 'invalid_user'; end if;
   delete from public.usage_reservations where request_id = p_request_id and owner_id = v_user_id;
 end;
 $$;
 
-revoke all on function public.reserve_ai_request(uuid,text,integer) from public, anon;
-revoke all on function public.complete_ai_request(uuid,text,text,text,integer,integer,numeric) from public, anon;
-revoke all on function public.cancel_ai_request(uuid) from public, anon;
-grant execute on function public.reserve_ai_request(uuid,text,integer) to authenticated;
-grant execute on function public.complete_ai_request(uuid,text,text,text,integer,integer,numeric) to authenticated;
-grant execute on function public.cancel_ai_request(uuid) to authenticated;
+revoke all on function public.reserve_ai_request(uuid,uuid,text,integer) from public, anon, authenticated;
+revoke all on function public.complete_ai_request(uuid,uuid,text,text,text,integer,integer,numeric) from public, anon, authenticated;
+revoke all on function public.cancel_ai_request(uuid,uuid) from public, anon, authenticated;
+grant execute on function public.reserve_ai_request(uuid,uuid,text,integer) to service_role;
+grant execute on function public.complete_ai_request(uuid,uuid,text,text,text,integer,integer,numeric) to service_role;
+grant execute on function public.cancel_ai_request(uuid,uuid) to service_role;
 
 -- Private object bucket. Storage paths must begin with the authenticated user's UUID.
 insert into storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
@@ -395,3 +409,43 @@ using (bucket_id = 'rmango-files' and (storage.foldername(name))[1] = (select au
 with check (bucket_id = 'rmango-files' and (storage.foldername(name))[1] = (select auth.uid())::text);
 create policy "rmango files owner delete" on storage.objects for delete to authenticated
 using (bucket_id = 'rmango-files' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+-- Local Studio connector command claiming is scoped to the signed-in account.
+create or replace function public.claim_studio_commands(p_connector_id uuid, p_limit integer default 5)
+returns setof public.studio_commands
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null then raise exception 'authentication_required'; end if;
+  if not exists (
+    select 1 from public.studio_connectors sc
+    where sc.id = p_connector_id and sc.owner_id = v_user_id and sc.disconnected_at is null
+  ) then raise exception 'connector_not_found'; end if;
+
+  update public.studio_connectors
+  set last_seen_at = now()
+  where id = p_connector_id and owner_id = v_user_id;
+
+  return query
+  with next_commands as (
+    select c.id from public.studio_commands c
+    where c.connector_id = p_connector_id
+      and c.owner_id = v_user_id
+      and c.execution_status = 'queued'
+    order by c.created_at
+    for update skip locked
+    limit greatest(1, least(coalesce(p_limit, 5), 10))
+  )
+  update public.studio_commands c
+  set execution_status = 'running', updated_at = now()
+  from next_commands n
+  where c.id = n.id
+  returning c.*;
+end;
+$$;
+
+revoke all on function public.claim_studio_commands(uuid,integer) from public, anon;
+grant execute on function public.claim_studio_commands(uuid,integer) to authenticated;
