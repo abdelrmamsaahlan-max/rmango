@@ -1109,8 +1109,8 @@ function App() {
         {cloudState?.signedIn
           ? <button className="top-settings" onClick={() => setSettingsOpen(true)} title="Cloud account">{cloudState.email || 'Account'}</button>
           : <button className="top-settings" onClick={() => setSettingsOpen(true)}>Sign in</button>}
-        <div className={'connection-pill ' + (studioConnected ? 'connected' : '')}>
-          <span className="status-dot"/>{studioConnected ? 'Studio connected' : 'Studio offline'}
+        <div className={'connection-pill ' + (studioReady ? 'connected' : '')}>
+          <span className="status-dot"/>{studioReady ? 'Studio ready' : studioConnected ? 'MCP bridge online' : 'Studio offline'}
         </div>
         <button className="icon-button top-icon" title="Roblox MCP help" onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}><CircleHelp size={17}/></button>
         <button
@@ -1263,10 +1263,26 @@ function App() {
           </div>
           <div className="sidebar-bottom">
             <div className="section-row"><span>CONNECTIONS</span><span className={'tiny-status ' + (studioConnected ? 'on' : '')}/></div>
-            <div className="integration-row">
+            <div className="integration-row studio-integration-row">
               <div className="integration-icon roblox"><Gamepad2 size={14}/></div>
-              <div><strong>Roblox Studio</strong><span>{studioConnected ? studioTools.length + ' tools available' : 'Not connected'}</span></div>
-              <button className="subtle-icon" title={studioConnected ? 'Disconnect' : 'Connect'} onClick={() => studioConnected ? void handleDisconnect() : void handleConnect()}>{studioConnected ? <Check size={14}/> : <Link2 size={14}/>}</button>
+              <div className="studio-integration-copy">
+                <strong>Roblox Studio</strong>
+                <span>{studioReady
+                  ? (studioInstances.find(item => item.id === selectedStudioId)?.name || 'Studio place ready') + ' · ' + studioTools.length + ' tools'
+                  : studioConnected ? 'MCP bridge online · no open place' : 'Not connected'}</span>
+              </div>
+              {studioConnected && studioInstances.length > 1 && <select
+                className="studio-instance-select"
+                aria-label="Select Roblox Studio instance"
+                value={selectedStudioId || ''}
+                onChange={event => void handleSelectStudioInstance(event.target.value)}
+                title="Choose which open Studio instance RMango controls"
+              >
+                {studioInstances.map(instance => <option value={instance.id} key={instance.id}>{instance.name}{instance.placeId ? ' · ' + instance.placeId : ''}</option>)}
+              </select>}
+              <button className="subtle-icon" title={studioConnected ? (studioReady ? 'Disconnect Studio' : 'Refresh Studio sessions') : 'Connect to Studio MCP'} onClick={() => studioConnected && studioReady ? void handleDisconnect() : void handleConnect()} disabled={connecting}>
+                {connecting ? <LoaderCircle size={13} className="spin"/> : studioConnected && studioReady ? <Check size={14}/> : studioConnected ? <RefreshCw size={13}/> : <Link2 size={14}/>}
+              </button>
             </div>
             <div className="integration-row">
               <div className="integration-icon local"><Sparkles size={14}/></div>
@@ -1419,7 +1435,7 @@ function App() {
         {rightPanelOpen && <aside className="right-sidebar">
           <div className="right-heading"><span>WORKSPACE MAP</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close workspace panel"><X size={15}/></button></div>
           <div className="workspace-map-shell">
-            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i className={cloudReady && studioConnected ? 'all-live' : ''}/>{cloudReady && studioConnected ? 'ALL SYSTEMS READY' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioConnected ? 'STUDIO ONLINE · AI OFFLINE' : 'WAITING FOR SERVICES'}</span></div>
+            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i className={cloudReady && studioReady ? 'all-live' : ''}/>{cloudReady && studioReady ? 'ALL SYSTEMS READY' : cloudReady && studioConnected ? 'AI ONLINE · OPEN A PLACE' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioReady ? 'STUDIO READY · AI OFFLINE' : studioConnected ? 'MCP BRIDGE ONLY' : 'WAITING FOR SERVICES'}</span></div>
             <div className="workspace-map">
               <button type="button" className="map-node project-node" onClick={() => void handleOpenProject()}>
                 <span className="map-node-icon"><FolderOpen size={18}/></span>
@@ -1430,10 +1446,10 @@ function App() {
                 <span className="map-node-icon"><Sparkles size={18}/></span>
                 <span className="map-node-copy"><small>RMANGO AI</small><strong>{cloudReady ? 'Cloud engine' : 'AI service'}</strong><em>{cloudReady ? (currentProfile?.profileLabel || 'Ready for prompts') : (cloudState?.message || 'Cloud setup required')}</em></span>
               </button>
-              <span className={'map-wire ' + (studioConnected ? 'live' : '')}/>
-              <button type="button" className={'map-node studio-node ' + (studioConnected ? 'connected' : '')} onClick={() => studioConnected ? void handleDisconnect() : void handleConnect()}>
+              <span className={'map-wire ' + (studioReady ? 'live' : '')}/>
+              <button type="button" className={'map-node studio-node ' + (studioReady ? 'connected' : '')} onClick={() => studioConnected ? (studioReady ? void handleDisconnect() : void handleConnect()) : void handleConnect()}>
                 <span className="map-node-icon"><Gamepad2 size={18}/></span>
-                <span className="map-node-copy"><small>ROBLOX STUDIO</small><strong>{studioConnected ? 'Connected' : 'Waiting for Studio'}</strong><em>{studioConnected ? studioTools.length + ' tools discovered' : 'Click to connect MCP'}</em></span>
+                <span className="map-node-copy"><small>ROBLOX STUDIO</small><strong>{studioReady ? 'Place ready' : studioConnected ? 'Bridge online' : 'Waiting for Studio'}</strong><em>{studioReady ? (studioInstances.find(item => item.id === selectedStudioId)?.name || 'Studio selected') : studioConnected ? 'Open a place, then refresh' : 'Click to connect MCP'}</em></span>
               </button>
             </div>
             <div className="workspace-map-foot"><span><i className="map-dot project-dot"/> Project context</span><span><i className="map-dot ai-dot"/> Remote reasoning</span><span><i className="map-dot studio-dot"/> Studio tools</span></div>
@@ -1470,50 +1486,49 @@ function App() {
           </section>
 
           <section className="inspector-section">
-            <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioConnected ? 'live' : '')}>{studioConnected ? 'CONNECTED' : 'OFFLINE'}</span></div>
+            <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioReady ? 'live' : '')}>{studioReady ? 'PLACE READY' : studioConnected ? 'BRIDGE ONLY' : 'OFFLINE'}</span></div>
             <div className="studio-status-card">
-              <div className={'studio-status-icon ' + (studioConnected ? 'live' : '')}><Gamepad2 size={19}/></div>
-              <div className="studio-status-copy"><strong>{studioConnected ? (studioCloudLinked ? 'Studio linked to cloud' : 'Studio session linked') : 'Waiting for Studio'}</strong><span>{studioConnected ? (studioCloudLinked ? 'Secure cloud bridge active' : 'Local MCP connected · sign in to link cloud AI') : 'Enable Studio as MCP server'}</span></div>
-              <span className={'status-dot ' + (studioConnected ? 'bright' : '')}/>
-              <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>ACCESS</span><strong>Approval gated</strong></div><div><span>PLATFORM</span><strong>Windows</strong></div></div>
+              <div className={'studio-status-icon ' + (studioReady ? 'live' : '')}><Gamepad2 size={19}/></div>
+              <div className="studio-status-copy">
+                <strong>{studioReady
+                  ? (studioInstances.find(item => item.id === selectedStudioId)?.name || 'Studio place ready')
+                  : studioConnected ? 'MCP bridge is running' : 'Waiting for Studio'}</strong>
+                <span>{studioReady
+                  ? (studioCloudLinked ? 'Live place selected · secure cloud bridge active' : 'Live place selected · sign in to link cloud AI')
+                  : studioConnected ? 'Open a place in Roblox Studio, then refresh the connection' : 'Enable Studio as MCP server in Assistant → Manage MCP Servers'}</span>
+              </div>
+              <span className={'status-dot ' + (studioReady ? 'bright' : '')}/>
+              <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>PLACE</span><strong>{studioReady ? 'Selected' : 'None'}</strong></div><div><span>ACCESS</span><strong>Approval gated</strong></div></div>
             </div>
-            {studioConnected
-              ? <button className="outline-action" onClick={() => void handleDisconnect()}><X size={13}/> Disconnect Studio</button>
-              : <button className="primary-action" onClick={() => void handleConnect()} disabled={connecting}>{connecting ? <LoaderCircle size={14} className="spin"/> : <Link2 size={14}/>} Connect to Studio <ArrowRight size={13}/></button>}
-            {!studioConnected && <div className="connect-help">
-              <strong>Quick setup</strong>
-              <span>In Roblox Studio: Assistant → Manage MCP Servers → turn on “Enable Studio as MCP server”. Keep Studio open, then connect here.</span>
+            {studioConnected && studioInstances.length > 1 && <label className="studio-instance-picker">
+              <span>ACTIVE STUDIO INSTANCE</span>
+              <select value={selectedStudioId || ''} onChange={event => void handleSelectStudioInstance(event.target.value)}>
+                {studioInstances.map(instance => <option value={instance.id} key={instance.id}>{instance.name}{instance.placeId ? ' · Place ' + instance.placeId : ''}</option>)}
+              </select>
+            </label>}
+            <div className="studio-connection-actions">
+              {!studioConnected
+                ? <button className="primary-action" onClick={() => void handleConnect()} disabled={connecting}>{connecting ? <LoaderCircle size={14} className="spin"/> : <Link2 size={14}/>} Connect Studio MCP <ArrowRight size={13}/></button>
+                : <button className="outline-action" onClick={() => studioReady ? void handleDisconnect() : void handleConnect()} disabled={connecting}>
+                    {connecting ? <LoaderCircle size={13} className="spin"/> : studioReady ? <Check size={13}/> : <RefreshCw size={13}/>}
+                    {studioReady ? 'Disconnect Studio' : 'Refresh Studio sessions'}
+                  </button>}
+              {studioConnected && <button className="studio-disconnect-quiet" onClick={() => void handleDisconnect()} disabled={connecting} title="Stop the local MCP bridge">Stop bridge</button>}
+            </div>
+            {!studioReady && <div className="connect-help">
+              <strong>{studioConnected ? 'One more step' : 'Quick setup'}</strong>
+              <span>Open a place in Roblox Studio. In Assistant → Manage MCP Servers, enable “Enable Studio as MCP server”. Then refresh Studio sessions here.</span>
               <button onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}>Official setup guide <ExternalLink size={11}/></button>
             </div>}
           </section>
 
           <section className="inspector-section">
-            <div className="section-title"><span>AGENT TOOL ACCESS</span><span className="count-tag">{studioTools.length}</span></div>
-            <div className="permission-legend"><span><i className="legend-read"/> Read-only</span><span><i className="legend-approve"/> Approval required</span></div>
-            <div className="tool-stack">
-              {studioConnected && studioTools.length
-                ? studioTools.slice(0, 9).map(name => {
-                    const needsApproval = [
-                      'multi_edit','execute_luau','generate_mesh','generate_material','generate_texture',
-                      'generate_procedural_model','generate_scene','generate_animation','generate_avatar',
-                      'auto_setup_avatar','segment_mesh','insert_asset','upload_image','start_stop_play',
-                      'character_navigation','user_keyboard_input','user_mouse_input','save_place',
-                      'subagent','open_cloud_invoke','create_skill','edit_skill',
-                    ].includes(name);
-                    return <div className="tool-item" key={name}><span className={'tool-icon ' + (needsApproval ? 'approve' : '')}><Wrench size={12}/></span><span>{name}</span><span className={'tool-read-tag ' + (needsApproval ? 'approve' : '')}>{needsApproval ? 'ASK' : 'READ'}</span></div>;
-                  })
-                : <div className="tools-empty"><Wrench size={17}/><span>Connect Studio to see available tools.</span></div>}
-              {studioConnected && studioTools.length > 9 && <div className="more-tools">+ {studioTools.length - 9} more available</div>}
-            </div>
-          </section>
-
-          <section className="inspector-section">
             <div className="section-title"><span>QUICK ACTIONS</span></div>
-            <button className="quick-action-row" onClick={() => void handleDiagnostics()} disabled={!studioConnected || diagnosing}>
+            <button className="quick-action-row" onClick={() => void handleDiagnostics()} disabled={!studioReady || diagnosing}>
               <span className="action-icon"><Activity size={14}/></span><span><strong>Run Studio diagnostics</strong><small>Check session and place state</small></span>
               {diagnosing ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={13}/>}
             </button>
-            <button className="quick-action-row" onClick={() => void sendMessage('Inspect the open Roblox place. Map the current DataModel, identify existing map and gameplay systems, then suggest the next high-impact improvement. Do not make changes before explaining the plan.')} disabled={!studioConnected || busy}>
+            <button className="quick-action-row" onClick={() => void sendMessage('Inspect the open Roblox place. Map the current DataModel, identify existing map and gameplay systems, then suggest the next high-impact improvement. Do not make changes before explaining the plan.')} disabled={!studioReady || busy}>
               <span className="action-icon mango"><Search size={14}/></span><span><strong>Map my current place</strong><small>Inspect structure and layout</small></span><ArrowRight size={13}/>
             </button>
             <button className="quick-action-row" onClick={() => void sendMessage(quickPrompts[2].prompt)} disabled={!studioConnected || busy}>
