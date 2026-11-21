@@ -1,0 +1,51 @@
+name: Build Rmango Cloud Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "cloud/**"
+      - ".github/workflows/cloud-build.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "cloud/**"
+      - ".github/workflows/cloud-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rmango-cloud-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cloud:
+    name: Type-check and build Next.js cloud API
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: cloud
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloud/package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check cloud backend
+        run: npm run typecheck
+
+      - name: Build cloud backend
+        run: npm run build
