@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -1213,49 +1213,89 @@ async function downloadCloudProjectZip(projectId: string) {
 
 async function uploadCloudProject() {
   const settings = await readSettings();
-  if (!settings.projectPath) throw new Error("Open a local project folder before uploading it to Rmango Cloud.");
+  if (!settings.projectPath) throw new Error("Open a local project folder before syncing it to Rmango Cloud.");
   const session = await getValidCloudSession();
   const root = await fs.realpath(settings.projectPath);
-  const projectName = path.basename(root) || "Roblox Project";
-  const created = await cloudApiRequest<any>("/api/projects", {
-    method: "POST",
-    body: JSON.stringify({
-      name: projectName,
-      description: "Source files imported from " + projectName + " using Rmango Desktop.",
-    }),
-  });
+  const localProjectName = path.basename(root) || "Roblox Project";
 
-  const projectId = created.project?.id;
-  if (typeof projectId !== "string") throw new Error("The cloud service did not return a project ID.");
+  let cloudProject: CloudProject | null = null;
+  let projectId = session.currentProjectId;
+  if (projectId) {
+    try {
+      const existing = await cloudApiRequest<{ project: CloudProject }>("/api/projects/" + encodeURIComponent(projectId), {}, true);
+      if (existing.project?.id === projectId) cloudProject = existing.project;
+      else projectId = undefined;
+    } catch (error) {
+      if (error instanceof Error && /cloud project not found/i.test(error.message)) {
+        projectId = undefined;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  if (!projectId) {
+    const created = await cloudApiRequest<{ project: CloudProject }>("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: localProjectName,
+        description: "Source files imported from " + localProjectName + " using Rmango Desktop.",
+      }),
+    });
+    if (typeof created.project?.id !== "string") {
+      throw new Error("The cloud service did not return a project ID.");
+    }
+    cloudProject = created.project;
+    projectId = created.project.id;
+  }
+
+  if (!cloudProject) {
+    throw new Error("The selected cloud project could not be verified. No files were uploaded.");
+  }
   await writeCloudSession({ ...session, currentProjectId: projectId });
 
-  const entries = (await projectFiles(root)).filter(item => item.kind === "file").slice(0, 120);
+  const remote = await cloudApiRequest<{ files: Array<{
+    relative_path: string;
+    sha256: string | null;
+    size_bytes: number;
+  }> }>("/api/projects/" + projectId + "/files", {}, true);
+  const remoteByPath = new Map((remote.files || []).map(file => [file.relative_path, file]));
+  const allEntries = (await projectFiles(root)).filter(item => item.kind === "file");
+  const entries = allEntries.slice(0, 120);
+  const scanComplete = allEntries.length <= entries.length;
   const uploaded: string[] = [];
+  const unchanged: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
 
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index];
-    const relativePath = path.relative(root, entry.path);
+    const relativePath = path.relative(root, entry.path).split(path.sep).join("/");
     try {
       const content = await readProjectFile(root, relativePath);
       const extension = path.extname(entry.name).toLowerCase();
       const mimeType = extension === ".json" ? "application/json" : extension === ".csv" ? "text/csv" : "text/plain";
       const bytes = Buffer.from(content, "utf8");
-      await cloudApiRequest("/api/projects/" + projectId + "/files", {
-        method: "POST",
-        body: JSON.stringify({
-          relativePath: relativePath.split(path.sep).join("/"),
-          fileName: entry.name,
-          mimeType,
-          sizeBytes: bytes.length,
-          dataBase64: bytes.toString("base64"),
-        }),
-      });
-      uploaded.push(relativePath);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const existing = remoteByPath.get(relativePath);
+      if (existing?.sha256 === sha256) {
+        unchanged.push(relativePath);
+      } else {
+        await cloudApiRequest("/api/projects/" + projectId + "/files", {
+          method: "POST",
+          body: JSON.stringify({
+            relativePath,
+            fileName: entry.name,
+            mimeType,
+            sizeBytes: bytes.length,
+            dataBase64: bytes.toString("base64"),
+          }),
+        });
+        uploaded.push(relativePath);
+      }
     } catch (error) {
       skipped.push({
         name: relativePath,
-        reason: error instanceof Error ? error.message : "File could not be uploaded.",
+        reason: error instanceof Error ? error.message : "File could not be synced.",
       });
     }
 
@@ -1273,12 +1313,32 @@ async function uploadCloudProject() {
     }
   }
 
+  let removed = 0;
+  // Do not delete cloud files when the local scan was capped or any local
+  // read/upload failed; an incomplete scan is not evidence of deletion.
+  if (scanComplete && skipped.length === 0) {
+    const localPaths = new Set(entries.map(entry => path.relative(root, entry.path).split(path.sep).join("/")));
+    const stalePaths = (remote.files || [])
+      .map(file => file.relative_path)
+      .filter(relativePath => !localPaths.has(relativePath));
+    for (let offset = 0; offset < stalePaths.length; offset += 500) {
+      const batch = stalePaths.slice(offset, offset + 500);
+      const result = await cloudApiRequest<{ removed: number }>("/api/projects/" + projectId + "/files", {
+        method: "DELETE",
+        body: JSON.stringify({ relativePaths: batch }),
+      });
+      removed += Number(result.removed) || 0;
+    }
+  }
+
   return {
     ok: true,
     projectId,
-    projectName,
+    projectName: cloudProject.name,
     totalFiles: entries.length,
     uploaded: uploaded.length,
+    unchanged: unchanged.length,
+    removed,
     skipped,
   };
 }
