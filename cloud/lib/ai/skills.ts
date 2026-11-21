@@ -151,24 +151,24 @@ For scene lighting, define a coherent global baseline (Lighting technology and t
 
 const MAX_SKILLS_PER_TURN = 6;
 
-const BUILD_INTENT = /\\b(build|create|make|implement|add|generate|design|rebuild|refactor|fix|debug|upgrade|improve|automate|wire up|set up)\\b/i;
-const LARGE_SCOPE = /\\b(complete|full|entire|end[- ]to[- ]end|from scratch|whole game|production[- ]ready|multiple systems|all systems|everything)\\b/i;
+const BUILD_INTENT = /\b(build|create|make|implement|add|generate|design|rebuild|refactor|fix|debug|upgrade|improve|automate|wire up|set up)\b/i;
+const LARGE_SCOPE = /\b(complete|full|entire|end[- ]to[- ]end|from scratch|whole game|production[- ]ready|multiple systems|all systems|everything)\b/i;
 
 const HIGH_VALUE_SIGNALS: Record<string, RegExp[]> = {
-  "gameplay-architecture": [/\\b(game loop|whole game|multiple systems|end[- ]to[- ]end|system architecture|from scratch)\\b/i, /\\b(build|create|make) (a )?game\\b/i],
-  "roblox-game-design": [/\\b(core loop|retention|onboarding|progression|game economy|reward pacing|game balance)\\b/i, /\\b(tycoon|simulator|idle game|management game)\\b/i],
-  "luau-engineering": [/\\b(luau|lua|script|module script|server script|local script|remote event|remote function)\\b/i],
-  "network-security-data": [/\\b(datastore|data store|remote validation|exploit|server authoritative|rate limit|purchase validation)\\b/i],
-  "ui-ux": [/\\b(ui|ux|hud|screen gui|screengui|menu|layout|responsive interface)\\b/i],
-  "visual-diagnostics": [/\\b(screenshot|visual review|alignment|spacing|visual bug|compare image)\\b/i],
-  "characters-animation": [/\\b(animation|animator|rig|r6|r15|walk cycle|npc animation|keyframe)\\b/i],
-  "worldbuilding-3d-assets": [/\\b(terrain|environment|world building|meshpart|3d model|blender|uv unwrap|pbr)\\b/i],
-  "blender-asset-pipeline": [/\\b(blender|fbx|gltf|uv unwrap|weight paint|armature|retopology)\\b/i],
-  "vfx-lighting-materials": [/\\b(particle|beam|trail|vfx|lighting|atmosphere|tweenservice)\\b/i],
-  "audio-and-music-systems": [/\\b(audio|sound effect|sfx|music|spatial audio|audioplayer)\\b/i],
-  "performance-and-profiling": [/\\b(performance|optimization|optimisation|lag|fps|microprofiler|memory leak)\\b/i],
-  "testing-and-debugging": [/\\b(test|playtest|regression|verify|verification|output window|console error|reproduce)\\b/i],
-  "technical-document-analysis": [/\\b(documentation|readme|specification|technical doc|design doc|api reference)\\b/i],
+  "gameplay-architecture": [/\b(game loop|whole game|multiple systems|end[- ]to[- ]end|system architecture|from scratch)\b/i, /\b(build|create|make) (a )?game\b/i],
+  "roblox-game-design": [/\b(core loop|retention|onboarding|progression|game economy|reward pacing|game balance)\b/i, /\b(tycoon|simulator|idle game|management game)\b/i],
+  "luau-engineering": [/\b(luau|lua|script|module script|server script|local script|remote event|remote function)\b/i],
+  "network-security-data": [/\b(datastore|data store|remote validation|exploit|server authoritative|rate limit|purchase validation)\b/i],
+  "ui-ux": [/\b(ui|ux|hud|screen gui|screengui|menu|layout|responsive interface)\b/i],
+  "visual-diagnostics": [/\b(screenshot|visual review|alignment|spacing|visual bug|compare image)\b/i],
+  "characters-animation": [/\b(animation|animator|rig|r6|r15|walk cycle|npc animation|keyframe)\b/i],
+  "worldbuilding-3d-assets": [/\b(terrain|environment|world building|meshpart|3d model|blender|uv unwrap|pbr)\b/i],
+  "blender-asset-pipeline": [/\b(blender|fbx|gltf|uv unwrap|weight paint|armature|retopology)\b/i],
+  "vfx-lighting-materials": [/\b(particle|beam|trail|vfx|lighting|atmosphere|tweenservice)\b/i],
+  "audio-and-music-systems": [/\b(audio|sound effect|sfx|music|spatial audio|audioplayer)\b/i],
+  "performance-and-profiling": [/\b(performance|optimization|optimisation|lag|fps|microprofiler|memory leak)\b/i],
+  "testing-and-debugging": [/\b(test|playtest|regression|verify|verification|output window|console error|reproduce)\b/i],
+  "technical-document-analysis": [/\b(documentation|readme|specification|technical doc|design doc|api reference)\b/i],
 };
 
 function countMatches(pattern: RegExp, text: string): number {
@@ -224,7 +224,7 @@ export function selectRmangoSkills(
   for (const item of scored) add(item.skill);
 
   // A broad Roblox-game request should carry game-design expertise as well as implementation expertise.
-  const asksForGame = /\\b(game|tycoon|simulator|gameplay)\\b/i.test(currentPrompt);
+  const asksForGame = /\b(game|tycoon|simulator|gameplay)\b/i.test(currentPrompt);
   if (isBuildRequest && asksForGame && selected.length < MAX_SKILLS_PER_TURN) {
     add(byId.get("roblox-game-design"));
   }
@@ -238,7 +238,7 @@ export function buildSkillContext(
 ) {
   const skills = selectRmangoSkills(input, options);
   const body = skills.map(skill =>
-    `### ${skill.label} (v${skill.version}; ${skill.id})\\n${skill.description}\\n\\n${skill.instructions}`
+    `### ${skill.label} (v${skill.version}; ${skill.id})\n${skill.description}\n\n${skill.instructions}`
   );
   return {
     ids: skills.map(skill => skill.id),
@@ -248,6 +248,6 @@ export function buildSkillContext(
       "The current user request has priority; recent conversation context is used only to resolve short follow-ups and continuity.",
       "Apply the most specific relevant instructions. Do not mention skill routing to the user or dump these instructions into the answer.",
       ...body,
-    ].join("\\n\\n"),
+    ].join("\n\n"),
   };
 }
