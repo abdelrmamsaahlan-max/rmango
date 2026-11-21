@@ -61,6 +61,19 @@ Default policy: 40 requests/day, 800/month, 120k tokens/day, 1.5m tokens/month, 
 - ZIP export is owner-authenticated and limited to 250 files/40MB.
 - Binary Roblox places/models are not parsed in this version.
 
+## Agent execution strategies
+
+The cloud chat coordinator now selects a deterministic execution strategy from the latest user request and the selected model profile. This is policy selection, not a second planner-model call and not a claim that independent agents are running.
+
+- **Quick:** short, non-build requests use a smaller tool-step ceiling and concise context guidance.
+- **Debug:** error reports prioritize evidence gathering, call-path tracing, minimal fixes and narrow regression checks.
+- **Agent:** multi-step development requests use an inspect/plan/implement/verify/recover/report workflow.
+- **Deep engineering:** broad architectural work receives a larger step ceiling and explicit dependency/risk analysis.
+
+The selected strategy and workflow mode are exposed in response headers and persisted in coordinated task metadata. The task record explicitly distinguishes completion of the model response from independent verification of the requested behavior. A generated answer or successful write operation must not be presented as a passing runtime test.
+
+Strategy selection uses the latest prompt and existing profile; it does not change the user's selected model or invent unsupported model capabilities. The workflow still uses the current bounded request lifecycle: durable background execution, resumable task checkpoints and independently persisted acceptance-criteria states remain future work.
+
 ## Roblox Studio bridge
 
 Roblox Studio's official MCP server runs locally. The desktop starts it through the Windows Roblox MCP launcher, discovers its actual tool names/schemas, registers allowlisted tools with the cloud service, and polls the authenticated command queue.
