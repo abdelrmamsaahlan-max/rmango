@@ -4,7 +4,8 @@ import {
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
   LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
-  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square
+  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square,
+  Palette, Gauge, UserRound, Bell, Keyboard, HardDrive
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
@@ -15,6 +16,25 @@ type ActivityItem = AgentActivity;
 type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
 type PendingFollowup = { id: string; content: string; profile: CloudProfile; attachments: PendingAttachment[]; queuedAt: string };
 type ProjectDialogState = { mode: 'create' | 'rename'; projectId?: string; name: string; description: string } | null;
+type SettingsSection = 'general' | 'appearance' | 'ai' | 'usage' | 'account' | 'privacy' | 'notifications' | 'updates' | 'advanced';
+
+const SETTINGS_NAVIGATION: Array<{
+  id: SettingsSection;
+  label: string;
+  description: string;
+  group: string;
+  icon: typeof Settings2;
+}> = [
+  { id: 'general', label: 'General', description: 'Workspace and keyboard', group: 'WORKSPACE', icon: Settings2 },
+  { id: 'appearance', label: 'Appearance', description: 'Theme, layout and motion', group: 'WORKSPACE', icon: Palette },
+  { id: 'ai', label: 'AI & Models', description: 'Default profile and models', group: 'AI', icon: Cpu },
+  { id: 'usage', label: 'Usage & Plan', description: 'Requests and token usage', group: 'AI', icon: Gauge },
+  { id: 'account', label: 'Account', description: 'Sign-in and cloud status', group: 'ACCOUNT', icon: UserRound },
+  { id: 'privacy', label: 'Privacy & Security', description: 'Local data and protections', group: 'ACCOUNT', icon: ShieldCheck },
+  { id: 'notifications', label: 'Notifications', description: 'Desktop alerts', group: 'APP', icon: Bell },
+  { id: 'updates', label: 'Updates', description: 'Stable releases', group: 'APP', icon: Download },
+  { id: 'advanced', label: 'Advanced', description: 'Diagnostics and reset', group: 'APP', icon: Wrench },
+];
 
 const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -119,6 +139,7 @@ function App() {
   const [connecting, setConnecting] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark');
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
@@ -127,6 +148,8 @@ function App() {
   const [sendOnEnter, setSendOnEnter] = useState(true);
   const [desktopNotifications, setDesktopNotifications] = useState(false);
   const [autoUpdatesEnabled, setAutoUpdatesEnabled] = useState(true);
+  const [saveLocalChatHistory, setSaveLocalChatHistory] = useState(true);
+  const [showInspectorByDefault, setShowInspectorByDefault] = useState(true);
   const [cloudRefreshing, setCloudRefreshing] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [toast, setToast] = useState('');
@@ -154,6 +177,18 @@ function App() {
   const pendingDeltasRef = useRef<Map<string, string>>(new Map());
   const completedRequestsRef = useRef<Set<string>>(new Set());
   const deltaFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const onSettingsShortcut = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === ',') {
+        event.preventDefault();
+        setSettingsSection('general');
+        setSettingsOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onSettingsShortcut);
+    return () => window.removeEventListener('keydown', onSettingsShortcut);
+  }, []);
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
@@ -203,6 +238,10 @@ function App() {
         setSendOnEnter(state.sendOnEnter !== false);
         setDesktopNotifications(Boolean(state.desktopNotifications));
         setAutoUpdatesEnabled(state.autoUpdatesEnabled !== false);
+        setCloudProfile(state.defaultCloudProfile || 'developer');
+        setSaveLocalChatHistory(state.saveLocalChatHistory !== false);
+        setShowInspectorByDefault(state.showInspectorByDefault !== false);
+        setRightPanelOpen(state.showInspectorByDefault !== false);
         setProjectFiles(state.projectFiles || []);
         setCloudState(cloud);
         if (cloud.signedIn) {
@@ -458,6 +497,7 @@ function App() {
   async function handleNewConversation() {
     if (busy || loadingConversationId) return;
     if (!cloudState?.signedIn || !cloudState.serviceReady) {
+      setSettingsSection('account');
       setSettingsOpen(true);
       setToast('Sign in to Rmango Cloud before starting a new cloud conversation.');
       return;
@@ -597,15 +637,87 @@ function App() {
 
   async function savePreferences(patch: Partial<AppPreferences>) {
     try {
-      await window.rmango.updateSettings(patch);
+      const result = await window.rmango.updateSettings(patch);
+      setAppState(current => current ? { ...current, ...result.settings } : current);
+      return true;
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not save Rmango settings.');
+      return false;
+    }
+  }
+
+  async function handleResetPreferences() {
+    const defaults: AppPreferences = {
+      appearance: 'dark',
+      density: 'comfortable',
+      animationsEnabled: true,
+      reducedMotion: false,
+      fontSize: 'medium',
+      sendOnEnter: true,
+      desktopNotifications: false,
+      autoUpdatesEnabled: true,
+      defaultCloudProfile: 'developer',
+      saveLocalChatHistory: true,
+      showInspectorByDefault: true,
+    };
+    if (!await savePreferences(defaults)) return;
+    setTheme(defaults.appearance);
+    setDensity(defaults.density);
+    setAnimationsEnabled(defaults.animationsEnabled);
+    setReducedMotion(defaults.reducedMotion);
+    setFontSize(defaults.fontSize);
+    setSendOnEnter(defaults.sendOnEnter);
+    setDesktopNotifications(defaults.desktopNotifications);
+    setAutoUpdatesEnabled(defaults.autoUpdatesEnabled);
+    setCloudProfile(defaults.defaultCloudProfile);
+    setSaveLocalChatHistory(defaults.saveLocalChatHistory);
+    setShowInspectorByDefault(defaults.showInspectorByDefault);
+    setRightPanelOpen(defaults.showInspectorByDefault);
+    setToast('Settings restored to their defaults. Your account and cloud projects were not changed.');
+  }
+
+  async function handleClearLocalChatCache() {
+    try {
+      await window.rmango.saveMessages([]);
+      setMessages([]);
+      setToast('Local chat cache cleared. Your saved cloud conversations were not deleted.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not clear the local chat cache.');
     }
   }
 
   async function handleThemeChange(nextTheme: 'dark' | 'light' | 'system') {
     setTheme(nextTheme);
     await savePreferences({ appearance: nextTheme });
+  }
+
+  async function handleDefaultProfileChange(profile: CloudProfile) {
+    setCloudProfile(profile);
+    await savePreferences({ defaultCloudProfile: profile });
+  }
+
+  async function handleLocalHistoryChange(enabled: boolean) {
+    setSaveLocalChatHistory(enabled);
+    const saved = await savePreferences({ saveLocalChatHistory: enabled });
+    if (saved && !enabled) {
+      setToast('Local chat caching is off. Cloud conversation history remains in your account.');
+    }
+  }
+
+  async function handleInspectorDefaultChange(enabled: boolean) {
+    setShowInspectorByDefault(enabled);
+    setRightPanelOpen(enabled);
+    await savePreferences({ showInspectorByDefault: enabled });
+  }
+
+  async function handleRefreshUsage() {
+    try {
+      const usage = await window.rmango.getCloudUsage();
+      setCloudUsage(usage);
+      setToast('Usage information refreshed.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not refresh usage information.');
+    }
   }
 
   async function handleRefreshCloud() {
@@ -668,6 +780,7 @@ function App() {
   async function handleUploadProject() {
     if (!appState?.projectPath || uploadingProject) return;
     if (!cloudState?.configured || !cloudState.serviceReady || !cloudState.signedIn) {
+      setSettingsSection('account');
       setSettingsOpen(true);
       setToast('Sign in to a configured Rmango Cloud account before uploading this project.');
       return;
@@ -901,11 +1014,13 @@ function App() {
     const pending = attachmentOverride ? [...attachmentOverride] : [...attachments];
     if (!trimmed && pending.length === 0) return;
     if (!cloudState?.configured || !cloudState.serviceReady) {
+      setSettingsSection('account');
       setSettingsOpen(true);
       setToast(cloudState?.message || 'Rmango Cloud has not been configured by the administrator yet.');
       return;
     }
     if (!cloudState.signedIn) {
+      setSettingsSection('account');
       setSettingsOpen(true);
       setToast('Sign in to your Rmango account to use cloud AI.');
       return;
