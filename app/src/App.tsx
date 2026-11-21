@@ -974,15 +974,19 @@ function App() {
       const mimeType = inferMimeType(file);
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       const isImage = /^image\/(png|jpeg|webp|gif)$/i.test(mimeType);
-      const isDocument = ext === 'pdf' || ext === 'docx';
-      const isText = allowedTextExtensions.has(ext) && (/^text\/|application\/json/i.test(mimeType) || mimeType === 'application/octet-stream');
-      if (!isImage && !isText && !isDocument) {
-        setToast('Unsupported file: ' + file.name + '. Add an image, PDF, DOCX or text/code file.');
+      if (isImage) {
+        setToast('Photo uploads are not supported by the current free Cloudflare model. Attach a text/code file, PDF or DOCX instead.');
         continue;
       }
-      const maxBytes = isImage ? 8 * 1024 * 1024 : isDocument ? 5 * 1024 * 1024 : 512 * 1024;
+      const isDocument = ext === 'pdf' || ext === 'docx';
+      const isText = allowedTextExtensions.has(ext) && (/^text\/|application\/json/i.test(mimeType) || mimeType === 'application/octet-stream');
+      if (!isText && !isDocument) {
+        setToast('Unsupported file: ' + file.name + '. Add a PDF, DOCX or text/code file.');
+        continue;
+      }
+      const maxBytes = isDocument ? 5 * 1024 * 1024 : 512 * 1024;
       if (file.size > maxBytes) {
-        setToast(file.name + (isDocument ? ' is too large. PDF/DOCX limit: 5 MB.' : isImage ? ' is too large. Images: 8 MB max.' : ' is too large. Text files: 512 KB max.'));
+        setToast(file.name + (isDocument ? ' is too large. PDF/DOCX limit: 5 MB.' : ' is too large. Text files: 512 KB max.'));
         continue;
       }
       if (nextBytes + file.size > 20 * 1024 * 1024) {
@@ -990,13 +994,7 @@ function App() {
         break;
       }
       try {
-        if (isImage) {
-          const dataUrl = await readDataUrl(file);
-          next.push({
-            id: crypto.randomUUID(), name: file.name, mimeType, kind: 'image', size: file.size,
-            data: dataUrl.split(',')[1] || '', previewUrl: dataUrl,
-          });
-        } else if (isDocument) {
+        if (isDocument) {
           next.push({
             id: crypto.randomUUID(),
             name: file.name,
@@ -1026,6 +1024,10 @@ function App() {
   async function sendMessage(content = input, selectedProfile?: CloudProfile, attachmentOverride?: PendingAttachment[], fromQueue = false) {
     const trimmed = content.trim();
     const pending = attachmentOverride ? [...attachmentOverride] : [...attachments];
+    if (pending.some(item => item.kind === 'image')) {
+      setToast('The current Cloudflare free model is text-only. Remove image attachments and retry.');
+      return;
+    }
     if (!trimmed && pending.length === 0) return;
     if (!cloudState?.configured || !cloudState.serviceReady) {
       setSettingsSection('account');
@@ -1048,7 +1050,7 @@ function App() {
       const queued: PendingFollowup = {
         id: crypto.randomUUID(),
         content: trimmed || 'Please inspect the attached files and images.',
-        profile: selectedProfile || cloudProfile,
+        profile: (selectedProfile || cloudProfile) === 'vision' ? 'developer' : (selectedProfile || cloudProfile),
         attachments: pending,
         queuedAt: timeNow(),
       };
@@ -1557,7 +1559,7 @@ function App() {
           </div>
 
           <div className={'composer-area ' + (dragActive ? 'drag-active' : '')} onDragOver={event => { event.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={handleDrop}>
-            {dragActive && <div className="drop-overlay"><Upload size={22}/> Drop photos or files to attach</div>}
+            {dragActive && <div className="drop-overlay"><Upload size={22}/> Drop supported text or document files to attach</div>}
             {attachments.length > 0 && <div className="attachment-tray">
               {attachments.map(attachment =>
                 <div className="attachment-chip" key={attachment.id}>
@@ -1593,13 +1595,12 @@ function App() {
                     <option value="fast">Rmango Fast</option>
                     <option value="developer">Rmango Developer</option>
                     <option value="think">Rmango Think</option>
-                    <option value="vision">Rmango Vision</option>
                     <option value="agent">Rmango Agent</option>
                   </select>
                   <button className="attach-button" title="Attach images or files" onClick={() => openFilePicker(false)}><Paperclip size={14}/> Attach</button>
-                  <button className="attach-button attach-image" title="Attach photo" onClick={() => openFilePicker(true)}><ImageIcon size={14}/> Photo</button>
+                  <button className="attach-button attach-image" title="Image uploads are unavailable with the current text-only free model" disabled><ImageIcon size={14}/> Photo unavailable</button>
                   <input ref={fileInputRef} className="hidden-file-input" type="file" multiple onChange={handleFileChange}/>
-                  <span className="composer-hint">Enter to send · Shift + Enter for new line</span>
+                  <span className="composer-hint">Text/code, PDF and DOCX · Enter to send</span>
                 </div>
                 {busy && <button type="button" className="composer-stop-button composer-stop-inline" onClick={() => void handleCancelMessage()} title="Stop current response" aria-label="Stop current response"><Square size={12} fill="currentColor"/></button>}
                 <button
@@ -1613,7 +1614,7 @@ function App() {
                 </button>
               </div>
             </div>
-            <div className="composer-disclaimer"><ShieldCheck size={11}/> Photos and text/code files are processed by your selected model. Studio edits require approval.</div>
+            <div className="composer-disclaimer"><ShieldCheck size={11}/> Text/code, PDF and DOCX are processed by the hosted model. Studio edits require approval.</div>
           </div>
         </main>
 
@@ -2003,7 +2004,6 @@ function App() {
                         <option value="fast">Fast · quick responses</option>
                         <option value="developer">Developer · Roblox coding</option>
                         <option value="think">Think · deeper reasoning</option>
-                        <option value="vision">Vision · image understanding</option>
                         <option value="agent">Agent · multi-step tasks</option>
                       </select>
                     </label>
@@ -2012,7 +2012,7 @@ function App() {
                   <section className="settings-card">
                     <div className="settings-card-heading">
                       <div className="settings-card-icon"><Layers3 size={17}/></div>
-                      <div><h3>Available cloud profiles</h3><p>Live profiles and capabilities supplied by the Rmango Cloud model catalogue.</p></div>
+                      <div><h3>Available cloud profiles</h3><p>Cloudflare GLM-4.7-Flash powers these text-only profiles. The Workers AI free allowance and availability are controlled by Cloudflare.</p></div>
                     </div>
                     {!cloudState?.signedIn
                       ? <div className="settings-empty"><LockKeyhole size={17}/><div><strong>Sign in to view your available profiles</strong><small>Your cloud model access appears here after you connect your account.</small></div><button type="button" className="settings-inline-button" onClick={() => setSettingsSection('account')}>Go to Account</button></div>
@@ -2033,15 +2033,13 @@ function App() {
                                   {profile.capabilities.includes('tool-use') ? <i>Tools</i> : null}
                                 </span>
                                 <span className="cloud-pricing">
-                                  {profile.inputUsdPerMillionTokens !== null ? 'Input $' + profile.inputUsdPerMillionTokens.toFixed(3) + '/M' : 'Input pricing unavailable'}
-                                  {' · '}
-                                  {profile.outputUsdPerMillionTokens !== null ? 'Output $' + profile.outputUsdPerMillionTokens.toFixed(3) + '/M' : 'Output pricing unavailable'}
+                                  Included in Workers Free daily AI allowance · hard-capped
                                 </span>
                               </span>
                             </button>
                           )}
                         </div>}
-                    <p className="settings-card-footnote">Profile availability, model names, capabilities and prices are controlled by the cloud service. Rmango does not invent benchmark scores.</p>
+                    <p className="settings-card-footnote">The same text-only model powers each profile. Cloudflare's Workers Free daily AI allowance is hard-capped; image understanding is not available in this configuration. Rmango does not invent benchmark scores.</p>
                   </section>
                 </>}
 
@@ -2159,8 +2157,8 @@ function App() {
                     </div>
                     {cloudState.message?.includes('SUPABASE_SECRET_KEY') && <div className="cloud-setup-instructions">
                       <strong>Server setup is incomplete</strong>
-                      <span>Open Vercel → rmango-cloud → Settings → Environment Variables and configure <code>SUPABASE_SECRET_KEY</code>. Keep it on the cloud server; never add it to the desktop app or source code.</span>
-                      <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://vercel.com/abdelrmamsaahlan-3675s-projects/rmango-cloud/settings/environment-variables')}><ExternalLink size={13}/> Open Vercel settings</button>
+                      <span>Open Cloudflare → Workers & Pages → rmango → Settings → Variables and Secrets. Set <code>SUPABASE_URL</code> and <code>SUPABASE_PUBLISHABLE_KEY</code>, then add <code>SUPABASE_SECRET_KEY</code> as an encrypted secret (or the legacy <code>SUPABASE_SERVICE_ROLE_KEY</code>). Use the same Supabase project as the existing RMango backend. Never put the server key in the desktop app or source code.</span>
+                      <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://dash.cloudflare.com/')}><ExternalLink size={13}/> Open Cloudflare dashboard</button>
                     </div>}
                     <button type="button" className="settings-secondary-button" disabled={cloudRefreshing} onClick={() => void handleRefreshCloud()}>
                       {cloudRefreshing ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>} Test cloud connection

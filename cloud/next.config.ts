@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
@@ -6,3 +7,10 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+// The Cloudflare binding bridge is needed for the local next dev server only.
+// Do not initialize Wrangler during CI/production builds: those builds do not
+// need remote Cloudflare credentials just to compile the Worker bundle.
+if (process.env.NODE_ENV === "development") {
+  initOpenNextCloudflareForDev();
+}

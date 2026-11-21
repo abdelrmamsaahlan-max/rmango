@@ -15,14 +15,13 @@ export function getSupabaseServerKey(): string | undefined {
   return optionalEnv("SUPABASE_SECRET_KEY") || optionalEnv("SUPABASE_SERVICE_ROLE_KEY");
 }
 
-export function publicApiStatus(requestOidcAvailable = false) {
+export function publicApiStatus() {
   const supabaseUrlConfigured = Boolean(optionalEnv("SUPABASE_URL"));
   const publishableKeyConfigured = Boolean(optionalEnv("SUPABASE_PUBLISHABLE_KEY"));
   const serverKeyConfigured = Boolean(getSupabaseServerKey());
 
   return {
-    deployment: process.env.VERCEL_ENV || "self-hosted",
-    gatewayConfigured: Boolean(optionalEnv("VERCEL_OIDC_TOKEN")) || requestOidcAvailable,
+    deployment: "cloudflare-workers",
     supabaseUrlConfigured,
     publishableKeyConfigured,
     serverKeyConfigured,

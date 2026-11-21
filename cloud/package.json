@@ -6,10 +6,13 @@
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cf-build": "opennextjs-cloudflare build",
+    "cf-preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf-deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "cf-check": "opennextjs-cloudflare build && wrangler deploy --dry-run"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "4.0.151",
     "@supabase/supabase-js": "2.119.2",
     "ai": "7.0.178",
     "next": "16.4.6",
@@ -18,13 +21,16 @@
     "zod": "^4.1.8",
     "jszip": "^3.10.1",
     "mammoth": "1.13.0",
-    "pdfjs-dist": "6.5.438"
+    "pdfjs-dist": "6.5.438",
+    "agents": "^0.33.0",
+    "@opennextjs/cloudflare": "1.20.18"
   },
   "devDependencies": {
     "@types/node": "22.19.1",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "wrangler": "4.166.0"
   },
   "engines": {
     "node": ">=22"

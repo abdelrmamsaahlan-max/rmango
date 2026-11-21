@@ -1,18 +1,6 @@
 import "server-only";
-import { optionalEnv } from "@/lib/env";
-
-export type GatewayModel = {
-  id: string;
-  name?: string;
-  description?: string;
-  type?: string;
-  tags?: string[];
-  modalities?: { input?: string[]; output?: string[] };
-  context_window?: number;
-  max_tokens?: number;
-  pricing?: { input?: string; output?: string };
-  supported_parameters?: string[];
-};
+import { createAI } from "agents/models/ai-sdk";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export type ModelProfile = "fast" | "developer" | "think" | "vision" | "agent";
 
@@ -30,6 +18,12 @@ export type ModelChoice = {
   profileLabel: string;
 };
 
+const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
+const MODEL_NAME = "GLM-4.7-Flash";
+const CONTEXT_WINDOW = 131_072;
+const INPUT_USD_PER_MILLION = 0.0605;
+const OUTPUT_USD_PER_MILLION = 0.40;
+
 const PROFILE_LABELS: Record<ModelProfile, string> = {
   fast: "Rmango Fast",
   developer: "Rmango Developer",
@@ -38,182 +32,72 @@ const PROFILE_LABELS: Record<ModelProfile, string> = {
   agent: "Rmango Agent",
 };
 
-const PROFILE_ENV: Record<ModelProfile, string> = {
-  fast: "RMANGO_MODEL_FAST",
-  developer: "RMANGO_MODEL_DEVELOPER",
-  think: "RMANGO_MODEL_THINK",
-  vision: "RMANGO_MODEL_VISION",
-  agent: "RMANGO_MODEL_AGENT",
+const PROFILE_DESCRIPTIONS: Record<Exclude<ModelProfile, "vision">, string> = {
+  fast: "GLM-4.7-Flash with a concise-response preset for quick development questions.",
+  developer: "GLM-4.7-Flash for Roblox Luau, debugging, architecture and code changes.",
+  think: "A more deliberate planning preset using the same reasoning-capable model.",
+  agent: "GLM-4.7-Flash with function calling for multi-step project and Roblox Studio tasks.",
 };
 
-const FALLBACK_ENV: Record<ModelProfile, string> = {
-  fast: "RMANGO_MODEL_FALLBACKS_FAST",
-  developer: "RMANGO_MODEL_FALLBACKS_DEVELOPER",
-  think: "RMANGO_MODEL_FALLBACKS_THINK",
-  vision: "RMANGO_MODEL_FALLBACKS_VISION",
-  agent: "RMANGO_MODEL_FALLBACKS_AGENT",
-};
+type WorkersAiBinding = NonNullable<Parameters<typeof createAI>[0]["binding"]>;
 
-function capabilityTags(model: GatewayModel): string[] {
-  const tags = new Set(model.tags || []);
-  const inputs = model.modalities?.input || [];
-  if (inputs.includes("image")) tags.add("vision");
-  if ((model.supported_parameters || []).includes("tools")) tags.add("tool-use");
-  if ((model.supported_parameters || []).includes("reasoning")) tags.add("reasoning");
-  return Array.from(tags);
+function getWorkersAiBinding(): WorkersAiBinding | undefined {
+  const context = getCloudflareContext();
+  const environment = context.env as unknown as { AI?: WorkersAiBinding };
+  return environment.AI;
 }
 
-function pricePerMillion(value?: string): number | null {
-  if (value === undefined || value === null) return null;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric >= 0 ? numeric * 1_000_000 : null;
+export function isWorkersAiConfigured(): boolean {
+  try {
+    return Boolean(getWorkersAiBinding());
+  } catch {
+    return false;
+  }
 }
 
-function normalise(model: GatewayModel, profile: ModelProfile): ModelChoice {
-  const tags = capabilityTags(model);
+export function getWorkersAiModel(modelId: string) {
+  if (modelId !== MODEL_ID) {
+    throw new Error("The selected Cloudflare Workers AI model is not supported by this RMango build.");
+  }
+  const binding = getWorkersAiBinding();
+  if (!binding) {
+    throw new Error("Cloudflare Workers AI is not connected. Deploy RMango Cloud to Cloudflare Workers with the AI binding enabled.");
+  }
+  return createAI({ binding })(MODEL_ID);
+}
+
+function normalise(profile: Exclude<ModelProfile, "vision">): ModelChoice {
   return {
-    id: model.id,
-    name: model.name || model.id,
-    description: model.description || "",
-    contextWindow: model.context_window || 0,
-    maxOutputTokens: model.max_tokens || 0,
-    inputModalities: model.modalities?.input || ["text"],
-    capabilities: tags,
-    inputUsdPerMillionTokens: pricePerMillion(model.pricing?.input),
-    outputUsdPerMillionTokens: pricePerMillion(model.pricing?.output),
+    id: MODEL_ID,
+    name: MODEL_NAME,
+    description: PROFILE_DESCRIPTIONS[profile],
+    contextWindow: CONTEXT_WINDOW,
+    maxOutputTokens: 4096,
+    inputModalities: ["text"],
+    capabilities: ["tool-use", "reasoning"],
+    inputUsdPerMillionTokens: INPUT_USD_PER_MILLION,
+    outputUsdPerMillionTokens: OUTPUT_USD_PER_MILLION,
     profile,
     profileLabel: PROFILE_LABELS[profile],
   };
 }
 
-let cachedCatalog: { until: number; models: GatewayModel[] } | undefined;
-
-export async function getGatewayCatalog(requestOidcToken?: string | null): Promise<GatewayModel[]> {
-  if (cachedCatalog && cachedCatalog.until > Date.now()) return cachedCatalog.models;
-
-  const token = requestOidcToken || process.env.VERCEL_OIDC_TOKEN;
-  if (!token) {
-    throw new Error("Vercel AI Gateway authentication is not available in this deployment. Configure Vercel OIDC for the cloud project.");
-  }
-
-  const response = await fetch("https://ai-gateway.vercel.sh/v1/models", {
-    headers: { Authorization: "Bearer " + token, Accept: "application/json" },
-    cache: "no-store",
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error("AI Gateway model catalogue returned HTTP " + response.status + ".");
-  const payload = await response.json() as { data?: GatewayModel[] };
-  if (!Array.isArray(payload.data)) throw new Error("AI Gateway returned an unexpected model catalogue.");
-  const models = payload.data.filter(model => model && typeof model.id === "string" && model.type === "language");
-  cachedCatalog = { until: Date.now() + 5 * 60_000, models };
-  return models;
-}
-
-function scoreCost(model: GatewayModel): number {
-  const input = Number(model.pricing?.input);
-  const output = Number(model.pricing?.output);
-  if (!Number.isFinite(input) || !Number.isFinite(output)) return Number.POSITIVE_INFINITY;
-  return input + output;
-}
-
-function supports(model: GatewayModel, capability: string) {
-  return capabilityTags(model).includes(capability);
-}
-
-function supportsProfile(model: GatewayModel, profile: ModelProfile) {
-  const inputs = model.modalities?.input || [];
-  if (!inputs.includes("text")) return false;
-  if (profile === "vision" && !inputs.includes("image")) return false;
-  if (profile === "think" && !supports(model, "reasoning")) return false;
-  if ((profile === "agent" || profile === "developer") && !supports(model, "tool-use")) return false;
-  return true;
-}
-
-function pickCandidate(models: GatewayModel[], profile: ModelProfile): GatewayModel | undefined {
-  let candidates = models.filter(model =>
-    (model.modalities?.input || []).includes("text") && Number.isFinite(scoreCost(model))
-  );
+export function resolveProfile(profile: ModelProfile) {
   if (profile === "vision") {
-    candidates = candidates.filter(model => (model.modalities?.input || []).includes("image"));
-  } else if (profile === "think") {
-    candidates = candidates.filter(model => supports(model, "reasoning"));
-  } else if (profile === "agent") {
-    candidates = candidates.filter(model => supports(model, "tool-use"));
-  } else if (profile === "developer") {
-    const coder = candidates.filter(model => supports(model, "tool-use") && /coder|code|coding|developer/i.test((model.name || "") + " " + (model.description || "")));
-    if (coder.length) candidates = coder;
-    else candidates = candidates.filter(model => supports(model, "tool-use"));
-  } else if (profile === "fast") {
-    const fast = candidates.filter(model => supports(model, "fast"));
-    if (fast.length) candidates = fast;
+    throw new Error("The current free Cloudflare GLM-4.7-Flash model is text-only. Remove image attachments and choose Fast, Developer, Think or Agent. Image understanding is not enabled in this zero-cost configuration.");
   }
-
-  if (!candidates.length) return undefined;
-  if (profile === "think" || profile === "developer" || profile === "agent") {
-    candidates.sort((a, b) => (b.context_window || 0) - (a.context_window || 0) || scoreCost(a) - scoreCost(b));
-  } else {
-    candidates.sort((a, b) => scoreCost(a) - scoreCost(b));
-  }
-  return candidates[0];
-}
-
-export async function resolveProfile(profile: ModelProfile, requestOidcToken?: string | null) {
-  const catalog = await getGatewayCatalog(requestOidcToken);
-  const modelMap = new Map(catalog.map(model => [model.id, model]));
-  const configured = optionalEnv(PROFILE_ENV[profile]);
-  const primary = configured ? modelMap.get(configured) : pickCandidate(catalog, profile);
-  if (!primary || !supportsProfile(primary, profile)) {
-    throw new Error(
-      "No currently available compatible model supports the " + PROFILE_LABELS[profile] +
-      " profile. Check the administrator-selected model's text, vision, reasoning and tool capabilities."
-    );
-  }
-
-  const noMoreExpensive = (candidate: GatewayModel) => {
-    const primaryInput = Number(primary.pricing?.input);
-    const primaryOutput = Number(primary.pricing?.output);
-    const candidateInput = Number(candidate.pricing?.input);
-    const candidateOutput = Number(candidate.pricing?.output);
-    return Number.isFinite(primaryInput) && Number.isFinite(primaryOutput)
-      && Number.isFinite(candidateInput) && Number.isFinite(candidateOutput)
-      && candidateInput <= primaryInput && candidateOutput <= primaryOutput;
-  };
-  const configuredFallbacks = (optionalEnv(FALLBACK_ENV[profile]) || "")
-    .split(",")
-    .map(value => value.trim())
-    .filter(Boolean)
-    .map(id => modelMap.get(id))
-    .filter((model): model is GatewayModel => Boolean(model))
-    .filter(model => model.id !== primary.id && supportsProfile(model, profile) && noMoreExpensive(model))
-    .map(model => model.id);
-
-  const automaticFallback = pickCandidate(
-    catalog.filter(model => model.id !== primary.id && supportsProfile(model, profile) && noMoreExpensive(model)),
-    profile,
-  );
-  const fallbacks = configuredFallbacks.length
-    ? configuredFallbacks
-    : [automaticFallback?.id].filter((value): value is string => Boolean(value));
-
   return {
-    primary: normalise(primary, profile),
-    fallbackIds: fallbacks,
+    primary: normalise(profile),
+    fallbackIds: [] as string[],
   };
 }
 
-export async function getModelProfiles(requestOidcToken?: string | null) {
-  const catalog = await getGatewayCatalog(requestOidcToken);
-  const profiles = (["fast", "developer", "think", "vision", "agent"] as ModelProfile[])
-    .map(profile => {
-      const configured = optionalEnv(PROFILE_ENV[profile]);
-      const selected = configured
-        ? catalog.find(model => model.id === configured)
-        : pickCandidate(catalog, profile);
-      return selected && supportsProfile(selected, profile) ? normalise(selected, profile) : null;
-    })
-    .filter((value): value is ModelChoice => Boolean(value));
-
-  return { profiles, availableModelCount: catalog.length };
+export function getModelProfiles() {
+  const profiles: Exclude<ModelProfile, "vision">[] = ["fast", "developer", "think", "agent"];
+  return {
+    profiles: profiles.map(normalise),
+    availableModelCount: 1,
+  };
 }
 
 export function isModelProfile(value: unknown): value is ModelProfile {
