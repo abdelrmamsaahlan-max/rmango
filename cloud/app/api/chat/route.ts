@@ -179,7 +179,7 @@ export async function POST(request: Request) {
       .insert({
         owner_id: user.id,
         project_id: body.projectId || null,
-        title: firstPrompt.replace(/\\s+/g, " ").slice(0, 80) || "New chat",
+        title: firstPrompt.replace(/\s+/g, " ").slice(0, 80) || "New chat",
         model_profile: profile,
       })
       .select("id")
