@@ -1348,7 +1348,7 @@ function App() {
           <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
           <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
           <div className="rail-spacer"/>
-          <button className="rail-button" title="Settings" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}><Settings2 size={18}/></button>
+          <button className="rail-button" title="Settings" onClick={() => { setSettingsSection('general'); setSettingsOpen(true); }}><Settings2 size={18}/></button>
         </nav>
 
         <aside className={"left-sidebar " + (leftSidebarOpen ? "visible" : "")}>
@@ -1472,7 +1472,7 @@ function App() {
             <div className="integration-row">
               <div className="integration-icon local"><Sparkles size={14}/></div>
               <div><strong>Rmango Cloud AI</strong><span>{cloudState?.signedIn ? (cloudReady ? 'Connected · ' + (currentProfile?.profileLabel || 'Profile ready') : 'Account connected') : cloudState?.configured ? 'Sign in required' : 'Backend not configured'}</span></div>
-              <button className="subtle-icon" title="Cloud account and models" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}><Settings2 size={13}/></button>
+              <button className="subtle-icon" title="Cloud model settings" onClick={() => { setSettingsSection('ai'); setSettingsOpen(true); }}><Settings2 size={13}/></button>
             </div>
           </div>
         </aside>
@@ -1627,7 +1627,7 @@ function App() {
                 <span className="map-node-copy"><small>PROJECT</small><strong>{appState?.projectPath ? appState.projectPath.split(String.fromCharCode(92)).pop()?.split('/').pop() : 'No project open'}</strong><em>{projectFiles.length} indexed files · click to open</em></span>
               </button>
               <span className={'map-wire ' + (cloudReady ? 'live' : '')}/>
-              <button type="button" className="map-node ai-node" onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }}>
+              <button type="button" className="map-node ai-node" onClick={() => { setSettingsSection('ai'); setSettingsOpen(true); }}>
                 <span className="map-node-icon"><Sparkles size={18}/></span>
                 <span className="map-node-copy"><small>RMANGO AI</small><strong>{cloudReady ? 'Cloud engine' : 'AI service'}</strong><em>{cloudReady ? (currentProfile?.profileLabel || 'Ready for prompts') : (cloudState?.message || 'Cloud setup required')}</em></span>
               </button>
