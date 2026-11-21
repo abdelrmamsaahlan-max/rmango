@@ -8,5 +8,9 @@ const nextConfig: NextConfig = {
 
 export default nextConfig;
 
-// Makes Workers AI and other Cloudflare bindings available during next dev.
-initOpenNextCloudflareForDev();
+// The Cloudflare binding bridge is needed for the local next dev server only.
+// Do not initialize Wrangler during CI/production builds: those builds do not
+// need remote Cloudflare credentials just to compile the Worker bundle.
+if (process.env.NODE_ENV === "development") {
+  initOpenNextCloudflareForDev();
+}
