@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { gateway } from "@ai-sdk/gateway";
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
 import { resolveProfile, type ModelProfile } from "@/lib/ai/models";
 import { optionalEnv } from "@/lib/env";
+import { isAllowedStudioTool } from "@/lib/studio-connector";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -20,6 +21,7 @@ Rules:
 - For Roblox code, distinguish server and client execution, validate RemoteEvents on the server, and prefer modular Luau.
 - For complex changes, create a clear plan, work incrementally, and explain what remains unverified.
 - A local Roblox Studio connector, when connected, is only a bridge to the user's Studio process. All model inference remains remote.
+- When a connected Studio bridge exposes tools, use only the registered allowlisted tools. The desktop connector enforces local approval for every mutating action.
 - Never publish a Roblox experience or perform destructive changes without explicit user approval.`;
 
 type IncomingAttachment = {
@@ -281,6 +283,74 @@ export async function POST(request: Request) {
     }),
   };
 
+  const activeConnectorCutoff = new Date(Date.now() - 30_000).toISOString();
+  const { data: activeConnector } = await supabase
+    .from("studio_connectors")
+    .select("id,studio_tools")
+    .eq("owner_id", user.id)
+    .is("disconnected_at", null)
+    .gte("last_seen_at", activeConnectorCutoff)
+    .order("last_seen_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const studioTools: Record<string, ReturnType<typeof tool>> = {};
+  if (activeConnector && Array.isArray(activeConnector.studio_tools)) {
+    for (const entry of activeConnector.studio_tools as Array<Record<string, unknown>>) {
+      const toolName = typeof entry.name === "string" ? entry.name : "";
+      if (!isAllowedStudioTool(toolName)) continue;
+      const rawSchema = entry.inputSchema && typeof entry.inputSchema === "object"
+        ? entry.inputSchema
+        : { type: "object", properties: {} };
+      studioTools[toolName] = tool({
+        description: "Execute the registered Roblox Studio MCP tool through the user's local connector. Mutating tools will show an approval prompt in the desktop app.",
+        inputSchema: rawSchema as never,
+        execute: async (argumentsValue: Record<string, unknown>, options) => {
+          if (options.abortSignal?.aborted) throw new Error("The Studio action was cancelled.");
+          const { data: queued, error: queueError } = await supabase
+            .from("studio_commands")
+            .insert({
+              connector_id: activeConnector.id,
+              owner_id: user.id,
+              tool_name: toolName,
+              tool_arguments: argumentsValue,
+              approval_status: "pending",
+              execution_status: "queued",
+            })
+            .select("id")
+            .single();
+          if (queueError || !queued) throw new Error("Could not queue the Studio connector command.");
+
+          for (let attempt = 0; attempt < 70; attempt++) {
+            if (options.abortSignal?.aborted) {
+              await supabase.from("studio_commands")
+                .update({ execution_status: "cancelled", error: "Agent request cancelled.", updated_at: new Date().toISOString() })
+                .eq("id", queued.id).eq("owner_id", user.id);
+              throw new Error("The Studio command was cancelled.");
+            }
+            await new Promise(resolve => setTimeout(resolve, 750));
+            const { data: state, error: stateError } = await supabase
+              .from("studio_commands")
+              .select("execution_status,tool_result,error")
+              .eq("id", queued.id)
+              .eq("owner_id", user.id)
+              .maybeSingle();
+            if (stateError || !state) throw new Error("Could not read the Studio command result.");
+            if (state.execution_status === "completed") return state.tool_result ?? { ok: true };
+            if (state.execution_status === "failed" || state.execution_status === "cancelled") {
+              throw new Error(state.error || "The Studio action was not completed.");
+            }
+          }
+
+          await supabase.from("studio_commands")
+            .update({ execution_status: "cancelled", error: "The Studio connector did not respond before the command timeout.", updated_at: new Date().toISOString() })
+            .eq("id", queued.id).eq("owner_id", user.id);
+          throw new Error("The connected Studio session did not respond in time. Check that Rmango and Roblox Studio are still open.");
+        },
+      });
+    }
+  }
+
   const requestMessages = messages;
   const gatewayOptions = choice.fallbackIds.length
     ? { gateway: { models: choice.fallbackIds } }
@@ -291,13 +361,13 @@ export async function POST(request: Request) {
       model: gateway(choice.primary.id),
       system: SYSTEM_PROMPT,
       messages: requestMessages,
-      tools: projectTools,
+      tools: { ...projectTools, ...studioTools },
       stopWhen: stepCountIs(8),
       maxOutputTokens,
       temperature: 0.2,
       abortSignal: request.signal,
       providerOptions: gatewayOptions,
-      onFinish: async ({ usage, response: modelResponse }) => {
+      onFinish: async ({ text, usage, response: modelResponse }) => {
         const inputTokens = Number(usage.inputTokens ?? 0);
         const outputTokens = Number(usage.outputTokens ?? 0);
         const actualModelId = modelResponse.modelId || choice.primary.id;
@@ -307,7 +377,7 @@ export async function POST(request: Request) {
           choice.primary.inputUsdPerMillionTokens,
           choice.primary.outputUsdPerMillionTokens,
         );
-        const finalText = (modelResponse as unknown as { text?: string }).text || "";
+        const finalText = text || "";
         await supabase.from("messages").insert({
           conversation_id: conversationId,
           owner_id: user.id,
