@@ -360,7 +360,10 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle();
 
-  const studioTools: Record<string, ReturnType<typeof tool>> = {};
+  // Studio schemas are discovered at runtime from the official local MCP server.
+  // The cloud side still applies the explicit allowlist; the local connector validates
+  // every actual call against Roblox's discovered tool schema before execution.
+  const studioTools: Record<string, any> = {};
   if (activeConnector && Array.isArray(activeConnector.studio_tools)) {
     for (const entry of activeConnector.studio_tools as Array<Record<string, unknown>>) {
       const toolName = typeof entry.name === "string" ? entry.name : "";
@@ -469,15 +472,14 @@ export async function POST(request: Request) {
       },
     });
 
-    return result.toTextStreamResponse({
-      headers: {
-        "Cache-Control": "no-store, no-transform",
-        "X-Rmango-Model-Profile": profile,
-        "X-Rmango-Model": choice.primary.id,
-        "X-Rmango-Request-Id": requestId,
-        "X-Rmango-Conversation-Id": conversationId,
-      },
+    const responseHeaders = new Headers({
+      "Cache-Control": "no-store, no-transform",
+      "X-Rmango-Model-Profile": profile,
+      "X-Rmango-Model": choice.primary.id,
+      "X-Rmango-Request-Id": requestId,
     });
+    if (conversationId) responseHeaders.set("X-Rmango-Conversation-Id", conversationId);
+    return result.toTextStreamResponse({ headers: responseHeaders });
   } catch (error) {
     await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
     return NextResponse.json({
