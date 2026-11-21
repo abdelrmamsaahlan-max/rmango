@@ -196,7 +196,7 @@ function toBase64(data: string, mimeType: string) {
   const normalized = data.replace(/^data:[^,]*,/, '');
   if (!/^[A-Za-z0-9+/=\r\n]+$/.test(normalized)) throw new Error('An attachment could not be decoded.');
   if (normalized.length > 14 * 1024 * 1024) throw new Error('An attachment is too large for the current local model limit.');
-  if (!/^(image\/(png|jpeg|webp|gif)|text\/|application\/(json|xml))$/i.test(mimeType)) {
+  if (!/^(image\/(png|jpeg|webp|gif)|text\/.+|application\/(json|xml))$/i.test(mimeType)) {
     throw new Error('Unsupported attachment type: ' + (mimeType || 'unknown') + '.');
   }
   return normalized.replace(/\s/g, '');
