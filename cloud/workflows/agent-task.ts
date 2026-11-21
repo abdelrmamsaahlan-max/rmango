@@ -709,6 +709,37 @@ async function verifyTaskStep(
   };
 }
 
+async function recordTaskEvaluationStep(
+  taskId: string,
+  ownerId: string,
+  projectId: string,
+  profile: ModelProfile,
+  verification: TaskVerification,
+) {
+  "use step";
+  const admin = createAdminClient();
+  const signalData = {
+    profile,
+    runtimeVerified: verification.runtimeVerified,
+    playtestAttempted: verification.playtestAttempted,
+    playtestPassed: verification.playtestPassed,
+    consoleInspected: verification.consoleInspected,
+    consoleClean: verification.consoleClean,
+    proposalCount: verification.proposals.length,
+    studioToolCount: verification.studioEvidence.length,
+    failedStudioToolCount: verification.studioEvidence.filter(item => !item.successful).length,
+  };
+  const { error } = await admin.from("agent_learning_events").upsert({
+    task_id: taskId,
+    owner_id: ownerId,
+    project_id: projectId,
+    signal_type: "task_evaluated",
+    signal_data: signalData,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "task_id,signal_type" });
+  if (error) throw new Error("Could not save RMango's task evaluation signal: " + error.message);
+}
+
 export async function runAgentTask(taskId: string, ownerId: string, profile: ModelProfile, runToken: string) {
   "use workflow";
   try {
@@ -798,6 +829,7 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
     if (!task.project_id) throw new Error("This agent task is not attached to a cloud project.");
     await appendTaskEventStep(taskId, ownerId, "verification_started", "Collecting source proposal records and live Studio tool evidence. No runtime pass is inferred.");
     const verification = await verifyTaskStep(taskId, ownerId, task.project_id, task.conversation_id, task.created_at);
+    await recordTaskEvaluationStep(taskId, ownerId, task.project_id, profile, verification);
     result = { ...((task.result || result) as unknown as TaskResult), stage: "completed", verification };
     await updateTaskResultStep(taskId, ownerId, runToken, result);
     const completed = await completeTaskStep(taskId, ownerId, runToken);
