@@ -14,12 +14,18 @@ on:
       - "cloud/**"
       - ".github/workflows/cloud-build.yml"
   workflow_dispatch:
+    inputs:
+      confirm_replace_rmango:
+        description: "Confirm that this deployment will replace the current rmango starter Worker with the RMango application."
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: rmango-cloud-build-${{ github.ref }}
+  group: rmango-build-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -82,7 +88,7 @@ jobs:
   deploy:
     name: Manually deploy RMango to Cloudflare Workers
     needs: cloud
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_replace_rmango == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     defaults:
@@ -124,9 +130,10 @@ jobs:
           {
             echo "## RMango Cloudflare deployment submitted"
             echo ""
-            echo "Worker name: `rmango-cloud`"
+            echo "Worker name: `rmango`"
             echo ""
-            echo "Open Cloudflare Workers & Pages to confirm the deployment URL."
+            echo "Expected Worker URL: https://rmango.abdosony222.workers.dev"
+            echo "Open Cloudflare Workers & Pages to confirm the production version is active."
             echo "Configure the three Supabase runtime secrets before testing /api/health:"
             echo "`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SECRET_KEY`."
             echo ""
