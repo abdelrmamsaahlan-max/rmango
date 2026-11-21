@@ -140,7 +140,7 @@ export function parseProjectSource(relativePath: string, source: string): Projec
     if (match) addSymbol(symbols, symbolSeen, match[1], "function", lineNumber, line);
     match = /^\s*(?:export\s+)?(?:local\s+)?(type|export\s+type|interface|class)\s+([A-Za-z_$][\w$]*)/.exec(line);
     if (match) {
-      const kind = match[1].includes("type") ? "type" : "class";
+      const kind = ["type", "export type", "interface"].includes(match[1]) ? "type" : "class";
       addSymbol(symbols, symbolSeen, match[2], kind, lineNumber, line);
     }
     match = /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(line);

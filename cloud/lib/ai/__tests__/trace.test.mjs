@@ -29,8 +29,11 @@ test("omits binary data and bounds depth, arrays and large strings", () => {
   assert.equal(safe.values.length, 20);
 });
 
-test("bounds total persisted trace data", () => {
-  const safe = boundedTraceData({ body: "x".repeat(20_000) });
+test("bounds total persisted trace data after per-field clipping", () => {
+  const payload = Object.fromEntries(
+    Array.from({ length: 40 }, (_, index) => ["field" + index, "x".repeat(700)]),
+  );
+  const safe = boundedTraceData(payload);
   assert.equal(safe.truncated, true);
   assert.ok(JSON.stringify(safe).length <= 12_000);
 });
