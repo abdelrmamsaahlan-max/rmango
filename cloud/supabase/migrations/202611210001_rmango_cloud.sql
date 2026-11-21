@@ -317,6 +317,7 @@ begin
   if p_request_id is null or p_estimated_tokens < 0 then raise exception 'invalid_request'; end if;
   if p_model_profile not in ('fast','developer','think','vision','agent') then raise exception 'invalid_model_profile'; end if;
 
+  perform pg_advisory_xact_lock(hashtextextended('rmango-global-spend', 0));
   perform pg_advisory_xact_lock(hashtextextended(v_user_id::text, 0));
 
   -- A crashed request must not hold reserved quota forever. Route maxDuration is
@@ -343,9 +344,9 @@ begin
   select coalesce(sum(input_tokens + output_tokens), 0) into v_month_tokens from public.usage_events
     where owner_id = v_user_id and created_at >= date_trunc('month', now());
   select coalesce(sum(estimated_cost_usd), 0) into v_today_cost from public.usage_events
-    where owner_id = v_user_id and created_at >= date_trunc('day', now());
+    where created_at >= date_trunc('day', now());
   select coalesce(sum(estimated_cost_usd), 0) into v_month_cost from public.usage_events
-    where owner_id = v_user_id and created_at >= date_trunc('month', now());
+    where created_at >= date_trunc('month', now());
 
   v_today_requests := v_today_requests + (select count(*) from public.usage_reservations
     where owner_id = v_user_id and created_at >= date_trunc('day', now()));
@@ -356,9 +357,9 @@ begin
   v_month_tokens := v_month_tokens + (select coalesce(sum(estimated_tokens),0) from public.usage_reservations
     where owner_id = v_user_id and created_at >= date_trunc('month', now()));
   v_today_cost := v_today_cost + (select coalesce(sum(estimated_cost_usd),0) from public.usage_reservations
-    where owner_id = v_user_id and created_at >= date_trunc('day', now()));
+    where created_at >= date_trunc('day', now()));
   v_month_cost := v_month_cost + (select coalesce(sum(estimated_cost_usd),0) from public.usage_reservations
-    where owner_id = v_user_id and created_at >= date_trunc('month', now()));
+    where created_at >= date_trunc('month', now()));
 
   if v_today_requests >= v_policy.daily_request_limit then
     return jsonb_build_object('allowed', false, 'reason', 'daily_request_limit');
