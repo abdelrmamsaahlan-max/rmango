@@ -1,0 +1,108 @@
+# RMango — Autonomous Roblox AI Platform Roadmap
+
+**Working branch:** `feat/rmango-autonomous-platform`  
+**Baseline:** the complete stacked implementation through the security / continuous-improvement branch, not the smaller cloud-only desktop branch.  
+**Product promise:** install RMango, open it, and start developing. The desktop must not require a local model runtime or a user-supplied provider key.
+
+This roadmap separates existing, verified foundations from work that still needs implementation. A feature is not marked complete because a UI card or database table exists.
+
+## Current architecture and verified foundations
+
+| Area | Existing implementation | Honest boundary |
+|---|---|---|
+| Windows desktop | React + Electron, context isolation, sandboxing, trusted-renderer IPC checks, restrictive CSP, secure update/install pipeline | Public release still requires the configured HTTPS service and a legitimate code-signing identity |
+| Cloud inference | Next.js API, Vercel AI Gateway, OIDC-based model catalogue, five RMango work modes, capability-aware selection and price-bounded fallbacks | Current production adapter is Vercel AI Gateway; direct multi-provider adapters are not yet implemented |
+| Chat and project context | Project-owned conversations, source-file tools, proposals with content hashes, persistent project memories | Import is bounded to supported text/source files; binary `.rbxl`/`.rbxm` is not parsed |
+| Autonomous task workflow | Vercel Workflow checkpoints, durable task rows/events, plan and implementation passes, run-token fencing, pause/resume/cancel/retry | This is a coordinated workflow agent, not yet a set of independently delegated specialist agents |
+| Project intelligence | Luau symbol extraction, common `require` and instance/service/remote references, dependency graph and re-index workflow | Static bounded source analysis, not a Luau compiler or a complete runtime DataModel graph |
+| Studio integration | Local Roblox Studio MCP bridge, allowlisted tools, queued commands and explicit approval for mutating actions | Studio must be open and deliberately connected; cloud code cannot claim a playtest ran without recorded evidence |
+| Verification | Evidence-based task status checks for explicit playtest and console output; failure and usage events | Generated code and successful tool calls alone do not count as runtime verification |
+| Continuous improvement | Compact task-evaluation signals, optional task feedback, project memories | Context/evaluation improvement only; no silent training or model-weight updates |
+| Usage controls | Atomic request reservations, per-user limits, global disabled-by-default spend policy and Gateway budget guidance | Cloud spending must remain disabled until an operator explicitly configures a safe budget |
+
+## Staged delivery
+
+### Stage 0 — Preserve and consolidate the strongest implementation
+
+- [x] Use the stacked branch containing the project-aware chat, durable agent workspace, source index, security hardening and evaluation loop as the base.
+- [ ] Keep all follow-up work stacked on that base until the parent PR chain is merged in order.
+- [ ] Run the complete cloud, desktop and Windows installer checks on the consolidated branch.
+
+**Acceptance:** the agent workspace, workflow APIs, indexer, secure IPC and release checks remain present after each new feature is added.
+
+### Stage 1 — Zero-configuration first launch
+
+- [ ] Automatically create a private guest identity when the managed service is healthy.
+- [ ] Store the refresh session only through Windows secure storage.
+- [ ] Reuse the identity after normal restarts and recover only from a clearly invalid/revoked anonymous refresh token.
+- [ ] Keep sign-up, email/password, provider keys, terminal commands and model downloads out of the normal first-run flow.
+- [ ] Show clear service-offline and connection-retry states; never label backend provisioning as a user's local setup task.
+- [ ] Keep guest data scoped to that generated identity and explain device-local recovery limitations.
+
+**Acceptance:** fresh install → first launch → guest identity → model catalogue → first real chat, without manual account or provider setup. This requires the managed backend to be deployed and its guest-auth provider enabled; code alone cannot make an undeployed service live.
+
+### Stage 2 — Lead agent and specialist delegation
+
+- [ ] Define stable contracts for Lead Architect, Luau Engineer, Gameplay Designer, UI/UX Designer, 3D/World Builder, QA, Performance, Security and Research roles.
+- [ ] Give every specialist the same project index, scoped tools, selected memories and task/run identifiers.
+- [ ] Let the Lead Architect assign bounded sub-tasks, collect reports, resolve disagreements and decide whether another pass is needed.
+- [ ] Use one final verifier to inspect evidence and publish a single coherent report.
+- [ ] Add per-agent step, token, time and cost ceilings; cancel sibling work when the parent task is cancelled.
+
+**Acceptance:** one task produces traceable specialist work, durable events, a combined result and evidence-backed verification without uncontrolled recursive agent calls.
+
+### Stage 3 — Deeper project intelligence
+
+- [ ] Upgrade the source scanner with parser-backed Luau analysis and confidence-labelled dependency resolution.
+- [ ] Track RemoteEvents/RemoteFunctions, DataStores, UI trees, assets, client/server boundaries and script-to-system relationships.
+- [ ] Incrementally re-index changed files and mark dependent symbols stale.
+- [ ] Add searchable technical knowledge and retrieval with source references.
+- [ ] Add safe, opt-in support for extracting content from Roblox place/model files where a supported parser exists.
+
+**Acceptance:** a change plan names the affected systems and files, traces dependencies with confidence, and verifies that the index was refreshed after approved edits. Unsupported binary formats must be reported, not guessed.
+
+### Stage 4 — Unified model and inference layer
+
+- [ ] Separate RMango task intent and agent logic from the underlying inference adapter.
+- [ ] Define a provider-neutral adapter contract for catalogue, capability, generation, tool calls, usage and errors.
+- [ ] Keep Vercel AI Gateway as the default managed adapter; add other providers only when their secure server-side auth, pricing and fallbacks are tested.
+- [ ] Route automatically by task requirements, latency, context, tool support, image support, reliability and cost.
+- [ ] Add model regression evaluations before changing default routing.
+
+**Acceptance:** the desktop sees RMango modes, never raw credentials; every route records its selected model, fallback and actual usage; unknown pricing or over-budget routes fail closed.
+
+### Stage 5 — Safe execution, recovery and history
+
+- [ ] Keep every mutating Studio action approval-gated.
+- [ ] Add project snapshots/backups before multi-file apply operations and a tested rollback path.
+- [ ] Persist enough task checkpoints to resume after app restart, network loss or worker retry.
+- [ ] Add conflict-aware file application and an understandable diff/review UI.
+- [ ] Separate low-risk read-only analysis from file writes, script execution, saving, publishing and destructive actions.
+
+**Acceptance:** a cancelled/failed task can be safely inspected or resumed; no destructive or external action happens without explicit approval; rollback restores the previous project state.
+
+### Stage 6 — Evaluation and release readiness
+
+- [ ] Build repeatable Roblox task benchmarks with fixed project fixtures and expected outcomes.
+- [ ] Measure task completion, Luau correctness, test pass rate, false verification, recovery, latency, memory and cost.
+- [ ] Compare candidate agent instructions and routing against a baseline; reject regressions.
+- [ ] Test clean Windows install, first launch, multi-turn chat, guest persistence, reconnect, Studio approval, task recovery, updates, uninstall and reinstall.
+- [ ] Add abuse protection (including CAPTCHA for public anonymous guest access), operational monitoring and a service-operator runbook.
+
+**Acceptance:** release claims are backed by CI, test artefacts and explicit live-test scope; the public service has budgets, rate limits, recovery and a security review.
+
+## Current blockers and non-negotiable boundaries
+
+1. **Managed infrastructure:** RMango's dedicated Vercel and Supabase deployment must be provisioned by the repository/service owner. No currently connected unrelated project should be reused.
+2. **Spend approval:** global Supabase usage policy and an independent AI Gateway budget remain disabled until an owner explicitly chooses limits.
+3. **Guest abuse protection:** Supabase anonymous sign-ins must be enabled and public launch requires tested CAPTCHA/abuse controls. Do not remove provider rate limits.
+4. **Guest recovery:** anonymous sessions are not accounts. Until identity linking/recovery is implemented, deleting local app data or switching Windows devices can lose access to the guest workspace.
+5. **No fake intelligence:** memories are contextual records; evaluation signals improve workflows; neither silently trains the underlying model.
+6. **No false verification:** source generation, proposals, or successful MCP tool invocations do not prove a game works. Only recorded Studio test evidence can support a runtime-verified claim.
+7. **No secret in desktop:** service-role credentials, OIDC tokens and model-provider secrets remain server-side.
+
+## Implementation log
+
+- Initial audit: inspected repository tree, PR chain and the stronger stacked implementation. Found PRs #1–#4 are open and layered; the smaller guest-first PR #5 was based directly on `main` and omitted the durable agent workspace and project index.
+- This branch starts from the latest security/evaluation branch so new work preserves those existing capabilities.
+- Stage 1 is being implemented here: automatic anonymous guest workspace, safe public config endpoint, encrypted session persistence, first-run UI and focused tests.
