@@ -6,6 +6,12 @@ on:
       - main
     tags:
       - "v*"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - ".github/workflows/windows-installer.yml"
   workflow_dispatch:
     inputs:
       tag_name:
@@ -15,7 +21,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: ${{ github.event_name == 'pull_request' && 'read' || 'write' }}
 
 concurrency:
   group: rmango-windows-installer-${{ github.ref }}
@@ -185,7 +191,7 @@ jobs:
           RMANGO_CLOUD_CONFIGURED: ${{ steps.cloud-config.outputs.configured }}
         shell: pwsh
         run: |
-          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
+          if ("${{ github.event_name }}" -ne "pull_request" -and $env:RMANGO_CLOUD_CONFIGURED -eq "true") {
             npm run dist:win:publish
           } else {
             npm run dist:win
@@ -203,8 +209,9 @@ jobs:
           }
 
           $configured = "${{ steps.cloud-config.outputs.configured }}"
+          $eventName = "${{ github.event_name }}"
           $manifest = Join-Path "app-src/release" "latest.yml"
-          if ($configured -eq "true") {
+          if ($configured -eq "true" -and $eventName -ne "pull_request") {
             if (-not (Test-Path $manifest)) {
               throw "Missing latest.yml. The auto-update feed would not work."
             }
@@ -234,7 +241,7 @@ jobs:
           }
 
       - name: Verify public GitHub Release contains the update feed
-        if: steps.cloud-config.outputs.configured == 'true'
+        if: github.event_name != 'pull_request' && steps.cloud-config.outputs.configured == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
