@@ -15,6 +15,15 @@ import type {
 type ActivityItem = { name: string; detail: string; ok: boolean };
 type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
 
+const profileCopy: Record<CloudProfile, { title: string; description: string; tags: string[] }> = {
+  agent: { title: "Agent", description: "Best for full Roblox tasks: inspect the project, plan the work, use Studio tools, and verify the result.", tags: ["Project context", "Studio tools", "Reasoning"] },
+  developer: { title: "Build", description: "Focused on Luau, architecture, debugging, and implementing Roblox systems.", tags: ["Luau", "Studio tools"] },
+  think: { title: "Deep Think", description: "For difficult bugs, system design, trade-offs, and multi-step technical reasoning.", tags: ["Reasoning", "Planning"] },
+  fast: { title: "Quick", description: "Fast answers, small fixes, explanations, and everyday development questions.", tags: ["Fast responses"] },
+  vision: { title: "Vision", description: "Understand screenshots, UI references, error images, and visual Roblox layouts.", tags: ["Vision", "Images"] },
+};
+
+
 const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -76,7 +85,7 @@ function App() {
   const [appState, setAppState] = useState<AppState | null>(null);
   const [cloudState, setCloudState] = useState<CloudState | null>(null);
   const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
-  const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
+  const [cloudProfile, setCloudProfile] = useState<CloudProfile>('agent');
   const [activeView, setActiveView] = useState<'chat' | 'workspace'>('chat');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
@@ -344,7 +353,7 @@ function App() {
         await refreshMcpState();
         setToast(result.cloudLinked
           ? 'Roblox Studio linked to Rmango Cloud · ' + result.toolCount + ' tools discovered'
-          : (result.cloudMessage || ('Studio connected locally · sign in to link cloud AI · ' + result.toolCount + ' tools')));
+          : (result.cloudMessage || ('Studio connected locally · sign in to link Rmango · ' + result.toolCount + ' tools')));
       } else {
         setToast(result.error || 'Could not connect to Roblox Studio.');
       }
@@ -444,7 +453,7 @@ function App() {
     }
     if (!cloudState.signedIn) {
       setSettingsOpen(true);
-      setToast('Sign in to your Rmango account to use cloud AI.');
+      setToast('Sign in to your Rmango account to use Rmango Intelligence.');
       return;
     }
 
@@ -562,7 +571,7 @@ function App() {
       : !cloudState.serviceReady
         ? 'CLOUD SETUP REQUIRED'
         : cloudState.signedIn
-          ? 'CLOUD AI READY'
+          ? 'RMANGO READY'
           : 'SIGN IN REQUIRED';
 
   const quickPrompts = [
@@ -591,7 +600,7 @@ function App() {
         <div className="brand-wrap">
           <div className="brand-tile"><MangoMark size={32}/></div>
           <span className="brand-name">rmango</span>
-          <span className="brand-version">STUDIO AI</span>
+          <span className="brand-version">ROBLOX AI</span>
         </div>
         <div className="topbar-divider"/>
         <div className="workspace-crumb"><Gamepad2 size={15}/><span>Roblox workspace</span><ChevronDown size={13}/></div>
@@ -709,8 +718,8 @@ function App() {
             </div>
             <div className="integration-row">
               <div className="integration-icon local"><Sparkles size={14}/></div>
-              <div><strong>Rmango Cloud AI</strong><span>{cloudState?.signedIn ? (cloudReady ? 'Connected · ' + (currentProfile?.profileLabel || 'Profile ready') : 'Account connected') : cloudState?.configured ? 'Sign in required' : 'Backend not configured'}</span></div>
-              <button className="subtle-icon" title="Cloud account and models" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/></button>
+              <div><strong>Rmango Intelligence</strong><span>{cloudState?.signedIn ? (cloudReady ? 'Connected · ' + (currentProfile?.profileLabel || 'Profile ready') : 'Account connected') : cloudState?.configured ? 'Sign in required' : 'Backend not configured'}</span></div>
+              <button className="subtle-icon" title="Rmango account and work modes" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/></button>
             </div>
           </div>
         </aside>
@@ -722,7 +731,7 @@ function App() {
               <button className={activeView === 'workspace' ? 'selected' : ''} onClick={() => setActiveView('workspace')}><Layers3 size={13}/> Agent workspace</button>
             </div>
             <div className="toolbar-actions">
-              <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Cloud model'}</span>
+              <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Rmango Agent'}</span>
               <button className="subtle-icon" title="Toggle inspector" onClick={() => setRightPanelOpen(value => !value)}><Menu size={16}/></button>
             </div>
           </div>
@@ -733,22 +742,22 @@ function App() {
               {messages.length === 0 ? (
                 <div className="welcome-block">
                   <div className="welcome-orb"><div className="welcome-logo"><MangoMark size={66}/></div><span className="orb-spark spark-one"/><span className="orb-spark spark-two"/><span className="orb-spark spark-three"/></div>
-                  <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX BUILD PARTNER <span className="eyebrow-line"/></div>
-                  <h1>Make something<br/><em>mango-nificent.</em></h1>
-                  <p>Inspect your place, understand your scripts, design maps and build Roblox systems with remotely hosted AI models.</p>
+                  <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX DEVELOPMENT PARTNER <span className="eyebrow-line"/></div>
+                  <h1>Your Roblox ideas,<br/><em>built with Rmango.</em></h1>
+                  <p>A Roblox-focused development agent that understands your project, works with your Studio tools, and shows exactly what it changed.</p>
 
                   {!cloudReady && <div className="setup-card">
                     <div className="setup-card-icon"><Sparkles size={19}/></div>
                     <div className="setup-card-copy">
                       <strong>{cloudState?.configured ? 'Connect your Rmango account' : 'Rmango Cloud setup required'}</strong>
-                      <span>{cloudState?.message || 'Cloud model inference is remote. No local AI runtime or model downloads are needed.'}</span>
+                      <span>{cloudState?.message || 'Rmango runs through its hosted intelligence service. No local model downloads are required.'}</span>
                     </div>
                     <button onClick={() => setSettingsOpen(true)}>{cloudState?.configured ? 'Sign in' : 'Details'} <ArrowRight size={13}/></button>
                   </div>}
 
                   <div className="quick-grid">
                     {quickPrompts.map(item =>
-                      <button className="quick-card" key={item.label} onClick={() => void sendMessage(item.prompt, item.label === 'Plan a map' ? 'agent' : 'developer')}>
+                      <button className="quick-card" key={item.label} onClick={() => void sendMessage(item.prompt, 'agent')}>
                         <span className="quick-icon">{item.icon}</span>
                         <span className="quick-copy"><strong>{item.label}</strong><small>{item.detail}</small></span>
                         <ArrowRight size={14} className="quick-arrow"/>
@@ -768,7 +777,7 @@ function App() {
                         <div className="message-meta">
                           <strong>{message.role === 'assistant' ? 'Rmango' : 'You'}</strong>
                           <span>{displayTime(message.createdAt)}</span>
-                          {message.role === 'assistant' && <span className="agent-tag"><Sparkles size={10}/> {(message.modelProfile || 'cloud').toUpperCase()}</span>}
+                          {message.role === 'assistant' && <span className="agent-tag"><Sparkles size={10}/> {'RMANGO ' + (message.modelProfile || 'AGENT').toUpperCase()}</span>}
                         </div>
                         {message.attachments?.length ? <div className="message-attachments">
                           {message.attachments.map(attachment =>
@@ -821,12 +830,12 @@ function App() {
               />
               <div className="composer-footer">
                 <div className="composer-left">
-                  <select className="profile-select" value={cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Cloud AI profile" disabled={!cloudState?.signedIn || busy}>
-                    <option value="fast">Rmango Fast</option>
-                    <option value="developer">Rmango Developer</option>
-                    <option value="think">Rmango Think</option>
-                    <option value="vision">Rmango Vision</option>
-                    <option value="agent">Rmango Agent</option>
+                  <select className="profile-select" value={cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Rmango work mode" disabled={!cloudState?.signedIn || busy}>
+                    <option value="fast">Quick</option>
+                    <option value="developer">Build</option>
+                    <option value="think">Deep Think</option>
+                    <option value="vision">Vision</option>
+                    <option value="agent">Agent</option>
                   </select>
                   <button className="attach-button" title="Attach images or files" onClick={() => openFilePicker(false)}><Paperclip size={14}/> Attach</button>
                   <button className="attach-button attach-image" title="Attach photo" onClick={() => openFilePicker(true)}><ImageIcon size={14}/> Photo</button>
@@ -838,7 +847,7 @@ function App() {
                 </button>
               </div>
             </div>
-            <div className="composer-disclaimer"><ShieldCheck size={11}/> Photos and text/code files are processed by your selected model. Studio edits require approval.</div>
+            <div className="composer-disclaimer"><ShieldCheck size={11}/> Your project context stays with Rmango. Studio edits only run after you approve them.</div>
           </div>
           </> : <AgentWorkspace
             projectId={cloudProjectId}
@@ -859,30 +868,25 @@ function App() {
 
           <section className="inspector-section local-section">
             <div className="section-title">
-              <span>CLOUD AI ENGINE</span>
+              <span>RMANGO INTELLIGENCE</span>
               <span className={'live-indicator ' + (cloudReady ? 'live' : '')}>{cloudReady ? 'ONLINE' : cloudLoading ? 'CHECKING' : 'OFFLINE'}</span>
             </div>
             <div className="local-status-card">
               <div className="local-status-icon"><Sparkles size={19}/></div>
               <div className="local-status-copy">
-                <strong>{cloudReady ? (cloudState?.signedIn ? 'Hosted AI is ready' : 'Cloud service is ready') : 'Cloud connection required'}</strong>
-                <span>{cloudState?.email || cloudState?.apiHost || cloudState?.message || 'No local models or API keys'}</span>
+                <strong>{cloudReady ? (cloudState?.signedIn ? 'Rmango is ready' : 'Cloud service is ready') : 'Cloud connection required'}</strong>
+                <span>{cloudState?.signedIn ? 'Personal workspace connected' : (cloudState?.message || 'Hosted service not configured')}</span>
               </div>
               <span className={'status-dot ' + (cloudReady ? 'bright' : '')}/>
-              <div className="local-meta"><span>INFERENCE</span><strong>Remote cloud</strong><span>DEVICE</span><strong>Interface only</strong></div>
+              <div className="local-meta"><span>INTELLIGENCE</span><strong>Rmango engine</strong><span>RUNTIME</span><strong>Hosted</strong></div>
             </div>
             {cloudState?.signedIn
-              ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Cloud model manager <ArrowRight size={13}/></button>
+              ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Rmango Intelligence <ArrowRight size={13}/></button>
               : <button className="primary-action" onClick={() => setSettingsOpen(true)}><LockKeyhole size={13}/> Sign in to Rmango <ArrowRight size={13}/></button>}
             {cloudReady && <div className="connect-help">
-              <strong>{currentProfile?.profileLabel || 'Cloud model profiles'}</strong>
-              <span>{currentProfile?.name || 'Choose a model profile below the chat composer.'}</span>
-              {currentProfile && <span>
-                {currentProfile.contextWindow ? currentProfile.contextWindow.toLocaleString() + ' context tokens' : 'Context details unavailable'}
-                {' · '}
-                {currentProfile.capabilities.includes('reasoning') ? 'Reasoning' : 'General'}
-                {currentProfile.inputModalities.includes('image') ? ' · Vision' : ''}
-              </span>}
+              <strong>{currentProfile?.profileLabel || 'Rmango work modes'}</strong>
+              <span>{'One assistant. The right work mode for the task.'}</span>
+              {currentProfile && <span>{profileCopy[cloudProfile].tags.join(' · ')}</span>}
             </div>}
             {cloudState?.message && <div className="secure-note"><AlertCircle size={13}/><span>{cloudState.message}</span></div>}
           </section>
@@ -951,7 +955,7 @@ function App() {
                     <div><strong>{item.name}</strong><span>{item.detail}</span></div>
                   </div>
                 )
-              : <div className="activity-empty"><Activity size={15}/><span>Tool calls and model actions appear here.</span></div>}
+              : <div className="activity-empty"><Activity size={15}/><span>RMango's tool calls and development activity appear here.</span></div>}
           </section>
           <div className="right-footer"><ShieldCheck size={13}/> Every Studio change requires your approval.</div>
         </aside>}
@@ -1015,16 +1019,16 @@ function App() {
         <div className="settings-modal cloud-settings-modal">
           <div className="modal-header">
             <div>
-              <div className="modal-kicker">RMANGO CLOUD PLATFORM</div>
-              <h2>Cloud AI workspace</h2>
-              <p>Your device is the interface. Model inference runs on Rmango's hosted cloud service.</p>
+              <div className="modal-kicker">RMANGO INTELLIGENCE</div>
+              <h2>Rmango Intelligence</h2>
+              <p>One Rmango assistant, built around Roblox development. Choose a work mode; Rmango handles the engine and routing.</p>
             </div>
             <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button>
           </div>
 
           {!cloudState?.configured && <div className="local-setup-panel">
             <div className="local-setup-status"><AlertCircle size={14}/> Cloud backend not configured</div>
-            <p>The desktop build is waiting for the Rmango Cloud URL and server-side services. No Ollama installation or AI provider key is required on this computer.</p>
+            <p>This build connects to Rmango's hosted intelligence service. Its server is not configured yet, and this version will not start Ollama or another local model as a fallback.</p>
           </div>}
 
           {cloudState?.configured && !cloudState.signedIn && <>
@@ -1046,7 +1050,7 @@ function App() {
               <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => setAuthEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
               <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
               <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
-              <div className="secure-note"><LockKeyhole size={13}/><span>These are your Rmango account credentials, not an AI provider API key. AI provider credentials stay on the cloud server.</span></div>
+              <div className="secure-note"><LockKeyhole size={13}/><span>Your Rmango account connects your private workspace, project context, and Studio tools. No separate AI-provider account is needed.</span></div>
               <div className="modal-footer">
                 <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
                 <button type="submit" className="save-button" disabled={authBusy || !authEmail.trim() || !authPassword}>
@@ -1064,38 +1068,26 @@ function App() {
               <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
             </div>
 
-            <div className="field-label">CLOUD MODEL PROFILES</div>
-            <p className="settings-explainer">Choose a managed profile. Rmango routes requests to a compatible hosted model and uses fallbacks when configured.</p>
+            <div className="field-label">RMANGO WORK MODES</div>
+            <p className="settings-explainer">Choose the kind of work you need. The assistant keeps the same Rmango identity while adjusting how it plans, reasons, and uses tools.</p>
             {!cloudModels?.profiles.length
-              ? <div className="tools-empty"><Cpu size={18}/><span>Cloud model catalogue unavailable. The administrator must configure Vercel AI Gateway.</span></div>
+              ? <div className="tools-empty"><Cpu size={18}/><span>Rmango work modes are unavailable until its hosted intelligence service is configured.</span></div>
               : <div className="cloud-model-list">
                 {cloudModels.profiles.map((profile: CloudModelProfile) =>
                   <button type="button" className={'cloud-model-card ' + (cloudProfile === profile.profile ? 'selected' : '')} key={profile.profile} onClick={() => setCloudProfile(profile.profile)}>
                     <span className="cloud-model-check">{cloudProfile === profile.profile ? <CheckCircle2 size={17}/> : <span/>}</span>
                     <span className="cloud-model-copy">
-                      <strong>{profile.profileLabel}</strong>
-                      <small>{profile.name}</small>
-                      <span>{profile.description || 'Hosted model profile selected by the Rmango administrator.'}</span>
+                      <strong>{profileCopy[profile.profile].title}</strong>
+                      <small>RMANGO INTELLIGENCE</small>
+                      <span>{profileCopy[profile.profile].description}</span>
                       <span className="cloud-capabilities">
-                        {profile.contextWindow ? <i>{profile.contextWindow.toLocaleString()} context</i> : null}
-                        {profile.capabilities.includes('reasoning') ? <i>Reasoning</i> : null}
-                        {profile.capabilities.includes('vision') || profile.inputModalities.includes('image') ? <i>Vision</i> : null}
-                        {profile.capabilities.includes('tool-use') ? <i>Tools</i> : null}
-                      </span>
-                      <span className="cloud-pricing">
-                        {profile.inputUsdPerMillionTokens !== null
-                          ? 'Input $' + profile.inputUsdPerMillionTokens.toFixed(3) + '/M'
-                          : 'Input pricing unavailable'}
-                        {' · '}
-                        {profile.outputUsdPerMillionTokens !== null
-                          ? 'Output $' + profile.outputUsdPerMillionTokens.toFixed(3) + '/M'
-                          : 'Output pricing unavailable'}
+                        {profileCopy[profile.profile].tags.map(tag => <i key={tag}>{tag}</i>)}
                       </span>
                     </span>
                   </button>
                 )}
               </div>}
-            <div className="secure-note"><ShieldCheck size={13}/><span>Profile labels are Rmango routing presets, not separate models trained by Rmango. Capability and price details come from the live Gateway catalogue. No benchmark scores are fabricated.</span></div>
+            <div className="secure-note"><ShieldCheck size={13}/><span>RMango owns the Roblox agent, project context, tool orchestration, workflows and product experience. Its foundation-model engine is hosted; RMango is not claiming to have trained a separate foundation model.</span></div>
           </>}
 
           <div className="modal-footer">
