@@ -68,7 +68,7 @@ function eventMeta(event: AgentTaskEvent) {
   const data = event.data || {};
   const parts: string[] = [];
   if (typeof data.toolName === "string") parts.push(data.toolName);
-  if (typeof data.modelId === "string") parts.push(data.modelId);
+
   if (typeof data.stepNumber === "number") parts.push("Step " + (data.stepNumber + 1));
   if (typeof data.durationMs === "number") parts.push((data.durationMs / 1000).toFixed(1) + "s");
   if (data.successful === false) parts.push("Failed");
@@ -261,7 +261,7 @@ export function AgentWorkspace({
         <div className="agent-workspace-heading">
           <div className="agent-workspace-mark"><span><Sparkles size={17} /></span></div>
           <div>
-            <div className="agent-eyebrow">RMANGO DEVELOPMENT ENGINE</div>
+            <div className="agent-eyebrow">RMANGO AGENT</div>
             <h2>Agent workspace</h2>
             <p>{projectName ? "Working in " + projectName : "Persistent Roblox development tasks"}</p>
           </div>
@@ -284,7 +284,7 @@ export function AgentWorkspace({
           <form className="agent-task-composer" onSubmit={handleSubmit}>
             <div className="agent-composer-title">
               <span><BrainCircuit size={15} /> New development task</span>
-              <span className="agent-composer-hint">Plan · inspect · implement · test · report</span>
+              <span className="agent-composer-hint">Understand · plan · build · verify</span>
             </div>
             <textarea
               value={draft}
@@ -297,10 +297,10 @@ export function AgentWorkspace({
             <div className="agent-composer-footer">
               <div className="agent-composer-selectors">
                 <select value={profile} onChange={event => onProfileChange(event.target.value as CloudProfile)} disabled={submitting || !cloudReady}>
-                  <option value="agent">Rmango Agent</option>
-                  <option value="developer">Developer</option>
-                  <option value="think">Think</option>
-                  <option value="fast">Fast</option>
+                  <option value="agent">Agent</option>
+                  <option value="developer">Build</option>
+                  <option value="think">Deep Think</option>
+                  <option value="fast">Quick</option>
                   <option value="vision">Vision</option>
                 </select>
                 <span><ShieldCheck size={12} /> Studio edits require approval</span>
@@ -333,7 +333,7 @@ export function AgentWorkspace({
               {loading ? (
                 <div className="agent-list-empty"><LoaderCircle size={15} className="spin" /> Loading saved tasks…</div>
               ) : tasks.length === 0 ? (
-                <div className="agent-list-empty"><Workflow size={18} /><span>Your tasks will appear here and stay saved between sessions.</span></div>
+                <div className="agent-list-empty"><Workflow size={18} /><span>Your work stays saved here. Pick up any task where you left it.</span></div>
               ) : (
                 <div className="agent-task-list-scroll">
                   {tasks.map(task => (
@@ -385,11 +385,11 @@ export function AgentWorkspace({
 
                   <div className="agent-result-grid">
                     <section className="agent-result-card">
-                      <div className="agent-section-heading"><span><Layers3 size={14} /> IMPLEMENTATION PLAN</span>{taskResult.planModel && <small>{taskResult.planModel}</small>}</div>
+                      <div className="agent-section-heading"><span><Layers3 size={14} /> IMPLEMENTATION PLAN</span></div>
                       {taskResult.plan ? <pre>{String(taskResult.plan)}</pre> : <div className="agent-section-placeholder">The plan will be saved here once generated.</div>}
                     </section>
                     <section className="agent-result-card">
-                      <div className="agent-section-heading"><span><Code2 size={14} /> AGENT REPORT</span>{taskResult.executionModel && <small>{taskResult.executionModel}</small>}</div>
+                      <div className="agent-section-heading"><span><Code2 size={14} /> AGENT REPORT</span></div>
                       {taskResult.output ? <pre>{String(taskResult.output)}</pre> : <div className="agent-section-placeholder">Tool results, implementation notes and the final report will appear here.</div>}
                       {Array.isArray(taskResult.toolsUsed) && taskResult.toolsUsed.length > 0 && (
                         <div className="agent-tool-chips">{taskResult.toolsUsed.map((name: string) => <span key={name}>{name}</span>)}</div>
