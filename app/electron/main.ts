@@ -125,6 +125,36 @@ const userData = () => app.getPath('userData');
 const settingsPath = () => path.join(userData(), 'settings.json');
 const sessionPath = () => path.join(userData(), 'session.json');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
+const updateCacheStatePath = () => path.join(userData(), 'update-cache-state.json');
+
+async function readUpdateCacheVersion(): Promise<string | null> {
+  try {
+    const raw = JSON.parse(await fs.readFile(updateCacheStatePath(), 'utf8')) as { version?: unknown };
+    return typeof raw.version === 'string' && isNewerStableVersion(raw.version, app.getVersion())
+      ? raw.version
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function persistUpdateCacheVersion(version: string): Promise<void> {
+  if (!isNewerStableVersion(version, app.getVersion())) return;
+  await fs.mkdir(userData(), { recursive: true, mode: 0o700 });
+  const target = updateCacheStatePath();
+  const temporary = target + '.' + randomUUID() + '.tmp';
+  await fs.writeFile(temporary, JSON.stringify({ version, savedAt: new Date().toISOString() }), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  await fs.chmod(temporary, 0o600).catch(() => undefined);
+  await fs.rename(temporary, target);
+}
+
+async function clearUpdateCacheVersion(): Promise<void> {
+  lastDownloadedUpdateVersion = null;
+  await fs.rm(updateCacheStatePath(), { force: true }).catch(() => undefined);
+}
 
 function secureStorageProvider(): string {
   if (process.platform === 'win32') return 'Windows DPAPI';
@@ -1574,35 +1604,45 @@ async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
     const result = await autoUpdater.checkForUpdates();
     const latestVersion = result?.updateInfo?.version;
     if (!result?.isUpdateAvailable || !latestVersion || !isNewerStableVersion(latestVersion, app.getVersion())) {
+      await clearUpdateCacheVersion();
       broadcastUpdateState({
         status: 'not-available',
         availableVersion: undefined,
         progress: undefined,
         error: undefined,
+        releaseNotes: undefined,
         message: 'You are already on the latest stable version.',
       });
       return appUpdateState;
     }
 
-    if (lastDownloadedUpdateVersion === latestVersion) {
-      broadcastUpdateState({
-        status: 'downloaded',
-        availableVersion: latestVersion,
-        progress: 100,
-        message: 'The latest stable update is already downloaded and ready to install.',
-      });
-      return appUpdateState;
-    }
+    const persistedVersion = await readUpdateCacheVersion();
+    const hasCachedCandidate = lastDownloadedUpdateVersion === latestVersion || persistedVersion === latestVersion;
 
     updateDownloadInFlight = true;
     broadcastUpdateState({
       status: 'downloading',
       availableVersion: latestVersion,
-      progress: 0,
+      progress: hasCachedCandidate ? 100 : 0,
       error: undefined,
-      message: 'Downloading the newest stable version ' + latestVersion + '…',
+      message: hasCachedCandidate
+        ? 'Verifying the previously downloaded update…'
+        : 'Downloading the newest stable version ' + latestVersion + '…',
     });
+
+    // downloadUpdate reuses electron-updater's checksum-validated cache when present.
+    // Calling it also restores the installable update into this process after a restart.
     await autoUpdater.downloadUpdate();
+    lastDownloadedUpdateVersion = latestVersion;
+    await persistUpdateCacheVersion(latestVersion);
+    broadcastUpdateState({
+      status: 'downloaded',
+      availableVersion: latestVersion,
+      progress: 100,
+      message: hasCachedCandidate
+        ? 'The previously downloaded update was verified and is ready to install.'
+        : 'Version ' + latestVersion + ' is downloaded and ready to install.',
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     broadcastUpdateState({
@@ -1678,6 +1718,7 @@ function initializeAutoUpdates() {
       return;
     }
     lastDownloadedUpdateVersion = info.version;
+    void persistUpdateCacheVersion(info.version).catch(error => console.warn('Could not persist update cache marker:', error));
     broadcastUpdateState({
       status: 'downloaded',
       availableVersion: info.version,
@@ -1698,6 +1739,7 @@ function initializeAutoUpdates() {
   });
 
   autoUpdater.on('error', error => {
+    updateDownloadInFlight = false;
     broadcastUpdateState({
       status: 'error',
       error: error.message,
