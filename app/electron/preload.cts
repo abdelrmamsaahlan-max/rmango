@@ -10,6 +10,7 @@ const api = {
   getCloudUsage: () => ipcRenderer.invoke('cloud:usage'),
   cloudSignIn: (credentials: { email: string; password: string }) => ipcRenderer.invoke('cloud:sign-in', credentials),
   requestPasswordReset: (payload: { email: string }) => ipcRenderer.invoke('cloud:password-reset', payload),
+  resendEmailConfirmation: (payload: { email: string }) => ipcRenderer.invoke('cloud:resend-confirmation', payload),
   cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => ipcRenderer.invoke('cloud:sign-up', credentials),
   cloudSignOut: () => ipcRenderer.invoke('cloud:sign-out'),
   getCloudModels: () => ipcRenderer.invoke('cloud:models'),
