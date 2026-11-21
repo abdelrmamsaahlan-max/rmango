@@ -32,7 +32,6 @@ export type IntelligenceBudget = {
   minimumEvidenceBeforeEdits: number;
   verificationDepth: "none" | "basic" | "focused" | "strong";
   compareApproaches: boolean;
-  externalSourcesAvailable: false;
   useProjectTools: boolean;
   useStudioTools: boolean;
   externalSourcesAvailable: false;
@@ -71,7 +70,7 @@ const COMPLEX_SCOPE = /\b(entire|whole project|whole game|end[- ]to[- ]end|produ
 const STRONG_RESEARCH = /\b(research|latest|current documentation|official docs|benchmark|compare (?:models|providers|architectures)|literature review)\b/i;
 const IMPLEMENTATION = /\b(implement|build|create|make|write|code|modify|edit|add|fix|refactor|upgrade|generate|wire up|set up|automate)\b/i;
 
-const BUDGETS: Record<IntelligenceLevel, Omit<IntelligenceBudget, "useProjectTools" | "useStudioTools">> = {
+const BUDGETS: Record<IntelligenceLevel, Omit<IntelligenceBudget, "useProjectTools" | "useStudioTools" | "externalSourcesAvailable">> = {
   instant: {
     maxSteps: 2,
     maxOutputTokens: 1_024,
