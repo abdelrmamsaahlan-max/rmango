@@ -224,7 +224,10 @@ function App() {
             if (cloud.currentConversationId) {
               const restored = await window.rmango.loadCloudConversation(cloud.currentConversationId);
               if (restored.messages.length) restoredMessages = restored.messages;
-              setCloudProjectId(restored.conversation.project_id || undefined);
+              const restoredProjectId = restored.conversation.project_id || null;
+              setCloudProjectId(restoredProjectId || undefined);
+              await window.rmango.setCurrentCloudProjectId(restoredProjectId);
+              setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
             }
           } catch (error) {
             setToast(error instanceof Error ? error.message : 'Could not restore cloud chat history.');
@@ -340,6 +343,7 @@ function App() {
         setActivities([]);
         await window.rmango.setCurrentConversationId(null);
         setCloudProjectChanges([]);
+        setCloudTasks([]);
         setToast('Created project "' + project.name + '".');
       } else if (projectDialog.projectId) {
         const project = await window.rmango.updateCloudProject({
@@ -364,11 +368,13 @@ function App() {
     try {
       await window.rmango.setCurrentCloudProjectId(project.id);
       await window.rmango.setCurrentConversationId(null);
+      const projectTasks = await window.rmango.getCloudTasks(project.id);
       setCloudProjectId(project.id);
       setCloudState(current => current ? { ...current, currentProjectId: project.id, currentConversationId: undefined } : current);
       setConversationId(undefined);
       setMessages([]);
       setActivities([]);
+      setCloudTasks(projectTasks);
       setFollowupQueue([]);
       followupQueueRef.current = [];
       setCloudProjectChanges([]);
@@ -450,10 +456,18 @@ function App() {
     setLoadingConversationId(id);
     try {
       const loaded = await window.rmango.loadCloudConversation(id);
+      const activeProjectId = loaded.conversation.project_id || null;
       await window.rmango.setCurrentConversationId(id);
+      await window.rmango.setCurrentCloudProjectId(activeProjectId);
+      const projectTasks = await window.rmango.getCloudTasks(activeProjectId || undefined);
       setConversationId(id);
-      setCloudState(current => current ? { ...current, currentConversationId: id } : current);
-      setCloudProjectId(loaded.conversation.project_id || undefined);
+      setCloudState(current => current ? {
+        ...current,
+        currentConversationId: id,
+        currentProjectId: activeProjectId || undefined,
+      } : current);
+      setCloudProjectId(activeProjectId || undefined);
+      setCloudTasks(projectTasks);
       setMessages(loaded.messages || []);
       setActivities([]);
       setFollowupQueue([]);
@@ -499,7 +513,10 @@ function App() {
           const restored = await window.rmango.loadCloudConversation(state.currentConversationId);
           setConversationId(restored.conversation.id);
           setMessages(restored.messages);
-          setCloudProjectId(restored.conversation.project_id || undefined);
+          const restoredProjectId = restored.conversation.project_id || null;
+          setCloudProjectId(restoredProjectId || undefined);
+          await window.rmango.setCurrentCloudProjectId(restoredProjectId);
+          setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
         } catch (error) {
           setConversationId(undefined);
           setToast(error instanceof Error ? error.message : 'Signed in, but the last conversation could not be restored.');
