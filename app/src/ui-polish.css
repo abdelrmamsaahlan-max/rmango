@@ -1619,3 +1619,12 @@ body { min-width: 0; min-height: 0; background: var(--bg); }
   .account-security-glow,
   .verification-panel { animation: none !important; transition: none !important; }
 }
+
+.app-shell[data-motion="reduced"] .account-security-art svg,
+.app-shell[data-motion="reduced"] .account-security-orbit,
+.app-shell[data-motion="reduced"] .account-security-star,
+.app-shell[data-motion="reduced"] .account-security-glow,
+.app-shell[data-motion="reduced"] .verification-panel {
+  animation: none !important;
+  transition: none !important;
+}
