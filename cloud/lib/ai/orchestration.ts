@@ -36,7 +36,7 @@ const DOMAIN_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
 
 const BUILD_INTENT = /\b(build|create|make|implement|add|generate|rebuild|refactor|fix|debug|upgrade|improve|automate|wire up|set up)\b/i;
 const LARGE_SCOPE = /\b(complete|full|entire|end[- ]to[- ]end|from scratch|whole game|whole system|entire system|production[- ]ready|multiple systems|all systems|everything|agent architecture|full workflow)\b/i;
-const DEBUG_INTENT = /\b(not working|doesn.t work|broken|bug|error|exception|crash|fails?|failing|debug|fix this|fix the)\b/i;
+const DEBUG_INTENT = /\b(not working|doesn.t work|broken|bug|error|exception|crash|fails?|failing|debug|fix this|fix the|troubleshoot|investigate|diagnose|regression|stack trace|console error)\b/i;
 const AUDIT_INTENT = /\b(audit|review|inspect|assess|check|evaluate|find problems|what needs improvement)\b/i;
 const DESIGN_INTENT = /\b(brainstorm|concept|game design|design a|plan a|ideas for|player experience|visual direction)\b/i;
 const EXPLAIN_INTENT = /^(\s*)(what is|what are|how does|how do|why does|why do|explain|teach me|help me understand)\b/i;
@@ -149,6 +149,15 @@ export function buildAgentWorkflowContext(input: {
 
   const method = buildTaskMethod(intent);
   const maxSteps = maxWorkflowSteps(complexity, coordinated, intent);
+  const taskAssessment = [
+    "TASK ROUTING HINT — intent: " + intent +
+      "; complexity: " + complexityLabel + " (" + complexity + "/10)" +
+      "; action risk: " + risk +
+      "; selected depth: " + (coordinated ? "coordinated" : "focused") +
+      "; tool-step budget: " + maxSteps +
+      "; domains: " + (domains.length ? domains.join(", ") : "not confidently identified") + ".",
+    "Treat this classification as a useful routing estimate, not unquestionable truth. Re-check it against the actual request and adjust your behavior if the classification is wrong. A risk label never grants authorization.",
+  ].join("\n");
   const cognitiveRules = [
     "COGNITIVE OPERATING RULES — apply these on every turn, not only in Agent mode.",
     "Understand before acting: identify the user's actual outcome, explicit constraints, relevant project, and what would count as success. The newest explicit user instruction overrides older preferences for this turn; preserve older project decisions when they do not conflict.",
@@ -166,6 +175,7 @@ export function buildAgentWorkflowContext(input: {
   const focusedText = [
     "RMANGO FOCUSED WORKFLOW — answer the user's actual request with the smallest useful amount of work.",
     method,
+    taskAssessment,
     cognitiveRules,
     "Use the available tools only when they materially improve accuracy or complete requested work. Keep changes bounded. Never expose private chain-of-thought; show concise conclusions and evidence.",
   ].join("\n\n");
@@ -187,6 +197,7 @@ export function buildAgentWorkflowContext(input: {
     "RMANGO DELIBERATE WORKFLOW — use a bounded inspect → decide → implement → verify loop.",
     "You are the lead Roblox engineer and coordinator. Specialist skills are instruction packs, not separately trained models or autonomous agents.",
     method,
+    taskAssessment,
     cognitiveRules,
     "WORK LOOP:",
     "1. SCOUT: inspect only the relevant Studio hierarchy, source files, callers, dependencies, project memories and logs. Confirm the target project/session and whether the live Studio connector is available.",
