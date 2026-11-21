@@ -73,7 +73,7 @@ export async function GET(request: Request, context: { params: Promise<{ taskId:
   if (feedbackError) return NextResponse.json({ error: "Could not load task feedback." }, { status: 503 });
   const helpful = feedbackEvent?.signal_data?.helpful;
   const feedback = typeof helpful === "boolean"
-    ? { helpful, updated_at: feedbackEvent.updated_at }
+    ? { helpful, updated_at: feedbackEvent?.updated_at || new Date().toISOString() }
     : null;
   return NextResponse.json({ task, events: (events || []).reverse(), feedback });
 }
