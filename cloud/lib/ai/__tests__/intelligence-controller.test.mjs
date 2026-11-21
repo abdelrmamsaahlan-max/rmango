@@ -107,3 +107,12 @@ test("focused debugging selects the developer profile; deep debugging selects ag
   assert.equal(focused.modelProfile, "developer");
   assert.equal(deep.modelProfile, "agent");
 });
+
+
+test("keeps an explicit planning-only request in planning mode even when it says create an implementation plan", () => {
+  const plan = run("Create an implementation plan for a Roblox tycoon with persistence, NPCs and a responsive UI. Do not write code yet.", {
+    hasSelectedProject: true,
+  });
+  assert.equal(plan.intent, "planning");
+  assert.equal(plan.budget.useProjectTools, true);
+});

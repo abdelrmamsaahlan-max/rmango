@@ -32,6 +32,7 @@ export type IntelligenceBudget = {
   minimumEvidenceBeforeEdits: number;
   verificationDepth: "none" | "basic" | "focused" | "strong";
   compareApproaches: boolean;
+  externalSourcesAvailable: false;
   useProjectTools: boolean;
   useStudioTools: boolean;
 };
@@ -128,9 +129,10 @@ const BUDGETS: Record<IntelligenceLevel, Omit<IntelligenceBudget, "useProjectToo
 };
 
 function detectIntent(prompt: string, hasSelectedProject = false): IntelligenceIntent {
+  const explicitPlanningOnly = /\\b(plan only|just (?:make|write|create) (?:the )?plan|do not (?:write|change|modify|implement|code)|don't (?:write|change|modify|implement|code)|without (?:writing|changing|modifying) code|before coding)\\b/i.test(prompt);
   for (const item of INTENT_PATTERNS) {
     if (item.pattern.test(prompt)) {
-      if (item.intent === "planning" && IMPLEMENTATION.test(prompt)) return "implementation";
+      if (item.intent === "planning" && IMPLEMENTATION.test(prompt) && !explicitPlanningOnly) return "implementation";
       return item.intent;
     }
   }

@@ -136,7 +136,8 @@ export function buildAgentWorkflowContext(input: {
   const domains = DOMAIN_PATTERNS
     .filter(item => item.pattern.test(prompt))
     .map(item => item.id);
-  const planningOnly = PLANNING_INTENT.test(prompt) && !IMPLEMENTATION_INTENT.test(prompt);
+  const explicitPlanningOnly = /\\b(plan only|just (?:make|write|create) (?:the )?plan|do not (?:write|change|modify|implement|code)|don't (?:write|change|modify|implement|code)|without (?:writing|changing|modifying) code|before coding)\\b/i.test(prompt);
+  const planningOnly = input.intent === "planning" || (PLANNING_INTENT.test(prompt) && (!IMPLEMENTATION_INTENT.test(prompt) || explicitPlanningOnly));
   const isBuildRequest = BUILD_INTENT.test(prompt) && !planningOnly;
   const isDebugRequest = DEBUG_INTENT.test(prompt);
   const isLargeRequest = LARGE_SCOPE.test(prompt);
