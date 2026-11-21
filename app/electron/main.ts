@@ -658,7 +658,10 @@ async function projectFiles(root: string, depth = 0): Promise<Array<{ name: stri
     const fullPath = path.join(root, entry.name);
     if (entry.isDirectory()) {
       result.push({ name: entry.name, path: fullPath, kind: 'folder' });
-      if (depth < 8) result.push(...(await projectFiles(fullPath, depth + 1)));
+      if (depth < 8) {
+        const nested = await projectFiles(fullPath, depth + 1);
+        result.push(...nested.slice(0, Math.max(0, 2_000 - result.length)));
+      }
     } else {
       result.push({ name: entry.name, path: fullPath, kind: 'file' });
     }
