@@ -64,14 +64,20 @@ function safeProjectRelativePath(value: string) {
   const normalized = value.replace(/\\/g, "/");
   const segments = normalized.split("/");
   const invalidWindowsName = (segment: string) =>
-    /[<>:"|?*\\u0000-\\u001f\\u007f]/.test(segment) ||
+    /[<>:"|?*\u0000-\u001f\u007f]/.test(segment) ||
     /[. ]$/.test(segment) ||
-    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\..*)?$/i.test(segment);
-  if (normalized.startsWith("/") || normalized.includes("\\0") ||
-      segments.some(segment => !segment || segment === "." || segment === ".." || invalidWindowsName(segment))) return null;
+    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(segment);
+
+  if (
+    normalized.startsWith("/") ||
+    normalized.includes("\0") ||
+    segments.some(segment =>
+      !segment || segment === "." || segment === ".." || invalidWindowsName(segment)
+    )
+  ) return null;
+
   return normalized;
 }
-
 function estimateTokens(text: string) {
   return Math.max(1, Math.ceil(text.length / 4));
 }
