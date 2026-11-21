@@ -2435,7 +2435,8 @@ body { min-width: 0; min-height: 0; background: var(--bg); }
   border-radius: 5px;
   background: transparent;
   color: #aeb8c4;
-  font: 9px inherit;
+  font-size: 9px;
+  font-family: inherit;
   cursor: pointer;
 }
 .chat-code-header button:hover { border-color: #404a56; background: #252c35; color: #f0d49b; }
@@ -2522,4 +2523,48 @@ body { min-width: 0; min-height: 0; background: var(--bg); }
 }
 @media (prefers-reduced-motion: reduce) {
   .left-sidebar { transition: none !important; }
+}
+
+
+.chat-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 11px 0 15px;
+  border: 1px solid #303945;
+  border-radius: 9px;
+  scrollbar-width: thin;
+}
+.chat-markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  line-height: 1.55;
+  text-align: left;
+}
+.chat-markdown-table th {
+  padding: 9px 11px;
+  background: #1e252e;
+  border-bottom: 1px solid #39424e;
+  color: #e1e6ec;
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.chat-markdown-table td {
+  min-width: 85px;
+  padding: 8px 11px;
+  border-bottom: 1px solid #2b333d;
+  color: #bfc9d4;
+  vertical-align: top;
+}
+.chat-markdown-table tr:last-child td { border-bottom: 0; }
+.chat-markdown-table tbody tr:nth-child(even) { background: rgba(255,255,255,.025); }
+.app-shell[data-theme="light"] .chat-table-wrap { border-color: #dce3e8; }
+.app-shell[data-theme="light"] .chat-markdown-table th { background: #edf1f4; border-color: #dce3e8; color: #394751; }
+.app-shell[data-theme="light"] .chat-markdown-table td { border-color: #e5eaed; color: #52606b; }
+.app-shell[data-theme="light"] .chat-markdown-table tbody tr:nth-child(even) { background: #f8fafb; }
+@media (prefers-color-scheme: light) {
+  .app-shell[data-theme="system"] .chat-table-wrap { border-color: #dce3e8; }
+  .app-shell[data-theme="system"] .chat-markdown-table th { background: #edf1f4; border-color: #dce3e8; color: #394751; }
+  .app-shell[data-theme="system"] .chat-markdown-table td { border-color: #e5eaed; color: #52606b; }
 }
