@@ -124,3 +124,11 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - The desktop task history displays the saved plan and makes the verification state visible instead of presenting a completed model response as a verified implementation.
 - Before quota reservation and inference, the chat route estimates text context and applies a conservative reserve for image inputs. When the live model catalogue reports a context window, it drops only the oldest complete user turns, preserves the latest request, reserves output tokens plus a safety margin, and rejects a request that still cannot fit. The character-based tokenizer is explicitly approximate; provider-reported usage remains the source for completed-request usage records.
 - This is bounded request-time compaction, not a durable background worker or vector retrieval system. The current workflow plan is persisted and visible, but live per-step editing, worker leases, automatic acceptance-test orchestration and long-running crash recovery remain future work.
+
+
+## Task-aware project context retrieval
+
+- Selected-project context now ranks file paths and saved memory against the latest user request instead of relying only on alphabetical path order and newest-first memory order.
+- The context loader reads bounded metadata only (up to 500 file rows and 60 memory rows), ranks it locally, and includes at most 80 file entries and 20 distinct memory notes. File contents remain on-demand through the existing owner-checked `read_project_file` tool.
+- Memory retrieval deduplicates repeated notes by project memory type and title, preferring the newest row returned by the database. The explicit `list_project_memories` tool uses the same ranking and deduplication with an optional search phrase.
+- Ranking is deterministic lexical relevance plus a small recency signal, not embeddings or semantic vector search. If no useful query terms exist, existing source ordering is preserved. Deeper project search still uses `search_project_files`.
