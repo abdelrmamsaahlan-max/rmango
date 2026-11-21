@@ -87,7 +87,7 @@ jobs:
 
   deploy:
     name: Manually deploy RMango to Cloudflare Workers
-    needs: cloud
+    needs: [cloud, desktop]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_replace_rmango == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
