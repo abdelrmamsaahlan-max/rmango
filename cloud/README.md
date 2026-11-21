@@ -81,16 +81,31 @@ The desktop code has a compile-time/runtime override `RMANGO_CLOUD_API_URL` for 
 
 ## Usage and spend controls
 
-The migration seeds a conservative default policy:
-- 40 requests/day per user.
-- 800 requests/month per user.
-- 120,000 tokens/day per user.
-- 1,500,000 tokens/month per user.
+The cloud service fails closed by default. The migration seeds a global policy with `enabled = false`, and both daily/monthly USD spend caps default to zero. **No AI inference request can start until an administrator explicitly sets non-zero spend caps and enables the policy in the dedicated Supabase project.**
+
+After authorisation, the default per-user quotas are:
+- 40 requests/day.
+- 800 requests/month.
+- 120,000 tokens/day.
+- 1,500,000 tokens/month.
 - 4,096 maximum output tokens per request.
 
-The database reserves request/token budget **before** starting inference and records usage after completion. Failed/cancelled requests release reservations. Administrators must configure a matching provider/Gateway spend budget in Vercel. Per-user quotas are not a substitute for a provider-level spending cap.
+The global provider/Gateway spend ceiling is configured in the one-row `public.usage_policies` table. An authorized administrator can enable it in the Supabase SQL editor after choosing a budget:
 
-Model catalogue data is fetched live from Gateway metadata. Price information shown in the client is indicative per-token model pricing, not a promise that requests are free. Benchmark scores are not fabricated; no automated model benchmarks have been run yet.
+~~~sql
+update public.usage_policies
+set enabled = true,
+    daily_spend_limit_usd = 2.00,
+    monthly_spend_limit_usd = 25.00,
+    updated_at = now()
+where id = true;
+~~~
+
+The example amounts above are illustrative only; do not use them without administrator approval. Configure a matching hard budget in Vercel AI Gateway as a second independent control. The database takes a global lock and reserves estimated cost before every model request; it also enforces per-user request/token quotas. Abandoned reservations expire after two hours. Models without published input/output price metadata are rejected before inference. Fallback models must have known per-token prices no higher than the primary model.
+
+The cost reservation estimates text at approximately four characters per token with a 25% margin and reserves 20,000 input tokens per image as a conservative heuristic; this is not an exact provider invoice. The Vercel Gateway/provider budget remains authoritative.
+
+Model catalogue data is fetched live from Gateway metadata. Price information shown in the client is provider catalogue data, not a promise that requests are free. Benchmark scores are not fabricated; no automated model benchmarks have been run yet.
 
 ## Current endpoints
 
