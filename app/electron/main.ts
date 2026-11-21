@@ -47,6 +47,13 @@ type CloudAgentTask = {
     created_at: string;
   }>;
 };
+type CloudProject = {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+};
 type Attachment = { name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string };
 type AppearanceTheme = 'dark' | 'light' | 'system';
 type SettingsFile = {
@@ -492,6 +499,48 @@ async function listCloudTasks(projectId?: string): Promise<CloudAgentTask[]> {
   const query = projectId ? '?projectId=' + encodeURIComponent(projectId) : '';
   const result = await cloudApiRequest<{ tasks: CloudAgentTask[] }>('/api/tasks' + query, {}, true);
   return Array.isArray(result.tasks) ? result.tasks : [];
+}
+
+async function listCloudProjects(): Promise<CloudProject[]> {
+  const result = await cloudApiRequest<{ projects: CloudProject[] }>('/api/projects', {}, true);
+  return Array.isArray(result.projects) ? result.projects : [];
+}
+
+async function createCloudProject(payload: { name: string; description?: string }): Promise<CloudProject> {
+  const result = await cloudApiRequest<{ project: CloudProject }>('/api/projects', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, true);
+  return result.project;
+}
+
+async function updateCloudProject(projectId: string, payload: { name?: string; description?: string }): Promise<CloudProject> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+    throw new Error('Invalid cloud project ID.');
+  }
+  const result = await cloudApiRequest<{ project: CloudProject }>('/api/projects/' + encodeURIComponent(projectId), {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }, true);
+  return result.project;
+}
+
+async function deleteCloudProject(projectId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+    throw new Error('Invalid cloud project ID.');
+  }
+  const result = await cloudApiRequest<{ ok: boolean; deletedProjectId: string; deletedFileCount: number }>(
+    '/api/projects/' + encodeURIComponent(projectId),
+    { method: 'DELETE' },
+    true,
+  );
+  const session = await readCloudSession();
+  if (session?.currentProjectId === projectId) {
+    const next = { ...session };
+    delete next.currentProjectId;
+    await writeCloudSession(next);
+  }
+  return result;
 }
 
 async function loadCloudConversation(conversationId: string) {
@@ -1491,6 +1540,16 @@ handleIpc('cloud:sign-out', () => cloudSignOut());
 handleIpc('cloud:models', () => getCloudModels());
 handleIpc('cloud:conversations:list', (_event, projectId?: string) => listCloudConversations(projectId));
 handleIpc('cloud:tasks:list', (_event, projectId?: string) => listCloudTasks(projectId));
+handleIpc('cloud:projects:list', () => listCloudProjects());
+handleIpc('cloud:projects:create', (_event, payload: { name: string; description?: string }) => {
+  if (!payload || typeof payload.name !== 'string') throw new Error('Enter a project name.');
+  return createCloudProject({ name: payload.name, description: payload.description });
+});
+handleIpc('cloud:projects:update', (_event, payload: { projectId: string; name?: string; description?: string }) => {
+  if (!payload || typeof payload.projectId !== 'string') throw new Error('Invalid cloud project update.');
+  return updateCloudProject(payload.projectId, { name: payload.name, description: payload.description });
+});
+handleIpc('cloud:projects:delete', (_event, projectId: string) => deleteCloudProject(projectId));
 handleIpc('cloud:conversations:load', (_event, conversationId: string) => loadCloudConversation(conversationId));
 handleIpc('cloud:conversations:create', (_event, payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => {
   const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
