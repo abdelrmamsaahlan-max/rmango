@@ -65,7 +65,8 @@
       ],
       "artifactName": "Rmango-Setup-${version}-${arch}.${ext}",
       "icon": "build/icon.ico",
-      "verifyUpdateCodeSignature": false
+      "verifyUpdateCodeSignature": true,
+      "forceCodeSigning": true
     },
     "nsis": {
       "oneClick": false,
