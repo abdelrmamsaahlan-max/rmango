@@ -15,18 +15,18 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 
 - The Next.js cloud backend is deployed at [rmango-cloud.vercel.app](https://rmango-cloud.vercel.app) with Vercel OIDC enabled.
 - The dedicated Supabase project `rmango-cloud` is active in Frankfurt, and migration `202611210001_rmango_cloud.sql` has been applied.
-- Encrypted `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` variables are present in Vercel. The server-only `SUPABASE_SERVICE_ROLE_KEY` is still an administrator setup requirement; do not put it in the desktop app or source control.
-- The GitHub Actions variable `RMANGO_CLOUD_API_URL` still needs to be configured before a cloud-ready Windows installer can be published.
-- The Supabase global AI usage policy is deliberately disabled, with both USD spend caps at zero. No paid inference is authorized or started.
+- Encrypted `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and the server-only `SUPABASE_SECRET_KEY` are configured for the production cloud deployment. Never put the server key in the desktop app or source control.
+- The desktop build contains the public API endpoint in `app/cloud-config.json`; the GitHub Actions variable `RMANGO_CLOUD_API_URL` can override it during packaging.
+- The production usage policy has been enabled with conservative request, token and USD spend caps. The database policy is still fail-closed by default for a fresh deployment; the administrator must review budgets and external AI provider billing separately.
 
 ## Remaining cloud setup
 
-1. Add `SUPABASE_SERVICE_ROLE_KEY` as an encrypted server-only Vercel environment variable, then redeploy the cloud backend.
-2. Set the GitHub Actions repository variable `RMANGO_CLOUD_API_URL` to `https://rmango-cloud.vercel.app`.
-3. Build and verify the first cloud-configured Windows installer before replacing the old pre-cloud release.
-4. Keep the database usage policy disabled until the administrator separately approves an AI inference budget.
+1. Keep production Supabase keys server-side and redeploy after any environment-variable changes.
+2. Keep the GitHub Actions `RMANGO_CLOUD_API_URL` aligned with `https://rmango-cloud.vercel.app`.
+3. Verify each Windows Release contains both its versioned installer and `latest.yml`; a workflow artifact alone is not an in-app update.
+4. Review the database usage policy and Vercel AI Gateway/provider billing caps regularly.
 
-Cloud inference has a cost. The database usage policy is disabled by default; an administrator must set global daily/monthly USD caps and explicitly enable it before any inference request can start. Per-user request/token quotas and a second Vercel AI Gateway budget provide additional limits.
+Cloud inference has a cost. Fresh deployments default to a disabled global policy; an administrator must explicitly enable usage and set daily/monthly USD caps before inference can start. The current production project has a small enabled budget, but database caps are not a substitute for separate Vercel AI Gateway and provider billing limits. Per-user request/token quotas provide additional limits.
 
 ## Download and install the Windows app
 
@@ -38,9 +38,9 @@ Installed Windows builds check GitHub Releases shortly after startup and every f
 
 ## Automatic updates
 
-Every push to `main` builds and verifies a versioned Windows NSIS installer artifact. It publishes the EXE and `latest.yml` to a public GitHub Release **only when** the GitHub repository variable `RMANGO_CLOUD_API_URL` is set to the deployed Rmango Cloud HTTPS URL. Without that URL, the installer is retained as a CI artifact and no public release is published.
+Every push to `main` builds a versioned Windows NSIS installer. When the public HTTPS cloud URL is configured, the workflow publishes the EXE and `latest.yml` to a public GitHub Release, which is the feed read by the in-app updater. A CI workflow artifact by itself is not discoverable by `electron-updater`.
 
-The last pre-cloud desktop release is local-AI based and cannot run the new cloud-only client. After the backend is deployed and `RMANGO_CLOUD_API_URL` is configured, install the first cloud-enabled release manually once; later releases can be installed from inside Rmango. Current published build and signing state should be checked on the Releases page.
+Authenticode publisher signing is optional for the update feed because the desktop updater is configured to accept unsigned updates and validates the HTTPS release metadata and SHA-512 file hash. Unsigned installers do not have a trusted publisher identity and may trigger a Windows SmartScreen unknown-publisher warning. Configure the signing certificate secrets to add publisher identity. Builds older than the first cloud-enabled installer may need one manual install; cloud-enabled builds can update from the GitHub Releases feed.
 
 ## Developer hot reload
 
@@ -93,9 +93,8 @@ Current source-file import is limited to 120 files, 512 KB per file and supporte
 
 ## Current limitations
 
-- The Vercel cloud app and Supabase project are not provisioned yet; real account/chat calls are not live.
-- Model profiles are dynamically selected from Gateway catalogue metadata. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
-- The desktop and cloud backend have CI build checks; full cloud login, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
+- The production health endpoint confirms the database and AI Gateway configuration, but a full desktop sign-in, real hosted model response, private upload, Studio round-trip and ZIP export should still be tested end to end after each release.
+- Model profiles are dynamically selected from live Gateway catalogue metadata. Rmango skills are versioned Roblox engineering instruction packs, not separately trained/fine-tuned models. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
 - Long-running agent work is not yet moved to a durable workflow/worker system; current chat requests and Studio tool calls have bounded request timeouts.
 - Admin usage dashboard, admin model-routing editor, durable task queue, PDF/DOCX parsing, vector RAG, full project dependency indexing and binary Roblox project import are not complete.
 - Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. A separate Vercel AI Gateway budget is still required.
