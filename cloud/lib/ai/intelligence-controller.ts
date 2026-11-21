@@ -129,9 +129,11 @@ const BUDGETS: Record<IntelligenceLevel, Omit<IntelligenceBudget, "useProjectToo
 };
 
 function detectIntent(prompt: string, hasSelectedProject = false): IntelligenceIntent {
+  const strongDebugIntent = /\\b(debug|diagnos\\w*|troubleshoot|root cause|stack trace|not working|doesn't work|doesnt work|broken|crash|bug)\\b/i.test(prompt);
   const explicitPlanningOnly = /\\b(plan only|just (?:make|write|create) (?:the )?plan|do not (?:write|change|modify|implement|code)|don't (?:write|change|modify|implement|code)|without (?:writing|changing|modifying) code|before coding)\\b/i.test(prompt);
   for (const item of INTENT_PATTERNS) {
     if (item.pattern.test(prompt)) {
+      if (item.intent === "debugging" && IMPLEMENTATION.test(prompt) && !strongDebugIntent) return "implementation";
       if (item.intent === "planning" && IMPLEMENTATION.test(prompt) && !explicitPlanningOnly) return "implementation";
       return item.intent;
     }

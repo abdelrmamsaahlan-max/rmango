@@ -19,7 +19,7 @@ test("prefers safe structured provider diagnostics and their next steps", () => 
     error: "Provider blocked request.",
     nextStep: "Contact the team administrator.",
   });
-  assert.ok(result.includes("team administrator"));
+  assert.ok(result.includes("administrator who manages the Vercel team"));
   assert.ok(result.includes("RMango cannot bypass it"));
 });
 

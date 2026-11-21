@@ -80,7 +80,7 @@ test("does not grant project or Studio tools to ordinary instant questions", () 
 });
 
 test("increases context and verification budgets monotonically by level", () => {
-  const levels = ["instant", "focused", "advanced", "deep"] as const;
+  const levels = ["instant", "focused", "advanced", "deep"];
   const budgets = levels.map(level => run("Explain this system.", { levelSetting: level }).budget);
   for (let i = 1; i < budgets.length; i++) {
     assert.ok(budgets[i].maxSteps >= budgets[i - 1].maxSteps);

@@ -103,7 +103,8 @@ test("BM25 rewards rare, discriminative file-name terms over generic repeated wo
   ];
   const ranked = rankProjectItemsWithEvidence(files, "InventoryService AddItem", { getText: item => item.path + " " + item.text });
   assert.equal(ranked[0].item.path, "ServerScriptService/InventoryService.luau");
-  assert.ok(ranked[0].matchedTerms.includes("inventoryservice"));
+  assert.ok(ranked[0].matchedTerms.includes("inventory"));
+  assert.ok(ranked[0].matchedTerms.includes("service"));
   assert.equal(ranked[0].retrievalMethod, "bm25");
 });
 

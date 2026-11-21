@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rankProjectItemsWithEvidence } from "../../project-relevance.ts";
+import { rankProjectItemsWithEvidence } from "../project-relevance.ts";
 import { projectRetrievalCases, projectRetrievalCorpus } from "../evaluations/fixtures/project-retrieval-cases.mjs";
 
 function legacyOverlapScore(query, candidate) {
