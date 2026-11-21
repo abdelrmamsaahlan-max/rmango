@@ -1368,8 +1368,6 @@ function App() {
               </div>
               <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
             </div>
-              <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
-            </div>
 
             <div className="field-label">CLOUD MODEL PROFILES</div>
             <p className="settings-explainer">Choose a managed profile. Rmango routes requests to a compatible hosted model and uses fallbacks when configured.</p>
