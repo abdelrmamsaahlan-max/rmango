@@ -449,10 +449,10 @@ begin
 end;
 $$;
 
-revoke all on function public.reserve_ai_request(uuid,uuid,text,integer) from public, anon, authenticated;
+revoke all on function public.reserve_ai_request(uuid,uuid,text,integer,numeric) from public, anon, authenticated;
 revoke all on function public.complete_ai_request(uuid,uuid,text,text,text,integer,integer,numeric) from public, anon, authenticated;
 revoke all on function public.cancel_ai_request(uuid,uuid) from public, anon, authenticated;
-grant execute on function public.reserve_ai_request(uuid,uuid,text,integer) to service_role;
+grant execute on function public.reserve_ai_request(uuid,uuid,text,integer,numeric) to service_role;
 grant execute on function public.complete_ai_request(uuid,uuid,text,text,text,integer,integer,numeric) to service_role;
 grant execute on function public.cancel_ai_request(uuid,uuid) to service_role;
 
@@ -519,3 +519,17 @@ $$;
 
 revoke all on function public.claim_studio_commands(uuid,integer) from public, anon;
 grant execute on function public.claim_studio_commands(uuid,integer) to authenticated;
+
+
+-- Explicit Data API privileges for new Supabase projects.
+-- RLS remains enabled and limits authenticated users to the rows allowed by the
+-- owner policies above. The cloud API's admin client uses service_role.
+grant usage on schema public to authenticated, service_role;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant all privileges on all tables in schema public to service_role;
+grant usage, select on all sequences in schema public to authenticated;
+grant all privileges on all sequences in schema public to service_role;
+
+-- Profile edits are intentionally limited to these two fields.
+revoke insert, update, delete on table public.user_profiles from authenticated;
+grant update(display_name, updated_at) on table public.user_profiles to authenticated;
