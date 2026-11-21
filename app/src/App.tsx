@@ -7,7 +7,7 @@ import {
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3
 } from 'lucide-react';
 import type {
-  AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels,
+  AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
   CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
@@ -78,6 +78,9 @@ function App() {
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
+  const [cloudProjectChanges, setCloudProjectChanges] = useState<CloudProjectChange[]>([]);
+  const [projectChangesOpen, setProjectChangesOpen] = useState(false);
+  const [reviewingChangeId, setReviewingChangeId] = useState<string | null>(null);
   const [uploadingProject, setUploadingProject] = useState(false);
   const [projectUploadProgress, setProjectUploadProgress] = useState<{ completed: number; total: number; uploaded: number; skipped: number; currentFile: string } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -126,6 +129,13 @@ function App() {
         setAppState(state);
         setProjectFiles(state.projectFiles || []);
         setCloudState(cloud);
+        if (cloud.currentProjectId) {
+          setCloudProjectId(cloud.currentProjectId);
+          try {
+            const changeList = await window.rmango.getCloudProjectChanges(cloud.currentProjectId);
+            setCloudProjectChanges(changeList.changes || []);
+          } catch { /* Existing cloud project may no longer be accessible. */ }
+        }
         setMessages(savedMessages || []);
         if (state.studioConnected) void refreshMcpState();
         if (cloud.signedIn && cloud.serviceReady) {
@@ -258,6 +268,8 @@ function App() {
     try {
       const result = await window.rmango.uploadCloudProject();
       setCloudProjectId(result.projectId);
+      const changeList = await window.rmango.getCloudProjectChanges(result.projectId);
+      setCloudProjectChanges(changeList.changes || []);
       setToast('Uploaded ' + result.uploaded + ' source files to your private cloud project.' + (result.skipped.length ? ' ' + result.skipped.length + ' files were skipped.' : ''));
       if (result.skipped.length) {
         setActivities(current => [
@@ -270,6 +282,54 @@ function App() {
     } finally {
       setUploadingProject(false);
       setProjectUploadProgress(null);
+    }
+  }
+
+  async function handleLoadProjectChanges() {
+    if (!cloudProjectId) return;
+    try {
+      const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
+      setCloudProjectChanges(result.changes || []);
+      setProjectChangesOpen(true);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not load cloud project changes.');
+    }
+  }
+
+  async function handleReviewProjectChange(change: CloudProjectChange, decision: 'approve' | 'reject') {
+    if (!cloudProjectId || reviewingChangeId) return;
+    setReviewingChangeId(change.id);
+    try {
+      await window.rmango.reviewCloudProjectChange({
+        projectId: cloudProjectId,
+        changeId: change.id,
+        decision,
+      });
+      const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
+      setCloudProjectChanges(result.changes || []);
+      setToast(decision === 'approve'
+        ? 'Approved and applied ' + change.relative_path + ' in the cloud workspace.'
+        : 'Rejected the proposed change to ' + change.relative_path + '.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not review the proposed change.');
+      if (cloudProjectId) {
+        try {
+          const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
+          setCloudProjectChanges(result.changes || []);
+        } catch { /* Keep the previous review list visible. */ }
+      }
+    } finally {
+      setReviewingChangeId(null);
+    }
+  }
+
+  async function handleDownloadCloudProject() {
+    if (!cloudProjectId) return;
+    try {
+      const result = await window.rmango.downloadCloudProject(cloudProjectId);
+      if (!result.canceled) setToast('Downloaded the cloud project ZIP to ' + result.path);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not download the cloud project.');
     }
   }
 
@@ -618,7 +678,13 @@ function App() {
               <div><span>{projectUploadProgress.currentFile}</span><strong>{projectUploadProgress.completed}/{projectUploadProgress.total}</strong></div>
               <div className="update-progress-track"><div className="update-progress-fill" style={{ width: (projectUploadProgress.total ? projectUploadProgress.completed / projectUploadProgress.total * 100 : 0) + '%' }}/></div>
             </div>}
-            {cloudProjectId && <small>Linked cloud project · {cloudProjectId.slice(0, 8)}</small>}
+            {cloudProjectId && <>
+              <small>Linked cloud project · {cloudProjectId.slice(0, 8)}</small>
+              <div className="cloud-project-actions">
+                <button type="button" onClick={() => void handleLoadProjectChanges()}><Code2 size={12}/> Review changes ({cloudProjectChanges.filter(item => item.status === 'pending').length})</button>
+                <button type="button" onClick={() => void handleDownloadCloudProject()}><Download size={12}/> Download ZIP</button>
+              </div>
+            </>}
             {!cloudReady && <small>Sign in and connect Rmango Cloud to upload</small>}
           </div>}
           {projectFiles.length > 0 && <>
@@ -872,6 +938,43 @@ function App() {
           <div className="right-footer"><ShieldCheck size={13}/> Every Studio change requires your approval.</div>
         </aside>}
       </div>
+
+      {projectChangesOpen && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setProjectChangesOpen(false); }}>
+        <div className="settings-modal project-changes-modal">
+          <div className="modal-header">
+            <div>
+              <div className="modal-kicker">CLOUD PROJECT WORKSPACE</div>
+              <h2>Review proposed changes</h2>
+              <p>Nothing is applied until you approve it. Approved files become part of the private cloud project ZIP.</p>
+            </div>
+            <button type="button" className="icon-button" onClick={() => setProjectChangesOpen(false)}><X size={17}/></button>
+          </div>
+          {cloudProjectChanges.length === 0
+            ? <div className="tools-empty"><FileCode2 size={18}/><span>No proposed changes yet. Ask Rmango Agent to edit a file in your uploaded cloud project.</span></div>
+            : <div className="project-change-list">
+              {cloudProjectChanges.map(change =>
+                <div className="project-change-card" key={change.id}>
+                  <div className="project-change-heading">
+                    <div><strong>{change.file_name}</strong><small>{change.relative_path}</small></div>
+                    <badge color={change.status === 'pending' ? 'warning' : change.status === 'approved' ? 'success' : 'secondary'}>{change.status.toUpperCase()}</badge>
+                  </div>
+                  <p>{change.change_summary}</p>
+                  <div className="project-change-meta"><span>Created {displayTime(change.created_at)}</span><span>{change.original_sha256 ? 'Existing file' : 'New file'}</span></div>
+                  {change.status === 'pending' && <div className="project-change-actions">
+                    <button type="button" className="deny-button" disabled={reviewingChangeId === change.id} onClick={() => void handleReviewProjectChange(change, 'reject')}>Reject</button>
+                    <button type="button" className="approve-button" disabled={reviewingChangeId === change.id} onClick={() => void handleReviewProjectChange(change, 'approve')}>
+                      {reviewingChangeId === change.id ? <LoaderCircle size={13} className="spin"/> : <Check size={13}/>} Approve and apply
+                    </button>
+                  </div>}
+                </div>
+              )}
+            </div>}
+          <div className="modal-footer">
+            <button type="button" className="cancel-button" onClick={() => setProjectChangesOpen(false)}>Close</button>
+            {cloudProjectId && <button type="button" className="save-button" onClick={() => void handleDownloadCloudProject()}><Download size={13}/> Download ZIP</button>}
+          </div>
+        </div>
+      </div>}
 
       {pendingApproval && <div className="approval-backdrop">
         <div className="approval-modal">
