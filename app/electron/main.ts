@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -48,6 +48,7 @@ let selectedStudioId: string | undefined;
 let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
+const activeChatRequests = new Map<string, AbortController>();
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
 let appUpdateState: AppUpdateState = {
@@ -260,48 +261,71 @@ async function sendCloudMessage(payload: {
   conversationId?: string;
   requestId?: string;
 }) {
-  const session = await getValidCloudSession();
-  const baseUrl = await getCloudApiBaseUrl();
-  if (!baseUrl) throw new Error('The Rmango cloud backend is not configured.');
-  const requestId = payload.requestId || randomUUID();
-  const response = await fetch(baseUrl + '/api/chat', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + session.accessToken },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(125_000),
-  });
-  if (!response.ok) {
-    const raw = await response.text();
-    let message = raw;
-    try { const parsed = JSON.parse(raw); message = parsed.error || parsed.message || raw; } catch { /* text error */ }
-    if (response.status === 401) throw new Error('Your Rmango cloud session expired. Sign in again.');
-    if (response.status === 429) throw new Error(message || 'Your Rmango cloud usage limit has been reached.');
-    throw new Error(message || ('Rmango Cloud returned HTTP ' + response.status + '.'));
-  }
-  if (!response.body) throw new Error('The cloud AI returned an empty stream.');
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let content = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const delta = decoder.decode(value, { stream: true });
-    if (delta) {
-      content += delta;
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) window.webContents.send('cloud:chat-delta', { requestId, delta });
+  const requestId = typeof payload.requestId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.requestId)
+    ? payload.requestId
+    : randomUUID();
+  if (activeChatRequests.has(requestId)) throw new Error('That chat request is already running.');
+
+  const controller = new AbortController();
+  activeChatRequests.set(requestId, controller);
+  const timeout = setTimeout(() => controller.abort(new Error('The cloud request timed out. Please try again.')), 125_000);
+  timeout.unref?.();
+
+  try {
+    const session = await getValidCloudSession();
+    const baseUrl = await getCloudApiBaseUrl();
+    if (controller.signal.aborted) throw controller.signal.reason || new Error('The cloud request was cancelled.');
+    if (!baseUrl) throw new Error('The Rmango cloud backend is not configured.');
+
+    const response = await fetch(baseUrl + '/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + session.accessToken },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const raw = await response.text();
+      let message = raw;
+      try { const parsed = JSON.parse(raw); message = parsed.error || parsed.message || raw; } catch { /* text error */ }
+      if (response.status === 401) throw new Error('Your Rmango cloud session expired. Sign in again.');
+      if (response.status === 429) throw new Error(message || 'Your Rmango cloud usage limit has been reached.');
+      throw new Error(message || ('Rmango Cloud returned HTTP ' + response.status + '.'));
+    }
+    if (!response.body) throw new Error('The cloud AI returned an empty stream.');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let content = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const delta = decoder.decode(value, { stream: true });
+      if (delta) {
+        content += delta;
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send('cloud:chat-delta', { requestId, delta });
+        }
       }
     }
+    content += decoder.decode();
+    return {
+      requestId,
+      content,
+      conversationId: response.headers.get('X-Rmango-Conversation-Id') || payload.conversationId || undefined,
+      modelId: response.headers.get('X-Rmango-Model') || undefined,
+      profile: payload.profile,
+      activity: [] as ActivityItem[],
+    };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      const reason = controller.signal.reason;
+      throw reason instanceof Error ? reason : new Error('The cloud request was cancelled.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    if (activeChatRequests.get(requestId) === controller) activeChatRequests.delete(requestId);
   }
-  content += decoder.decode();
-  return {
-    requestId,
-    content,
-    conversationId: response.headers.get('X-Rmango-Conversation-Id') || payload.conversationId || undefined,
-    modelId: response.headers.get('X-Rmango-Model') || undefined,
-    profile: payload.profile,
-    activity: [] as ActivityItem[],
-  };
 }
 
 function createWindow() {
@@ -320,6 +344,10 @@ function createWindow() {
       sandbox: true,
     },
   });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isTrustedRendererUrl(url)) event.preventDefault();
+  });
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   if (!app.isPackaged) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173');
@@ -328,6 +356,41 @@ function createWindow() {
     void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+function isTrustedRendererUrl(candidate: string) {
+  try {
+    if (!app.isPackaged) {
+      const expected = new URL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173');
+      const actual = new URL(candidate);
+      return actual.origin === expected.origin;
+    }
+    const actualPath = path.resolve(fileURLToPath(candidate));
+    const expectedPath = path.resolve(path.join(__dirname, '../dist/index.html'));
+    return actualPath.toLowerCase() === expectedPath.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedIpcSender(event: IpcMainInvokeEvent) {
+  const window = mainWindow;
+  const frame = event.senderFrame;
+  return Boolean(
+    window &&
+    !window.isDestroyed() &&
+    event.sender === window.webContents &&
+    frame &&
+    frame === window.webContents.mainFrame &&
+    isTrustedRendererUrl(frame.url)
+  );
+}
+
+function handleIpc(channel: string, handler: (event: IpcMainInvokeEvent, ...args: any[]) => any) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isTrustedIpcSender(event)) throw new Error('Blocked IPC request from an untrusted renderer.');
+    return handler(event, ...args);
+  });
 }
 
 async function connectRoblox() {
@@ -940,7 +1003,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => { void disconnectRoblox(); });
 
-ipcMain.handle('app:get-state', async () => {
+handleIpc('app:get-state', async () => {
   const settings = await readSettings();
   const files = settings.projectPath ? await projectFiles(settings.projectPath) : [];
   return {
@@ -953,23 +1016,23 @@ ipcMain.handle('app:get-state', async () => {
   };
 });
 
-ipcMain.handle('cloud:state', () => getCloudState());
-ipcMain.handle('cloud:sign-in', async (_event, payload: { email: string; password: string }) => {
+handleIpc('cloud:state', () => getCloudState());
+handleIpc('cloud:sign-in', async (_event, payload: { email: string; password: string }) => {
   if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
     throw new Error('Enter your Rmango account email and password.');
   }
   return cloudSignIn(payload.email, payload.password);
 });
-ipcMain.handle('cloud:sign-up', async (_event, payload: { email: string; password: string; displayName?: string }) => {
+handleIpc('cloud:sign-up', async (_event, payload: { email: string; password: string; displayName?: string }) => {
   if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
     throw new Error('Enter an email and password to create a Rmango account.');
   }
   return cloudSignUp(payload.email, payload.password, payload.displayName);
 });
-ipcMain.handle('cloud:sign-out', () => cloudSignOut());
-ipcMain.handle('cloud:models', () => getCloudModels());
+handleIpc('cloud:sign-out', () => cloudSignOut());
+handleIpc('cloud:models', () => getCloudModels());
 
-ipcMain.handle('project:open', async () => {
+handleIpc('project:open', async () => {
   const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
   if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
   const root = picked.filePaths[0];
@@ -977,25 +1040,25 @@ ipcMain.handle('project:open', async () => {
   await writeSettings({ ...settings, projectPath: root });
   return { canceled: false, path: root, files: await projectFiles(root) };
 });
-ipcMain.handle('project:upload-cloud', () => uploadCloudProject());
-ipcMain.handle('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
-ipcMain.handle('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
+handleIpc('project:upload-cloud', () => uploadCloudProject());
+handleIpc('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
+handleIpc('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
   if (!payload || (payload.decision !== "approve" && payload.decision !== "reject")) {
     throw new Error("A valid approve/reject decision is required.");
   }
   return reviewCloudProjectChange(payload.projectId, payload.changeId, payload.decision);
 });
-ipcMain.handle('project:download-cloud', (_event, projectId: string) => downloadCloudProjectZip(projectId));
-ipcMain.handle('project:clear', async () => {
+handleIpc('project:download-cloud', (_event, projectId: string) => downloadCloudProjectZip(projectId));
+handleIpc('project:clear', async () => {
   const settings = await readSettings();
   delete settings.projectPath;
   await writeSettings(settings);
   return { ok: true };
 });
 
-ipcMain.handle('mcp:connect', () => connectRoblox());
-ipcMain.handle('mcp:disconnect', () => disconnectRoblox());
-ipcMain.handle('mcp:state', async () => {
+handleIpc('mcp:connect', () => connectRoblox());
+handleIpc('mcp:disconnect', () => disconnectRoblox());
+handleIpc('mcp:state', async () => {
   const session = await readCloudSession();
   return {
     connected: mcpAvailable(),
@@ -1005,13 +1068,13 @@ ipcMain.handle('mcp:state', async () => {
     studioId: selectedStudioId || null,
   };
 });
-ipcMain.handle('mcp:list-tools', () => ({
+handleIpc('mcp:list-tools', () => ({
   all: connectedTools.map(tool => ({ name: tool.name, description: tool.description || '' })),
   readOnly: safeToolList().filter(tool => READ_ONLY_STUDIO_TOOLS.has(tool.name)).map(tool => tool.name),
   approvalRequired: safeToolList().filter(tool => APPROVAL_REQUIRED_STUDIO_TOOLS.has(tool.name)).map(tool => tool.name),
 }));
-ipcMain.handle('mcp:diagnostics', () => runDiagnostics());
-ipcMain.handle('studio:approval-result', (_event, response: { requestId: string; approved: boolean }) => {
+handleIpc('mcp:diagnostics', () => runDiagnostics());
+handleIpc('studio:approval-result', (_event, response: { requestId: string; approved: boolean }) => {
   const resolve = approvalResolvers.get(response.requestId);
   if (resolve) {
     approvalResolvers.delete(response.requestId);
@@ -1021,10 +1084,10 @@ ipcMain.handle('studio:approval-result', (_event, response: { requestId: string;
   return { ok: false };
 });
 
-ipcMain.handle('chat:load', async () => {
+handleIpc('chat:load', async () => {
   try { return JSON.parse(await fs.readFile(sessionPath(), 'utf8')) as ChatMessage[]; } catch { return []; }
 });
-ipcMain.handle('chat:save', async (_event, messages: ChatMessage[]) => {
+handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
   await fs.mkdir(userData(), { recursive: true });
   const cleaned = messages.slice(-100).map(message => ({
     ...message,
@@ -1036,7 +1099,15 @@ ipcMain.handle('chat:save', async (_event, messages: ChatMessage[]) => {
   return { ok: true };
 });
 
-ipcMain.handle('cloud:send', async (_event, payload: {
+handleIpc('cloud:cancel', (_event, requestId: string) => {
+  if (typeof requestId !== 'string' || requestId.length > 80) return { ok: false };
+  const controller = activeChatRequests.get(requestId);
+  if (!controller) return { ok: false };
+  controller.abort(new Error('Generation cancelled by the user.'));
+  return { ok: true };
+});
+
+handleIpc('cloud:send', async (_event, payload: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   attachments?: Attachment[];
   profile: CloudProfile;
@@ -1066,9 +1137,9 @@ ipcMain.handle('cloud:send', async (_event, payload: {
   });
 });
 
-ipcMain.handle('updates:get-state', () => appUpdateState);
-ipcMain.handle('updates:check', () => checkForAppUpdates());
-ipcMain.handle('updates:install', async () => {
+handleIpc('updates:get-state', () => appUpdateState);
+handleIpc('updates:check', () => checkForAppUpdates());
+handleIpc('updates:install', async () => {
   if (!app.isPackaged || process.platform !== 'win32') {
     return { ok: false, message: 'Install updates from a packaged Windows build.' };
   }
@@ -1079,8 +1150,11 @@ ipcMain.handle('updates:install', async () => {
   return { ok: true, message: 'Restarting Rmango to install the update.' };
 });
 
-ipcMain.handle('app:open-external', async (_event, url: string) => {
-  if (typeof url !== 'string' || !/^https:\/\//i.test(url)) return { ok: false };
-  await shell.openExternal(url);
+handleIpc('app:open-external', async (_event, url: string) => {
+  if (typeof url !== 'string') return { ok: false };
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return { ok: false }; }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return { ok: false };
+  await shell.openExternal(parsed.toString());
   return { ok: true };
 });
