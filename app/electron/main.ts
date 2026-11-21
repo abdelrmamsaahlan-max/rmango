@@ -332,8 +332,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 1000,
-    minWidth: 1060,
-    minHeight: 700,
+    minWidth: 900,
+    minHeight: 600,
     backgroundColor: '#0c1711',
     title: 'Rmango',
     show: false,
