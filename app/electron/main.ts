@@ -693,6 +693,68 @@ async function readProjectFile(root: string, relativePath: string) {
   return fs.readFile(realTarget, 'utf8');
 }
 
+function validateCloudUuid(value: string, label: string) {
+  if (typeof value !== "string" || !/^[0-9a-f-]{36}$/i.test(value)) {
+    throw new Error("Invalid " + label + ".");
+  }
+}
+
+async function listAgentTasks(projectId?: string) {
+  if (projectId) validateCloudUuid(projectId, "cloud project ID");
+  const query = projectId ? "?projectId=" + encodeURIComponent(projectId) : "";
+  return cloudApiRequest<any>("/api/agent/tasks" + query);
+}
+
+async function getAgentTask(taskId: string) {
+  validateCloudUuid(taskId, "agent task ID");
+  return cloudApiRequest<any>("/api/agent/tasks/" + taskId);
+}
+
+async function createAgentTask(payload: {
+  projectId: string;
+  conversationId?: string;
+  taskText: string;
+  profile: CloudProfile;
+}) {
+  if (!payload) throw new Error("Invalid agent task request.");
+  validateCloudUuid(payload.projectId, "cloud project ID");
+  if (payload.conversationId) validateCloudUuid(payload.conversationId, "conversation ID");
+  if (typeof payload.taskText !== "string" || payload.taskText.trim().length < 8 || payload.taskText.length > 12_000) {
+    throw new Error("Describe the Roblox task using between 8 and 12,000 characters.");
+  }
+  const profiles: CloudProfile[] = ["fast", "developer", "think", "vision", "agent"];
+  if (!profiles.includes(payload.profile)) throw new Error("Invalid Rmango model profile.");
+  return cloudApiRequest<any>("/api/agent/tasks", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, taskText: payload.taskText.trim() }),
+    signal: AbortSignal.timeout(30_000),
+  });
+}
+
+async function controlAgentTask(payload: { taskId: string; action: "pause" | "resume" | "cancel" | "retry" }) {
+  if (!payload) throw new Error("Invalid agent task control request.");
+  validateCloudUuid(payload.taskId, "agent task ID");
+  const actions = ["pause", "resume", "cancel", "retry"] as const;
+  if (!actions.includes(payload.action)) throw new Error("Invalid agent task action.");
+  return cloudApiRequest<any>("/api/agent/tasks/" + payload.taskId, {
+    method: "PATCH",
+    body: JSON.stringify({ action: payload.action }),
+  });
+}
+
+async function getCloudProjectIndex(projectId: string) {
+  validateCloudUuid(projectId, "cloud project ID");
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/index");
+}
+
+async function startCloudProjectIndex(projectId: string) {
+  validateCloudUuid(projectId, "cloud project ID");
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/index", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 async function getCloudProjectChanges(projectId: string) {
   if (!/^[0-9a-f-]{36}$/i.test(projectId)) throw new Error("Invalid cloud project ID.");
   return cloudApiRequest<any>("/api/projects/" + projectId + "/changes");
@@ -1006,6 +1068,12 @@ ipcMain.handle('project:open', async () => {
 });
 ipcMain.handle('project:upload-cloud', () => uploadCloudProject());
 ipcMain.handle('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
+ipcMain.handle('agent:tasks:list', (_event, projectId?: string) => listAgentTasks(projectId));
+ipcMain.handle('agent:tasks:get', (_event, taskId: string) => getAgentTask(taskId));
+ipcMain.handle('agent:tasks:create', (_event, payload: { projectId: string; conversationId?: string; taskText: string; profile: CloudProfile }) => createAgentTask(payload));
+ipcMain.handle('agent:tasks:control', (_event, payload: { taskId: string; action: "pause" | "resume" | "cancel" | "retry" }) => controlAgentTask(payload));
+ipcMain.handle('project:index:get', (_event, projectId: string) => getCloudProjectIndex(projectId));
+ipcMain.handle('project:index:start', (_event, projectId: string) => startCloudProjectIndex(projectId));
 ipcMain.handle('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
   if (!payload || (payload.decision !== "approve" && payload.decision !== "reject")) {
     throw new Error("A valid approve/reject decision is required.");
