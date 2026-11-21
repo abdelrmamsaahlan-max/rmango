@@ -1933,6 +1933,18 @@ function App() {
                   const verification = result.verification && typeof result.verification === 'object'
                     ? result.verification as Record<string, unknown>
                     : {};
+                  const intelligence = workflow.intelligence && typeof workflow.intelligence === 'object'
+                    ? workflow.intelligence as Record<string, unknown>
+                    : {};
+                  const intelligenceBudget = intelligence.budget && typeof intelligence.budget === 'object'
+                    ? intelligence.budget as Record<string, unknown>
+                    : {};
+                  const intelligenceReasons = Array.isArray(intelligence.reasons)
+                    ? intelligence.reasons.filter(item => typeof item === 'string') as string[]
+                    : [];
+                  const intelligenceLevel = typeof intelligence.level === 'string' ? intelligence.level : '';
+                  const intelligenceIntent = typeof intelligence.intent === 'string' ? intelligence.intent.replaceAll('_', ' ') : '';
+                  const intelligenceProfile = typeof intelligence.modelProfile === 'string' ? intelligence.modelProfile : '';
                   const verificationStatus = typeof verification.status === 'string' ? verification.status : '';
                   const plan = Array.isArray(workflow.plan)
                     ? workflow.plan.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>
@@ -1953,6 +1965,22 @@ function App() {
                       </div>
                       <p>{task.task_text}</p>
                       {task.error && <span className="task-history-error">{task.error}</span>}
+                      {intelligenceLevel && <details className="task-intelligence-details" open={false}>
+                        <summary><Sparkles size={11}/> {intelligenceLevel.replaceAll('_', ' ')} · {intelligenceIntent || 'task routing'} · {intelligenceProfile} profile</summary>
+                        <div className="task-intelligence-content">
+                          <div className="task-intelligence-budget">
+                            <span><b>{String(intelligenceBudget.maxSteps ?? '—')}</b> max steps</span>
+                            <span><b>{String(intelligenceBudget.maxProjectFiles ?? '—')}</b> project files</span>
+                            <span><b>{String(intelligenceBudget.maxMemoryNotes ?? '—')}</b> memory notes</span>
+                            <span><b>{String(intelligenceBudget.maxOutputTokens ?? '—')}</b> output-token budget</span>
+                          </div>
+                          <small>Verification depth: {String(intelligenceBudget.verificationDepth || 'unspecified')} · Model profile {intelligence.profileWasAutoSelected === true ? 'auto-selected' : 'manually selected'}</small>
+                          {intelligenceBudget.externalSourcesAvailable === false && intelligenceLevel === 'research' && (
+                            <small className="task-intelligence-limitation">No live external documentation search was available for this task.</small>
+                          )}
+                          {intelligenceReasons.length > 0 && <small>Routing signals: {intelligenceReasons.join(' · ')}</small>}
+                        </div>
+                      </details>}
                       {plan.length > 0 && <details className="task-events">
                         <summary>{strategy} plan · {plan.length} steps</summary>
                         <div>{plan.map((item, index) => {

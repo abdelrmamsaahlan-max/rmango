@@ -165,3 +165,5 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 
 - Before an approved cloud edit is recorded as successful, RMango now downloads the just-uploaded private object and verifies its SHA-256 against the proposed content. It also checks that the project-file index row contains the same hash and storage path. A failed read-back triggers a best-effort restore from the checkpoint and is reported as a failure, not a pass.
 - Checkpoint restoration uses the same read-back hash verification before updating file metadata. On mismatch it attempts to put the previously live bytes back, and reports a recovery conflict if that cannot also be verified.
+
+- The task inspector now displays the actual controller decision recorded in each task: intent, chosen intelligence level, model profile and whether it was automatic or manually selected, along with the applied step/file/memory/output budgets, verification depth and routing signals. Research tasks explicitly show when live external documentation access was unavailable.

@@ -1198,3 +1198,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .git-diff-preview .git-line-meta{color:#8cb3d8;background:rgba(73,119,159,.12)}
 .git-diff-preview .git-line-added{color:#a9d99f;background:rgba(80,150,75,.12)}
 .git-diff-preview .git-line-removed{color:#e4a19b;background:rgba(175,70,60,.12)}
+
+.task-intelligence-details{margin:5px 0;padding:6px 7px;border:1px solid #344c3f;border-radius:6px;background:#13231b}
+.task-intelligence-details>summary{display:flex;align-items:center;gap:5px;list-style:none;cursor:pointer;color:#b2d6a5;font-size:8px}
+.task-intelligence-details>summary::-webkit-details-marker{display:none}
+.task-intelligence-content{display:flex;flex-direction:column;gap:6px;padding-top:7px}
+.task-intelligence-content>small{font-size:7px;line-height:1.5;color:#91a88d;overflow-wrap:anywhere}
+.task-intelligence-budget{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+.task-intelligence-budget span{padding:5px;border-radius:4px;background:#1a3023;color:#91a88d;font-size:7px}
+.task-intelligence-budget b{color:#e1f0d8;font:9px var(--mono)}
+.task-intelligence-content .task-intelligence-limitation{color:#e0bf7b}
