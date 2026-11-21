@@ -11,15 +11,17 @@ import electronUpdater from 'electron-updater';
 
 const { autoUpdater } = electronUpdater;
 
-type Provider = 'ollama' | 'anthropic' | 'openai';
+type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
 type ChatMessage = { role: 'user' | 'assistant'; content: string; createdAt?: string };
 type Attachment = { name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string };
-type SettingsFile = {
-  provider: Provider;
-  model: string;
-  encryptedApiKey?: string;
-  encryptedApiKeys?: Partial<Record<'anthropic' | 'openai', string>>;
-  projectPath?: string;
+type SettingsFile = { projectPath?: string };
+type CloudSession = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt?: number;
+  user: { id: string; email?: string };
+  studioConnectorId?: string;
+  studioConnectorSecret?: string;
 };
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
 type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
@@ -35,8 +37,6 @@ type AppUpdateState = {
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OLLAMA_BASE = 'http://127.0.0.1:11434';
-const DEFAULT_LOCAL_MODEL = 'qwen3.5:4b';
 const APPROVAL_TIMEOUT_MS = 120_000;
 
 let mainWindow: BrowserWindow | null = null;
@@ -44,7 +44,8 @@ let mcpClient: Client | null = null;
 let mcpTransport: StdioClientTransport | null = null;
 let connectedTools: McpTool[] = [];
 let selectedStudioId: string | undefined;
-const volatileApiKeys: Partial<Record<'anthropic' | 'openai', string>> = {};
+let studioPollTimer: NodeJS.Timeout | null = null;
+let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 let updateCheckInFlight = false;
@@ -57,20 +58,14 @@ let appUpdateState: AppUpdateState = {
 const userData = () => app.getPath('userData');
 const settingsPath = () => path.join(userData(), 'settings.json');
 const sessionPath = () => path.join(userData(), 'session.json');
+const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
 
 async function readSettings(): Promise<SettingsFile> {
   try {
     const parsed = JSON.parse(await fs.readFile(settingsPath(), 'utf8')) as Partial<SettingsFile>;
-    const provider = parsed.provider === 'anthropic' || parsed.provider === 'openai' ? parsed.provider : 'ollama';
-    return {
-      ...parsed,
-      provider,
-      model: typeof parsed.model === 'string' && parsed.model.trim()
-        ? parsed.model.trim()
-        : provider === 'ollama' ? DEFAULT_LOCAL_MODEL : provider === 'anthropic' ? 'claude-sonnet' : 'gpt-4.1',
-    } as SettingsFile;
+    return { projectPath: typeof parsed.projectPath === 'string' ? parsed.projectPath : undefined };
   } catch {
-    return { provider: 'ollama', model: DEFAULT_LOCAL_MODEL };
+    return {};
   }
 }
 
@@ -79,18 +74,223 @@ async function writeSettings(settings: SettingsFile) {
   await fs.writeFile(settingsPath(), JSON.stringify(settings, null, 2), 'utf8');
 }
 
-async function getApiKey(provider: 'anthropic' | 'openai'): Promise<string> {
-  const volatile = volatileApiKeys[provider];
-  if (volatile) return volatile;
-  const settings = await readSettings();
-  const encrypted = settings.encryptedApiKeys?.[provider] ||
-    (settings.provider === provider ? settings.encryptedApiKey : undefined);
-  if (!encrypted || !safeStorage.isEncryptionAvailable()) return '';
+async function getCloudApiBaseUrl(): Promise<string> {
+  const fromEnvironment = process.env.RMANGO_CLOUD_API_URL?.trim();
+  if (fromEnvironment) return fromEnvironment.replace(/\/+$/, '');
   try {
-    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+    const configPath = path.join(app.getAppPath(), 'cloud-config.json');
+    const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as { apiBaseUrl?: string };
+    return typeof config.apiBaseUrl === 'string' ? config.apiBaseUrl.trim().replace(/\/+$/, '') : '';
   } catch {
     return '';
   }
+}
+
+async function readCloudSession(): Promise<CloudSession | null> {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  try {
+    const encrypted = await fs.readFile(cloudSessionPath(), 'utf8');
+    const parsed = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64'))) as CloudSession;
+    if (!parsed.accessToken || !parsed.refreshToken || !parsed.user?.id) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCloudSession(session: CloudSession) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Rmango cannot safely store your cloud session on this device.');
+  }
+  await fs.mkdir(userData(), { recursive: true });
+  const encrypted = safeStorage.encryptString(JSON.stringify(session)).toString('base64');
+  await fs.writeFile(cloudSessionPath(), encrypted, { encoding: 'utf8', mode: 0o600 });
+}
+
+async function clearCloudSession() {
+  await stopStudioConnectorPolling();
+  try { await fs.rm(cloudSessionPath(), { force: true }); } catch { /* file may not exist */ }
+}
+
+async function refreshCloudSession(session: CloudSession): Promise<CloudSession> {
+  const baseUrl = await getCloudApiBaseUrl();
+  if (!baseUrl) throw new Error('The Rmango cloud backend is not configured in this build.');
+  const response = await fetch(baseUrl + '/api/auth/refresh', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ refreshToken: session.refreshToken }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const payload = await response.json() as any;
+  if (!response.ok || !payload.session || !payload.user) {
+    throw new Error(payload.error || 'Your Rmango cloud session expired. Please sign in again.');
+  }
+  const next: CloudSession = {
+    ...session,
+    accessToken: payload.session.accessToken,
+    refreshToken: payload.session.refreshToken,
+    expiresAt: payload.session.expiresAt,
+    user: payload.user,
+  };
+  await writeCloudSession(next);
+  return next;
+}
+
+async function getValidCloudSession(): Promise<CloudSession> {
+  let session = await readCloudSession();
+  if (!session) throw new Error('Sign in to your Rmango account to use cloud AI.');
+  if (session.expiresAt && session.expiresAt * 1000 < Date.now() + 90_000) {
+    session = await refreshCloudSession(session);
+  }
+  return session;
+}
+
+async function cloudApiRequest<T = any>(route: string, init: RequestInit = {}, authenticated = true): Promise<T> {
+  const baseUrl = await getCloudApiBaseUrl();
+  if (!baseUrl) throw new Error('Rmango Cloud is not deployed/configured yet. The desktop app will not fall back to local AI.');
+  let session = authenticated ? await getValidCloudSession() : null;
+
+  const send = async () => {
+    const headers = new Headers(init.headers || {});
+    if (!headers.has('content-type') && init.body) headers.set('content-type', 'application/json');
+    if (session) headers.set('authorization', 'Bearer ' + session.accessToken);
+    return fetch(baseUrl + route, {
+      ...init,
+      headers,
+      signal: init.signal || AbortSignal.timeout(30_000),
+    });
+  };
+
+  let response = await send();
+  if (response.status === 401 && authenticated && session) {
+    session = await refreshCloudSession(session);
+    response = await send();
+  }
+  const raw = await response.text();
+  let payload: any = {};
+  try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = { error: raw.slice(0, 500) }; }
+  if (!response.ok) throw new Error(payload.error || payload.message || ('Rmango Cloud returned HTTP ' + response.status + '.'));
+  return payload as T;
+}
+
+async function cloudSignIn(email: string, password: string) {
+  const payload = await cloudApiRequest<any>('/api/auth/sign-in', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  }, false);
+  const session: CloudSession = {
+    accessToken: payload.session.accessToken,
+    refreshToken: payload.session.refreshToken,
+    expiresAt: payload.session.expiresAt,
+    user: payload.user,
+  };
+  await writeCloudSession(session);
+  if (mcpClient) await registerCloudStudioConnector();
+  return { ok: true, user: session.user };
+}
+
+async function cloudSignUp(email: string, password: string, displayName?: string) {
+  const payload = await cloudApiRequest<any>('/api/auth/sign-up', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, displayName }),
+  }, false);
+  if (!payload.session) return { ok: true, requiresEmailConfirmation: true, user: payload.user };
+  const session: CloudSession = {
+    accessToken: payload.session.accessToken,
+    refreshToken: payload.session.refreshToken,
+    expiresAt: payload.session.expiresAt,
+    user: payload.user,
+  };
+  await writeCloudSession(session);
+  if (mcpClient) await registerCloudStudioConnector();
+  return { ok: true, requiresEmailConfirmation: false, user: session.user };
+}
+
+async function cloudSignOut() {
+  const session = await readCloudSession();
+  if (session) {
+    try { await cloudApiRequest('/api/auth/sign-out', { method: 'POST', body: '{}' }); } catch { /* Always clear local session. */ }
+  }
+  await clearCloudSession();
+  return { ok: true };
+}
+
+async function getCloudState() {
+  const apiBaseUrl = await getCloudApiBaseUrl();
+  const session = await readCloudSession();
+  if (!apiBaseUrl) {
+    return { configured: false, signedIn: Boolean(session), email: session?.user.email, message: 'Cloud backend URL has not been configured in this build.' };
+  }
+  let serviceReady = false;
+  let healthError: string | undefined;
+  try {
+    const health = await cloudApiRequest<any>('/api/health', {}, false);
+    serviceReady = health.status === 'ready';
+    if (!serviceReady) healthError = 'Cloud backend needs its database and Vercel AI Gateway to be configured.';
+  } catch (error) {
+    healthError = error instanceof Error ? error.message : 'Cloud backend is unavailable.';
+  }
+  let signedIn = Boolean(session);
+  let email = session?.user.email;
+  if (session) {
+    try { await getValidCloudSession(); } catch { signedIn = false; email = undefined; }
+  }
+  return { configured: true, serviceReady, signedIn, email, apiHost: new URL(apiBaseUrl).host, message: healthError };
+}
+
+async function getCloudModels() {
+  return cloudApiRequest<any>('/api/models', {}, true);
+}
+
+async function sendCloudMessage(payload: {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  attachments?: Attachment[];
+  profile: CloudProfile;
+  projectId?: string;
+  conversationId?: string;
+}) {
+  const session = await getValidCloudSession();
+  const baseUrl = await getCloudApiBaseUrl();
+  if (!baseUrl) throw new Error('The Rmango cloud backend is not configured.');
+  const requestId = randomUUID();
+  const response = await fetch(baseUrl + '/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + session.accessToken },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(125_000),
+  });
+  if (!response.ok) {
+    const raw = await response.text();
+    let message = raw;
+    try { const parsed = JSON.parse(raw); message = parsed.error || parsed.message || raw; } catch { /* text error */ }
+    if (response.status === 401) throw new Error('Your Rmango cloud session expired. Sign in again.');
+    if (response.status === 429) throw new Error(message || 'Your Rmango cloud usage limit has been reached.');
+    throw new Error(message || ('Rmango Cloud returned HTTP ' + response.status + '.'));
+  }
+  if (!response.body) throw new Error('The cloud AI returned an empty stream.');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let content = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const delta = decoder.decode(value, { stream: true });
+    if (delta) {
+      content += delta;
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send('cloud:chat-delta', { requestId, delta });
+      }
+    }
+  }
+  content += decoder.decode();
+  return {
+    requestId,
+    content,
+    conversationId: response.headers.get('X-Rmango-Conversation-Id') || payload.conversationId || undefined,
+    modelId: response.headers.get('X-Rmango-Model') || undefined,
+    profile: payload.profile,
+    activity: [] as ActivityItem[],
+  };
 }
 
 function createWindow() {
