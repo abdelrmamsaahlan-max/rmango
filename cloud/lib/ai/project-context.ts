@@ -75,12 +75,12 @@ export async function loadSelectedProjectContext(
   )).slice(0, 32);
   const intentText = query.toLocaleLowerCase();
   const memoryTypeBoost = (type: string): number => {
-    if (type === "decision" && /\\b(prefer|must|constraint|don't want|avoid|decision|should not)\\b/i.test(intentText)) return 2.5;
-    if (type === "architecture" && /\\b(architecture|system|module|service|integrat|structure|workflow)\\b/i.test(intentText)) return 2.5;
-    if (type === "bug" && /\\b(bug|broken|error|fix|not working|doesn't work|issue|crash)\\b/i.test(intentText)) return 3;
-    if (type === "feature" && /\\b(build|implement|add|feature|upgrade|improve)\\b/i.test(intentText)) return 1.8;
-    if (type === "concept" && /\\b(design|concept|idea|game loop|player experience)\\b/i.test(intentText)) return 1.8;
-    if (type === "task" && /\\b(task|todo|next|remaining|pending)\\b/i.test(intentText)) return 1.5;
+    if (type === "decision" && /\b(prefer|must|constraint|don't want|avoid|decision|should not)\b/i.test(intentText)) return 2.5;
+    if (type === "architecture" && /\b(architecture|system|module|service|integrat|structure|workflow)\b/i.test(intentText)) return 2.5;
+    if (type === "bug" && /\b(bug|broken|error|fix|not working|doesn't work|issue|crash)\b/i.test(intentText)) return 3;
+    if (type === "feature" && /\b(build|implement|add|feature|upgrade|improve)\b/i.test(intentText)) return 1.8;
+    if (type === "concept" && /\b(design|concept|idea|game loop|player experience)\b/i.test(intentText)) return 1.8;
+    if (type === "task" && /\b(task|todo|next|remaining|pending)\b/i.test(intentText)) return 1.5;
     return 0;
   };
   const rankedMemories = (memories || []).map((memory, index) => {
