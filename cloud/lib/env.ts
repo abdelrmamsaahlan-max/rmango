@@ -13,6 +13,6 @@ export function publicApiStatus() {
   return {
     deployment: process.env.VERCEL_ENV || "self-hosted",
     gatewayConfigured: Boolean(process.env.VERCEL_OIDC_TOKEN),
-    databaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY),
+    databaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.SUPABASE_SERVICE_ROLE_KEY),
   };
 }
