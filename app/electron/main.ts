@@ -79,6 +79,7 @@ type CloudSession = {
   currentConversationId?: string;
 };
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
+type StudioInstance = { id: string; name: string; placeId?: string };
 type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
 type ActivityItem = { id?: string; name: string; detail: string; ok: boolean; status?: 'running' | 'completed' | 'failed' | 'cancelled' };
 type AppUpdateState = {
@@ -99,6 +100,7 @@ let mcpClient: Client | null = null;
 let mcpTransport: StdioClientTransport | null = null;
 let connectedTools: McpTool[] = [];
 let selectedStudioId: string | undefined;
+let studioInstances: StudioInstance[] = [];
 let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
@@ -831,29 +833,43 @@ function getStudioProcessEnvironment(): Record<string, string> {
 
 async function connectRoblox() {
   if (mcpClient) {
-    const cloudLink = await registerCloudStudioConnector().catch(error => ({
-      linked: false,
-      message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
-    }));
-    return { ok: true, connected: true, toolCount: connectedTools.length, cloudLinked: cloudLink.linked, cloudMessage: cloudLink.message };
+    try { await discoverStudioInstances(); }
+    catch { /* The bridge may connect before Studio has opened a place. */ }
+    const cloudLink = selectedStudioId
+      ? await registerCloudStudioConnector().catch(error => ({
+          linked: false,
+          message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
+        }))
+      : { linked: false, message: "MCP bridge connected. Open a place in Roblox Studio, then choose Refresh Studio connection." };
+    return {
+      ok: true,
+      connected: true,
+      studioReady: Boolean(selectedStudioId),
+      studioId: selectedStudioId,
+      studioInstances,
+      toolCount: safeToolList().length,
+      cloudLinked: cloudLink.linked,
+      cloudMessage: cloudLink.message,
+    };
   }
   if (process.platform !== 'win32') {
-    return { ok: false, connected: false, error: 'The bundled Roblox Studio MCP connection is configured for Windows.' };
+    return { ok: false, connected: false, studioReady: false, error: 'The bundled Roblox Studio MCP connection is configured for Windows.' };
   }
   const localAppData = process.env.LOCALAPPDATA;
-  if (!localAppData) return { ok: false, connected: false, error: 'Windows LOCALAPPDATA was not found.' };
+  if (!localAppData) return { ok: false, connected: false, studioReady: false, error: 'Windows LOCALAPPDATA was not found.' };
   const mcpBat = path.join(localAppData, 'Roblox', 'mcp.bat');
   if (!existsSync(mcpBat)) {
     return {
       ok: false,
       connected: false,
+      studioReady: false,
       error: 'Roblox MCP launcher was not found at ' + mcpBat + '. Update Roblox Studio, then enable Assistant → Manage MCP Servers → Enable Studio as MCP server.',
     };
   }
   try {
     const transport = new StdioClientTransport({
       command: 'cmd.exe',
-      args: ['/d', '/s', '/c', '\"' + mcpBat + '\"'],
+      args: ['/d', '/s', '/c', '\\"' + mcpBat + '\\"'],
       env: getStudioProcessEnvironment(),
     });
     const client = new Client({ name: 'rmango-desktop', version: app.getVersion() }, { capabilities: {} });
@@ -862,17 +878,21 @@ async function connectRoblox() {
     mcpClient = client;
     mcpTransport = transport;
     connectedTools = result.tools as McpTool[];
-    selectedStudioId = await discoverStudioId().catch(() => undefined);
-    const cloudLink = await registerCloudStudioConnector().catch(error => ({
-      linked: false,
-      message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
-    }));
+    await discoverStudioInstances().catch(() => []);
+    const cloudLink = selectedStudioId
+      ? await registerCloudStudioConnector().catch(error => ({
+          linked: false,
+          message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
+        }))
+      : { linked: false, message: "MCP bridge connected. Open a place in Roblox Studio, then choose Refresh Studio connection." };
     return {
       ok: true,
       connected: true,
+      studioReady: Boolean(selectedStudioId),
       toolCount: connectedTools.length,
       tools: connectedTools.map(tool => tool.name),
       studioId: selectedStudioId,
+      studioInstances,
       cloudLinked: cloudLink.linked,
       cloudMessage: cloudLink.message,
     };
@@ -881,7 +901,8 @@ async function connectRoblox() {
     mcpTransport = null;
     connectedTools = [];
     selectedStudioId = undefined;
-    return { ok: false, connected: false, error: error instanceof Error ? error.message : String(error) };
+    studioInstances = [];
+    return { ok: false, connected: false, studioReady: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -897,7 +918,8 @@ async function disconnectRoblox() {
   mcpTransport = null;
   connectedTools = [];
   selectedStudioId = undefined;
-  return { ok: true, connected: false };
+  studioInstances = [];
+  return { ok: true, connected: false, studioReady: false };
 }
 
 const READ_ONLY_STUDIO_TOOLS = new Set([
@@ -929,39 +951,52 @@ function tryParseJson(value: string): any {
   try { return JSON.parse(value); } catch { return undefined; }
 }
 
-function findStudioId(value: any): string | undefined {
-  if (!value || typeof value !== 'object') return undefined;
+function collectStudioInstances(value: any, found = new Map<string, StudioInstance>(), depth = 0): StudioInstance[] {
+  if (!value || typeof value !== "object" || depth > 12) return [...found.values()];
   if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findStudioId(item);
-      if (found) return found;
-    }
-    return undefined;
+    for (const item of value) collectStudioInstances(item, found, depth + 1);
+    return [...found.values()];
   }
-  for (const key of ['studio_id', 'studioId']) {
-    if (typeof value[key] === 'string' && value[key]) return value[key];
+
+  const idValue = typeof value.studio_id === "string" ? value.studio_id
+    : typeof value.studioId === "string" ? value.studioId
+    : typeof value.instance_id === "string" ? value.instance_id
+    : undefined;
+  if (idValue) {
+    const nameValue = [value.name, value.studio_name, value.studioName, value.place_name, value.placeName]
+      .find(item => typeof item === "string" && item.trim());
+    const placeValue = typeof value.place_id === "string" ? value.place_id
+      : typeof value.placeId === "string" || typeof value.placeId === "number" ? String(value.placeId)
+      : undefined;
+    found.set(idValue, {
+      id: idValue.slice(0, 180),
+      name: typeof nameValue === "string" ? nameValue.trim().slice(0, 120) : "Roblox Studio",
+      placeId: placeValue?.slice(0, 80),
+    });
   }
-  for (const child of Object.values(value)) {
-    const found = findStudioId(child);
-    if (found) return found;
-  }
-  return undefined;
+  for (const child of Object.values(value)) collectStudioInstances(child, found, depth + 1);
+  return [...found.values()];
 }
 
-async function discoverStudioId(): Promise<string | undefined> {
-  if (!mcpClient || !connectedTools.some(tool => tool.name === 'list_roblox_studios')) return undefined;
-  try {
-    const result = await mcpClient.callTool({ name: 'list_roblox_studios', arguments: {} });
-    const structuredId = findStudioId((result as any).structuredContent);
-    if (structuredId) return structuredId;
-    for (const item of (result as any).content || []) {
-      if (item.type === 'text') {
-        const parsedId = findStudioId(tryParseJson(item.text));
-        if (parsedId) return parsedId;
-      }
-    }
-  } catch { /* Studio may not have announced a session yet. */ }
-  return undefined;
+async function discoverStudioInstances(): Promise<StudioInstance[]> {
+  if (!mcpClient || !connectedTools.some(tool => tool.name === "list_roblox_studios")) {
+    studioInstances = [];
+    selectedStudioId = undefined;
+    return [];
+  }
+  const result = await mcpClient.callTool({ name: "list_roblox_studios", arguments: {} });
+  const found = new Map<string, StudioInstance>();
+  collectStudioInstances((result as any).structuredContent, found);
+  for (const item of (result as any).content || []) {
+    if (item?.type !== "text" || typeof item.text !== "string") continue;
+    const parsed = tryParseJson(item.text);
+    if (parsed) collectStudioInstances(parsed, found);
+  }
+  studioInstances = [...found.values()];
+  if (!studioInstances.some(instance => instance.id === selectedStudioId)) {
+    selectedStudioId = studioInstances[0]?.id;
+  }
+  return studioInstances;
 }
 
 function withStudioId(tool: McpTool, input: Record<string, unknown>) {
@@ -999,6 +1034,9 @@ async function callStudioTool(name: string, args: Record<string, unknown>) {
   if (!tool || (!READ_ONLY_STUDIO_TOOLS.has(name) && !APPROVAL_REQUIRED_STUDIO_TOOLS.has(name))) {
     throw new Error('Tool ' + name + ' is not enabled in Rmango.');
   }
+  if (name !== 'list_roblox_studios' && !selectedStudioId) {
+    throw new Error('The Roblox MCP bridge is running, but no open Studio place is selected. Open your place in Roblox Studio, then refresh the Studio connection.');
+  }
   if (APPROVAL_REQUIRED_STUDIO_TOOLS.has(name)) {
     await requestStudioApproval(name, tool.description || ('This action will run ' + name + ' in the connected Roblox Studio session.'), args);
   }
@@ -1008,7 +1046,8 @@ async function callStudioTool(name: string, args: Record<string, unknown>) {
 }
 
 async function registerCloudStudioConnector() {
-  if (!mcpClient) return { linked: false, message: "Roblox Studio is not connected." };
+  if (!mcpClient) return { linked: false, message: "Roblox Studio MCP bridge is not connected." };
+  if (!selectedStudioId) return { linked: false, message: "The MCP bridge is online, but no open Roblox Studio place was detected. Open a place and refresh the Studio connection." };
   const session = await readCloudSession();
   if (!session) return { linked: false, message: "Sign in to Rmango Cloud to link the Studio connector." };
   const tools = safeToolList().map(tool => ({
@@ -1048,7 +1087,7 @@ function startStudioConnectorPolling() {
 }
 
 async function pollCloudStudioCommands() {
-  if (studioPollInFlight || !mcpClient) return;
+  if (studioPollInFlight || !mcpClient || !selectedStudioId) return;
   const session = await readCloudSession();
   if (!session?.studioConnectorId || !session.studioConnectorSecret) return;
   studioPollInFlight = true;
@@ -1670,14 +1709,29 @@ handleIpc('project:clear', async () => {
 handleIpc('mcp:connect', () => connectRoblox());
 handleIpc('mcp:disconnect', () => disconnectRoblox());
 handleIpc('mcp:state', async () => {
+  if (mcpAvailable()) {
+    try { await discoverStudioInstances(); } catch { /* Keep the last known session list during a transient MCP error. */ }
+  } else {
+    studioInstances = [];
+    selectedStudioId = undefined;
+  }
   const session = await readCloudSession();
   return {
     connected: mcpAvailable(),
+    studioReady: Boolean(mcpAvailable() && selectedStudioId),
     cloudLinked: Boolean(session?.studioConnectorId && session.studioConnectorSecret),
     toolCount: safeToolList().length,
     tools: safeToolList().map(tool => tool.name),
     studioId: selectedStudioId || null,
+    studioInstances,
   };
+});
+handleIpc('mcp:select-studio', (_event, studioId: string) => {
+  if (typeof studioId !== 'string' || !studioInstances.some(instance => instance.id === studioId)) {
+    throw new Error('That Roblox Studio instance is no longer available. Refresh Studio connections and try again.');
+  }
+  selectedStudioId = studioId;
+  return { ok: true, studioId: selectedStudioId, studioReady: true };
 });
 handleIpc('mcp:list-tools', () => ({
   all: connectedTools.map(tool => ({ name: tool.name, description: tool.description || '' })),
