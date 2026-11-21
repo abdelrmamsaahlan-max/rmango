@@ -101,6 +101,8 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 
 - The Electron main process validates the sender frame for every IPC handler, restricts renderer navigation and new windows, and validates HTTPS external links.
 - The renderer has a restrictive Content Security Policy.
-- Chat generation can be cancelled from the composer; the desktop aborts the active HTTP stream and preserves partial output.
+- Chat generation can be cancelled from the composer; the desktop aborts the active HTTP stream, preserves partial output and ignores late stream events.
+- Local conversation history is encrypted with Windows secure storage and migrated from legacy plaintext on first read.
+- The Studio MCP child process is launched with a limited allowlisted Windows environment rather than the full desktop environment.
 - The selected-project context layer loads an owner-checked project and a bounded metadata-only file manifest. File contents remain on-demand through the read tool, and all project metadata is treated as untrusted.
 - See [Phase 2 audit and architecture plan](../docs/PHASE2-AUDIT.md).
