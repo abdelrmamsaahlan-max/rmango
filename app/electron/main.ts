@@ -48,7 +48,7 @@ let selectedStudioId: string | undefined;
 let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
-const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
 let appUpdateState: AppUpdateState = {
   status: 'idle',
@@ -925,7 +925,7 @@ function initializeAutoUpdates() {
     });
   });
 
-  // Check once shortly after launch and then every four hours.
+  // Check once shortly after launch and then every five minutes.
   const startupTimer = setTimeout(() => { void checkForAppUpdates(); }, 8_000);
   startupTimer.unref();
   const updateTimer = setInterval(() => { void checkForAppUpdates(); }, UPDATE_CHECK_INTERVAL_MS);
