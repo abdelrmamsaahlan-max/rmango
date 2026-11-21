@@ -14,23 +14,23 @@ export type AgentWorkflowContext = {
 };
 
 const DOMAIN_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
-  { id: "luau", pattern: /\\b(luau|lua|script|module.?script|server.?script|local.?script|remote.?event|remote.?function|debug|refactor)\\b/i },
-  { id: "gameplay", pattern: /\\b(gameplay|game loop|round system|quest|tycoon|simulator|progression|inventory|combat|npc|customer|player system)\\b/i },
-  { id: "world", pattern: /\\b(map|terrain|workspace|part|building|environment|world|level|scene|spawn|landscape)\\b/i },
-  { id: "ui", pattern: /\\b(ui|ux|interface|screen.?gui|hud|menu|button|shop|inventory screen|responsive layout)\\b/i },
-  { id: "assets", pattern: /\\b(3d|mesh|model|texture|material|asset|prop|creator store|avatar)\\b/i },
-  { id: "animation", pattern: /\\b(animation|animate|animator|motor6d|keyframe|rig|r6|r15|walk cycle|emote)\\b/i },
-  { id: "audio", pattern: /\\b(audio|sound|sfx|music|voice|footstep|spatial audio)\\b/i },
-  { id: "data-security", pattern: /\\b(datastore|data store|saving|persistence|remote validation|security|exploit|rate.?limit|purchase|currency|leaderboard)\\b/i },
-  { id: "testing", pattern: /\\b(test|playtest|regression|output|console|diagnostic|performance|profiling|optimi[sz]e)\\b/i },
+  { id: "luau", pattern: /\b(luau|lua|script|module.?script|server.?script|local.?script|remote.?event|remote.?function|debug|refactor)\b/i },
+  { id: "gameplay", pattern: /\b(gameplay|game loop|round system|quest|tycoon|simulator|progression|inventory|combat|npc|customer|player system)\b/i },
+  { id: "world", pattern: /\b(map|terrain|workspace|part|building|environment|world|level|scene|spawn|landscape)\b/i },
+  { id: "ui", pattern: /\b(ui|ux|interface|screen.?gui|hud|menu|button|shop|inventory screen|responsive layout)\b/i },
+  { id: "assets", pattern: /\b(3d|mesh|model|texture|material|asset|prop|creator store|avatar)\b/i },
+  { id: "animation", pattern: /\b(animation|animate|animator|motor6d|keyframe|rig|r6|r15|walk cycle|emote)\b/i },
+  { id: "audio", pattern: /\b(audio|sound|sfx|music|voice|footstep|spatial audio)\b/i },
+  { id: "data-security", pattern: /\b(datastore|data store|saving|persistence|remote validation|security|exploit|rate.?limit|purchase|currency|leaderboard)\b/i },
+  { id: "testing", pattern: /\b(test|playtest|regression|output|console|diagnostic|performance|profiling|optimi[sz]e)\b/i },
 ];
 
-const BUILD_INTENT = /\\b(build|create|make|implement|add|generate|rebuild|refactor|fix|debug|upgrade|improve|automate|wire up|set up)\\b/i;
-const LARGE_SCOPE = /\\b(complete|full|entire|end[- ]to[- ]end|from scratch|whole game|production[- ]ready|multiple systems|all systems|everything)\\b/i;
-const DEBUG_INTENT = /\\b(not working|doesn.t work|broken|bug|error|exception|crash|fails?|failing|debug|fix this|fix the)\\b/i;
-const AUDIT_INTENT = /\\b(audit|review|inspect|assess|check|evaluate|find problems|what needs improvement)\\b/i;
-const DESIGN_INTENT = /\\b(brainstorm|concept|game design|design a|plan a|ideas for|player experience|visual direction)\\b/i;
-const EXPLAIN_INTENT = /^(\\s*)(what is|what are|how does|how do|why does|why do|explain|teach me|help me understand)\\b/i;
+const BUILD_INTENT = /\b(build|create|make|implement|add|generate|rebuild|refactor|fix|debug|upgrade|improve|automate|wire up|set up)\b/i;
+const LARGE_SCOPE = /\b(complete|full|entire|end[- ]to[- ]end|from scratch|whole game|production[- ]ready|multiple systems|all systems|everything)\b/i;
+const DEBUG_INTENT = /\b(not working|doesn.t work|broken|bug|error|exception|crash|fails?|failing|debug|fix this|fix the)\b/i;
+const AUDIT_INTENT = /\b(audit|review|inspect|assess|check|evaluate|find problems|what needs improvement)\b/i;
+const DESIGN_INTENT = /\b(brainstorm|concept|game design|design a|plan a|ideas for|player experience|visual direction)\b/i;
+const EXPLAIN_INTENT = /^(\s*)(what is|what are|how does|how do|why does|why do|explain|teach me|help me understand)\b/i;
 
 function classifyIntent(prompt: string): AgentTaskIntent {
   if (DEBUG_INTENT.test(prompt)) return "debug";
@@ -91,7 +91,7 @@ export function buildAgentWorkflowContext(input: {
         "RMANGO FOCUSED WORKFLOW — use the method that matches the user's actual intent.",
         method,
         "Use the available tools only when they materially improve accuracy or complete requested work. Keep changes bounded. Never expose private chain-of-thought; show concise conclusions and evidence.",
-      ].join("\\n"),
+      ].join("\n"),
     };
   }
 
@@ -115,6 +115,6 @@ export function buildAgentWorkflowContext(input: {
       "For an offline Studio session, prepare a proposal or code but clearly state that live Studio execution awaits reconnection.",
       "Do not publish an experience, delete substantial hierarchies, overwrite unrelated content or perform irreversible actions without explicit approval.",
       "Use no user-supplied model-provider credentials. Hosted inference is performed only through the configured RMango gateway.",
-    ].join("\\n"),
+    ].join("\n"),
   };
 }
