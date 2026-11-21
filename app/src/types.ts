@@ -135,6 +135,7 @@ declare global {
       runDiagnostics: () => Promise<any>;
       loadMessages: () => Promise<ChatMessage[]>;
       saveMessages: (messages: ChatMessage[]) => Promise<any>;
+      cancelMessage: (requestId: string) => Promise<{ ok: boolean }>;
       sendMessage: (payload: {
         messages: Array<{ role: 'user' | 'assistant'; content: string }>;
         attachments?: AttachmentPayload[];
