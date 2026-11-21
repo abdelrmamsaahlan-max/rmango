@@ -467,8 +467,17 @@ function App() {
   }, [projectFiles, search]);
 
   const studioConnected = appState?.studioConnected ?? false;
-  const localReady = Boolean(localAi?.running && localAi.modelInstalled);
-  const localStatus = !localAi?.running ? 'Runtime not found' : localAi.modelInstalled ? 'Model ready' : 'Model not downloaded';
+  const cloudReady = Boolean(cloudState?.configured && cloudState.serviceReady);
+  const currentProfile = cloudModels?.profiles.find(item => item.profile === cloudProfile);
+  const cloudStatusLabel = cloudLoading
+    ? 'CHECKING CLOUD'
+    : !cloudState?.configured
+      ? 'CLOUD NOT CONFIGURED'
+      : !cloudState.serviceReady
+        ? 'CLOUD SETUP REQUIRED'
+        : cloudState.signedIn
+          ? 'CLOUD AI READY'
+          : 'SIGN IN REQUIRED';
 
   const quickPrompts = [
     {
@@ -501,9 +510,12 @@ function App() {
         <div className="topbar-divider"/>
         <div className="workspace-crumb"><Gamepad2 size={15}/><span>Roblox workspace</span><ChevronDown size={13}/></div>
         <div className="topbar-spacer"/>
-        <button className={'runtime-pill ' + (localReady ? 'ready' : '')} onClick={() => setSettingsOpen(true)}>
-          <span className="runtime-dot"/>{localReady ? 'LOCAL AI READY' : 'LOCAL AI SETUP'}
+        <button className={'runtime-pill ' + (cloudReady ? 'ready' : '')} onClick={() => setSettingsOpen(true)}>
+          <span className="runtime-dot"/>{cloudStatusLabel}
         </button>
+        {cloudState?.signedIn
+          ? <button className="top-settings" onClick={() => setSettingsOpen(true)} title="Cloud account">{cloudState.email || 'Account'}</button>
+          : <button className="top-settings" onClick={() => setSettingsOpen(true)}>Sign in</button>}
         <div className={'connection-pill ' + (studioConnected ? 'connected' : '')}>
           <span className="status-dot"/>{studioConnected ? 'Studio connected' : 'Studio offline'}
         </div>
@@ -628,7 +640,7 @@ function App() {
 
                   <div className="quick-grid">
                     {quickPrompts.map(item =>
-                      <button className="quick-card" key={item.label} onClick={() => void sendMessage(item.prompt)}>
+                      <button className="quick-card" key={item.label} onClick={() => void sendMessage(item.prompt, item.label === 'Plan a map' ? 'agent' : 'developer')}>
                         <span className="quick-icon">{item.icon}</span>
                         <span className="quick-copy"><strong>{item.label}</strong><small>{item.detail}</small></span>
                         <ArrowRight size={14} className="quick-arrow"/>
@@ -648,7 +660,7 @@ function App() {
                         <div className="message-meta">
                           <strong>{message.role === 'assistant' ? 'Rmango' : 'You'}</strong>
                           <span>{displayTime(message.createdAt)}</span>
-                          {message.role === 'assistant' && <span className="agent-tag"><Sparkles size={10}/> AGENT</span>}
+                          {message.role === 'assistant' && <span className="agent-tag"><Sparkles size={10}/> {(message.modelProfile || 'cloud').toUpperCase()}</span>}
                         </div>
                         {message.attachments?.length ? <div className="message-attachments">
                           {message.attachments.map(attachment =>
@@ -719,17 +731,33 @@ function App() {
           <div className="right-heading"><span>CONTROL ROOM</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close inspector"><X size={15}/></button></div>
 
           <section className="inspector-section local-section">
-            <div className="section-title"><span>LOCAL AI ENGINE</span><span className={'live-indicator ' + (localReady ? 'live' : '')}>{localReady ? 'READY' : 'SETUP'}</span></div>
-            <div className="local-status-card">
-              <div className="local-status-icon"><Cpu size={19}/></div>
-              <div className="local-status-copy"><strong>{localReady ? 'Running on this PC' : localAi?.running ? 'Model not installed' : 'Runtime not connected'}</strong><span>{localAi?.running ? model : 'Ollama localhost · no API key'}</span></div>
-              <span className={'status-dot ' + (localAi?.running ? 'bright' : '')}/>
-              <div className="local-meta"><span>MODE</span><strong>On-device</strong><span>KEY</span><strong>Not required</strong></div>
+            <div className="section-title">
+              <span>CLOUD AI ENGINE</span>
+              <span className={'live-indicator ' + (cloudReady ? 'live' : '')}>{cloudReady ? 'ONLINE' : cloudLoading ? 'CHECKING' : 'OFFLINE'}</span>
             </div>
-            <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Local AI settings <ArrowRight size={13}/></button>
-            <button className="secondary-action" onClick={() => void refreshLocalAi()} disabled={checkingLocalAi}>{checkingLocalAi ? <LoaderCircle size={13} className="spin"/> : <RefreshCw size={13}/>} Check local runtime</button>
-            {!localAi?.running && <button className="help-link" onClick={() => void window.rmango.openExternal('https://ollama.com/download/windows')}>Install Ollama for Windows <ExternalLink size={11}/></button>}
-            {localAi?.running && !localAi.modelInstalled && <button className="help-link" onClick={() => void handlePullModel()} disabled={pullingModel}>{pullingModel ? <LoaderCircle size={12} className="spin"/> : <Download size={12}/>} Download {model}</button>}
+            <div className="local-status-card">
+              <div className="local-status-icon"><Sparkles size={19}/></div>
+              <div className="local-status-copy">
+                <strong>{cloudReady ? (cloudState?.signedIn ? 'Hosted AI is ready' : 'Cloud service is ready') : 'Cloud connection required'}</strong>
+                <span>{cloudState?.email || cloudState?.apiHost || cloudState?.message || 'No local models or API keys'}</span>
+              </div>
+              <span className={'status-dot ' + (cloudReady ? 'bright' : '')}/>
+              <div className="local-meta"><span>INFERENCE</span><strong>Remote cloud</strong><span>DEVICE</span><strong>Interface only</strong></div>
+            </div>
+            {cloudState?.signedIn
+              ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Cloud model manager <ArrowRight size={13}/></button>
+              : <button className="primary-action" onClick={() => setSettingsOpen(true)}><LockKeyhole size={13}/> Sign in to Rmango <ArrowRight size={13}/></button>}
+            {cloudReady && <div className="connect-help">
+              <strong>{currentProfile?.profileLabel || 'Cloud model profiles'}</strong>
+              <span>{currentProfile?.name || 'Choose a model profile below the chat composer.'}</span>
+              {currentProfile && <span>
+                {currentProfile.contextWindow ? currentProfile.contextWindow.toLocaleString() + ' context tokens' : 'Context details unavailable'}
+                {' · '}
+                {currentProfile.capabilities.includes('reasoning') ? 'Reasoning' : 'General'}
+                {currentProfile.inputModalities.includes('image') ? ' · Vision' : ''}
+              </span>}
+            </div>}
+            {cloudState?.message && <div className="secure-note"><AlertCircle size={13}/><span>{cloudState.message}</span></div>}
           </section>
 
           <section className="inspector-section">
