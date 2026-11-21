@@ -1,4 +1,5 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { AgentWorkspace } from './AgentWorkspace';
 import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
@@ -76,6 +77,7 @@ function App() {
   const [cloudState, setCloudState] = useState<CloudState | null>(null);
   const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
+  const [activeView, setActiveView] = useState<'chat' | 'workspace'>('chat');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
   const [cloudProjectChanges, setCloudProjectChanges] = useState<CloudProjectChange[]>([]);
@@ -648,8 +650,8 @@ function App() {
 
       <div className="workspace-layout">
         <nav className="activity-rail">
-          <button className="rail-button active" title="Workspace"><Bot size={18}/></button>
-          <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
+          <button className={'rail-button ' + (activeView === 'chat' ? 'active' : '')} title="AI chat" onClick={() => setActiveView('chat')}><MessageSquare size={18}/></button>
+          <button className={'rail-button ' + (activeView === 'workspace' ? 'active' : '')} title="Agent workspace" onClick={() => setActiveView('workspace')}><Layers3 size={18}/></button>
           <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
           <div className="rail-spacer"/>
           <button className="rail-button" title="Settings" onClick={() => setSettingsOpen(true)}><Settings2 size={18}/></button>
@@ -715,13 +717,17 @@ function App() {
 
         <main className="main-panel">
           <div className="main-toolbar">
-            <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">CLOUD AI</span></div>
+            <div className="main-view-tabs">
+              <button className={activeView === 'chat' ? 'selected' : ''} onClick={() => setActiveView('chat')}><MessageSquare size={13}/> Chat</button>
+              <button className={activeView === 'workspace' ? 'selected' : ''} onClick={() => setActiveView('workspace')}><Layers3 size={13}/> Agent workspace</button>
+            </div>
             <div className="toolbar-actions">
               <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Cloud model'}</span>
               <button className="subtle-icon" title="Toggle inspector" onClick={() => setRightPanelOpen(value => !value)}><Menu size={16}/></button>
             </div>
           </div>
 
+          {activeView === 'chat' ? <>
           <div className="chat-scroll">
             <div className="chat-content">
               {messages.length === 0 ? (
@@ -834,6 +840,18 @@ function App() {
             </div>
             <div className="composer-disclaimer"><ShieldCheck size={11}/> Photos and text/code files are processed by your selected model. Studio edits require approval.</div>
           </div>
+          </> : <AgentWorkspace
+            projectId={cloudProjectId}
+            projectName={appState?.projectPath ? appState.projectPath.split(/[\\/]/).filter(Boolean).pop() : undefined}
+            conversationId={conversationId}
+            profile={cloudProfile}
+            onProfileChange={setCloudProfile}
+            cloudReady={Boolean(cloudReady && cloudState?.signedIn)}
+            studioConnected={studioConnected}
+            onUploadProject={() => void handleUploadProject()}
+            onReviewProposals={() => void handleLoadProjectChanges()}
+            onNotify={setToast}
+          />}
         </main>
 
         {rightPanelOpen && <aside className="right-sidebar">
@@ -980,6 +998,7 @@ function App() {
         <div className="approval-modal">
           <div className="approval-icon"><ShieldCheck size={21}/></div>
           <div className="approval-kicker">ROBLOX STUDIO ACTION</div>
+          {pendingApproval.taskId && <div className="approval-task-ref">DURABLE TASK · {pendingApproval.taskId.slice(0, 8).toUpperCase()}</div>}
           <h2>Approve this change?</h2>
           <p>Rmango wants to run <strong>{pendingApproval.name}</strong> in your connected Roblox Studio session. Review the tool arguments before continuing.</p>
           <div className="approval-description">{pendingApproval.description}</div>
