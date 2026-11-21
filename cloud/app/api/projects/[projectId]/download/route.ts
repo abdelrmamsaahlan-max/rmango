@@ -8,10 +8,21 @@ export const maxDuration = 120;
 function safeZipPath(value: string) {
   const normalized = value.replace(/\\/g, "/");
   const segments = normalized.split("/");
-  if (normalized.startsWith("/") || segments.some(segment => !segment || segment === "." || segment === "..")) return null;
+  const invalidWindowsName = (segment: string) =>
+    /[<>:"|?*\u0000-\u001f\u007f]/.test(segment) ||
+    /[. ]$/.test(segment) ||
+    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(segment);
+
+  if (
+    normalized.startsWith("/") ||
+    normalized.includes("\0") ||
+    segments.some(segment =>
+      !segment || segment === "." || segment === ".." || invalidWindowsName(segment)
+    )
+  ) return null;
+
   return normalized;
 }
-
 function safeArchiveName(value: string) {
   return value.replace(/[^A-Za-z0-9._ -]/g, "_").slice(0, 70) || "Roblox-Project";
 }
