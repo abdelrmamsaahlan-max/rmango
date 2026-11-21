@@ -266,3 +266,18 @@
   .agent-task-detail{min-height:520px}
   .agent-result-grid{grid-template-columns:1fr}
 }
+
+.agent-feedback{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-top:14px;padding-top:12px;border-top:1px solid #2d4054;
+}
+.agent-feedback>span{font-size:10px;color:#bac9d7;margin-right:3px}
+.agent-feedback>div{display:flex;gap:6px}
+.agent-feedback button{
+  width:30px;height:28px;display:flex;align-items:center;justify-content:center;
+  border:1px solid #3b5066;border-radius:7px;background:#182636;color:#aebfd0;
+}
+.agent-feedback button:hover:not(:disabled){border-color:#9b7149;background:#28251f;color:#ffd09c}
+.agent-feedback button.selected{border-color:#6d956e;background:#1b3227;color:#b8e4bf}
+.agent-feedback button:disabled{opacity:.45;cursor:wait}
+.agent-feedback small{flex-basis:100%;font-size:9px;color:#8799aa;line-height:1.5}
