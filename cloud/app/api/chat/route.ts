@@ -136,6 +136,16 @@ export async function POST(request: Request) {
 
   const attachmentParts: Array<Record<string, unknown>> = [];
   const textAttachmentSections: string[] = [];
+  const attachmentContextToPersist: Array<{ name: string; kind: "pdf" | "docx"; text: string }> = [];
+  let persistedAttachmentContextChars = 0;
+  const persistAttachmentContext = (name: string, kind: "pdf" | "docx", value: string) => {
+    const remaining = Math.max(0, 24_000 - persistedAttachmentContextChars);
+    const text = value.slice(0, Math.min(8_000, remaining));
+    if (text) {
+      attachmentContextToPersist.push({ name: name.slice(0, 200), kind, text });
+      persistedAttachmentContextChars += text.length;
+    }
+  };
   let totalTextBytes = 0;
   let totalAttachmentBytes = 0;
 
@@ -168,6 +178,7 @@ export async function POST(request: Request) {
       }
       try {
         const extracted = await extractSupportedDocument(attachment.name, attachment.mimeType, rawBytes);
+        persistAttachmentContext(attachment.name, fileExtension === ".pdf" ? "pdf" : "docx", extracted.text);
         const metadata = extracted.pages ? "PDF; " + extracted.pages + " pages" : "DOCX";
         textAttachmentSections.push(
           "BEGIN_UNTRUSTED_DOCUMENT_TEXT " + JSON.stringify(attachment.name) + " (" + metadata + ")\n" +
@@ -283,6 +294,48 @@ export async function POST(request: Request) {
     }
   }
 
+  // Reuse a bounded window of earlier text/document extracts when follow-ups
+  // refer to an attachment again. All rows are owner- and conversation-scoped.
+  // Original documents and image blobs are never copied into Postgres message JSON.
+  let previousAttachmentContextText = "";
+  const { data: previousMessages, error: previousMessagesError } = await supabase
+    .from("messages")
+    .select("content")
+    .eq("conversation_id", conversationId)
+    .eq("owner_id", user.id)
+    .eq("role", "user")
+    .order("created_at", { ascending: false })
+    .limit(6);
+  if (previousMessagesError) {
+    return NextResponse.json({ error: "Could not retrieve recent attachment context for this conversation." }, { status: 503 });
+  }
+
+  let previousAttachmentChars = 0;
+  for (const previous of previousMessages || []) {
+    const stored = previous.content && typeof previous.content === "object"
+      ? previous.content as Record<string, unknown>
+      : {};
+    const entries = Array.isArray(stored.attachment_context) ? stored.attachment_context : [];
+    for (const item of entries) {
+      if (!item || typeof item !== "object") continue;
+      const entry = item as Record<string, unknown>;
+      if (typeof entry.name !== "string" || typeof entry.text !== "string") continue;
+      const remaining = 36_000 - previousAttachmentChars;
+      if (remaining <= 0) break;
+      const excerpt = entry.text.slice(0, Math.min(8_000, remaining));
+      if (!excerpt) continue;
+      previousAttachmentContextText +=
+        "\\n\\nBEGIN_PREVIOUS_UNTRUSTED_ATTACHMENT " + JSON.stringify(entry.name.slice(0, 200)) + "\\n" +
+        excerpt +
+        "\\nEND_PREVIOUS_UNTRUSTED_ATTACHMENT";
+      previousAttachmentChars += excerpt.length;
+    }
+    if (previousAttachmentChars >= 36_000) break;
+  }
+  if (previousAttachmentContextText) {
+    contentParts[0].text = String(contentParts[0].text || "") + previousAttachmentContextText;
+  }
+
   const estimatedText = systemPrompt + JSON.stringify(body.messages) + selectedProjectContextText + "\\n" + textAttachmentSections.join("\\n");
   const imageTokenReserve = attachmentParts.length * 20_000;
   const estimateInputTokens = Math.ceil(estimateTokens(estimatedText) * 1.25) + imageTokenReserve;
@@ -341,7 +394,7 @@ export async function POST(request: Request) {
     conversation_id: conversationId,
     owner_id: user.id,
     role: "user",
-    content: { text: latestUserText, attachments: attachmentMetadata },
+    content: { text: latestUserText, attachments: attachmentMetadata, attachment_context: attachmentContextToPersist },
     model_profile: profile,
   });
   if (saveUserMessageError) {
