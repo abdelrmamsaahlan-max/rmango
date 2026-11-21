@@ -213,27 +213,40 @@ function App() {
         let restoredMessages = savedMessages || [];
         if (state.studioConnected) void refreshMcpState();
         if (cloud.signedIn && cloud.serviceReady) {
-          try {
-            const [models, conversations, tasks, projects] = await Promise.all([
-              window.rmango.getCloudModels(),
-              window.rmango.getCloudConversations(),
-              window.rmango.getCloudTasks(),
-              window.rmango.getCloudProjects(),
-            ]);
-            setCloudModels(models);
-            setCloudConversations(conversations);
-            setCloudTasks(tasks);
-            setCloudProjects(projects);
-            if (cloud.currentConversationId) {
+          const [modelsResult, conversationsResult, tasksResult, projectsResult] = await Promise.allSettled([
+            window.rmango.getCloudModels(),
+            window.rmango.getCloudConversations(),
+            window.rmango.getCloudTasks(),
+            window.rmango.getCloudProjects(),
+          ]);
+
+          // A history/workspace endpoint can be deployed separately from the
+          // chat endpoint. Never let an optional feature outage block real AI chat.
+          if (modelsResult.status === 'fulfilled') {
+            setCloudModels(modelsResult.value);
+          } else {
+            setToast(modelsResult.reason instanceof Error ? modelsResult.reason.message : 'Could not load cloud model profiles.');
+          }
+          setCloudConversations(conversationsResult.status === 'fulfilled' ? conversationsResult.value : []);
+          setCloudTasks(tasksResult.status === 'fulfilled' ? tasksResult.value : []);
+          setCloudProjects(projectsResult.status === 'fulfilled' ? projectsResult.value : []);
+
+          if (cloud.currentConversationId) {
+            try {
               const restored = await window.rmango.loadCloudConversation(cloud.currentConversationId);
               if (restored.messages.length) restoredMessages = restored.messages;
               const restoredProjectId = restored.conversation.project_id || null;
               setCloudProjectId(restoredProjectId || undefined);
               await window.rmango.setCurrentCloudProjectId(restoredProjectId);
-              setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
+              try {
+                setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
+              } catch {
+                // The transcript and real chat request are independent of task history.
+              }
+            } catch {
+              // Keep the encrypted local transcript if the cloud history API is not
+              // deployed yet. The chat endpoint can still resume using its saved ID.
             }
-          } catch (error) {
-            setToast(error instanceof Error ? error.message : 'Could not restore cloud chat history.');
           }
         }
         setMessages(restoredMessages);
@@ -306,18 +319,17 @@ function App() {
     setCloudState(state);
     if (state.signedIn && state.serviceReady) {
       setConversationId(state.currentConversationId || undefined);
-      try {
-        const [models, conversations, tasks, projects] = await Promise.all([
-          window.rmango.getCloudModels(),
-          window.rmango.getCloudConversations(),
-          window.rmango.getCloudTasks(),
-          window.rmango.getCloudProjects(),
-        ]);
-        setCloudModels(models);
-        setCloudConversations(conversations);
-        setCloudTasks(tasks);
-        setCloudProjects(projects);
-      } catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models or conversations.'); }
+      const [modelsResult, conversationsResult, tasksResult, projectsResult] = await Promise.allSettled([
+        window.rmango.getCloudModels(),
+        window.rmango.getCloudConversations(),
+        window.rmango.getCloudTasks(),
+        window.rmango.getCloudProjects(),
+      ]);
+      if (modelsResult.status === 'fulfilled') setCloudModels(modelsResult.value);
+      else setToast(modelsResult.reason instanceof Error ? modelsResult.reason.message : 'Could not load cloud model profiles.');
+      setCloudConversations(conversationsResult.status === 'fulfilled' ? conversationsResult.value : []);
+      setCloudTasks(tasksResult.status === 'fulfilled' ? tasksResult.value : []);
+      setCloudProjects(projectsResult.status === 'fulfilled' ? projectsResult.value : []);
     } else {
       setCloudModels(null);
       setCloudConversations([]);
@@ -375,7 +387,7 @@ function App() {
     try {
       await window.rmango.setCurrentCloudProjectId(project.id);
       await window.rmango.setCurrentConversationId(null);
-      const projectTasks = await window.rmango.getCloudTasks(project.id);
+      const projectTasks = await window.rmango.getCloudTasks(project.id).catch(() => []);
       setCloudProjectId(project.id);
       setCloudState(current => current ? { ...current, currentProjectId: project.id, currentConversationId: undefined } : current);
       setConversationId(undefined);
@@ -645,7 +657,7 @@ function App() {
         followupQueueRef.current = [];
       }
       setCloudProjectId(result.projectId);
-      const projectTasks = await window.rmango.getCloudTasks(result.projectId);
+      const projectTasks = await window.rmango.getCloudTasks(result.projectId).catch(() => []);
       setCloudTasks(projectTasks);
       await window.rmango.setCurrentCloudProjectId(result.projectId);
       setCloudState(current => current ? { ...current, currentProjectId: result.projectId } : current);
