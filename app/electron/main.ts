@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { boundGitDiff, parseGitStatus } from "./git-workspace.js";
+import { formatCloudSendError } from "./cloud-errors.js";
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import electronUpdater from 'electron-updater';
@@ -675,11 +676,11 @@ async function sendCloudMessage(payload: {
     }
     if (!response.ok) {
       const raw = await response.text();
-      let message = raw;
-      try { const parsed = JSON.parse(raw); message = parsed.error || parsed.message || raw; } catch { /* text error */ }
+      let payload: unknown = raw;
+      try { payload = JSON.parse(raw); } catch { /* handled by the safe error formatter */ }
       if (response.status === 401) throw new Error('Your Rmango cloud session expired. Sign in again.');
-      if (response.status === 429) throw new Error(message || 'Your Rmango cloud usage limit has been reached.');
-      throw new Error(message || ('Rmango Cloud returned HTTP ' + response.status + '.'));
+      if (response.status === 429) throw new Error(formatCloudSendError(payload));
+      throw new Error(formatCloudSendError(payload, response.status));
     }
     if (!response.body) throw new Error('The cloud AI returned an empty stream.');
 
@@ -725,7 +726,7 @@ async function sendCloudMessage(payload: {
       } else if (event.type === 'activity') {
         emitActivity(event.activity);
       } else if (event.type === 'error') {
-        throw new Error(typeof event.message === 'string' ? event.message : 'The cloud AI stream failed.');
+        throw new Error(formatCloudSendError(event));
       }
     };
 
