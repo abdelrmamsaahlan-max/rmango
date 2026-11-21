@@ -13,16 +13,18 @@ This folder is the hosted backend for the Rmango Windows desktop client. **All l
 
 ## Deployment status
 
-The backend source and database migration are committed in this repository. They are **not yet deployed** and the migration has **not yet been applied to a Supabase project**. No paid model inference request has been made.
+The cloud backend is deployed at `https://rmango-cloud.vercel.app` with Vercel OIDC enabled. The dedicated Supabase project `rmango-cloud` (ref `jqkcrtnbxewyqrdpnqap`, Frankfurt) is active and its initial migration has been applied.
 
-Deployment requires:
-1. An approved Vercel project in the account/team that owns the Rmango domain and release.
-2. A new dedicated Supabase project for Rmango. Do not reuse unrelated projects.
-3. Vercel OIDC enabled for the cloud project.
-4. The database migration applied to that Supabase project.
-5. Server-only environment variables configured in Vercel.
-6. An HTTPS deployment URL added as the GitHub repository variable RMANGO_CLOUD_API_URL.
-7. An administrator explicitly authorizing the cloud Gateway budget/spend policy before model-generation requests are enabled.
+Encrypted `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` variables are present in Vercel. The server-only `SUPABASE_SERVICE_ROLE_KEY` is still required before database-backed admin operations can be considered ready. The GitHub Actions variable `RMANGO_CLOUD_API_URL` is still needed before publishing a cloud-configured desktop installer.
+
+The database usage policy remains `enabled = false` with daily and monthly spend caps set to zero. No paid model inference has been enabled or tested.
+
+## Remaining deployment setup
+
+1. Add `SUPABASE_SERVICE_ROLE_KEY` as an encrypted server-only Vercel environment variable and redeploy.
+2. Add `RMANGO_CLOUD_API_URL=https://rmango-cloud.vercel.app` as a GitHub Actions repository variable.
+3. Rebuild and verify the cloud-configured Windows installer.
+4. Keep paid AI inference disabled until a separate budget is explicitly approved.
 
 ## Vercel setup
 
@@ -34,7 +36,9 @@ After the first deployment, set the Vercel environment variables below and redep
 
 ## Supabase setup
 
-Create a **new** Supabase project for Rmango. Apply:
+The existing approved Rmango Supabase project is already provisioned. Its initial migration has been applied; do not create another project or reset this database. For a new schema change, add a reviewed, versioned migration and apply it to this project after checking compatibility and recovery requirements.
+
+Initial migration:
 
 `supabase/migrations/202611210001_rmango_cloud.sql`
 
@@ -127,8 +131,16 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 - Studio tool calls are synchronous within a bounded chat route and can time out. A durable WorkflowAgent/queue worker for tasks that outlive a web request is not complete yet.
 - Admin usage reports/policy editing UI is not complete. Policies can be managed in the database for now.
 - PDF/DOCX parsing, embeddings/vector RAG, project-wide dependency indexing, diff viewer for proposed file content, and automated Luau test runners are not complete.
-- No end-to-end cloud inference, real account signup, Studio bridge or ZIP export test has been performed because the cloud database/project has not been provisioned.
+- The Supabase project is provisioned, but full account signup, authenticated project storage, Studio bridge and ZIP-export end-to-end tests remain pending. The server-only service-role secret is not yet configured in Vercel.
+- Paid model inference is deliberately disabled and has not been tested. Do not enable it without a separately approved budget.
 
 ## Local development
 
 You must configure a separate test Supabase project and a secure Vercel OIDC/development setup before testing authenticated API operations. Do not add model keys to a desktop client. For production, deploy the `cloud/` root to Vercel and use Vercel OIDC.
+
+
+## Phase 2 architecture notes
+
+Selected-project context uses an owner-scoped metadata query with a bounded manifest. Source contents are fetched only when the agent calls the authorized file-read tool. Project names, descriptions, paths, uploaded documents, retrieved content and tool outputs are untrusted data; runtime ownership and tool permissions are the security boundary.
+
+See [the Phase 2 audit and architecture plan](../docs/PHASE2-AUDIT.md) for current findings, design choices, research links and the uncompleted roadmap.
