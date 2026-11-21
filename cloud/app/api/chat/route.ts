@@ -103,7 +103,10 @@ export async function POST(request: Request) {
   let profile: ModelProfile = body.profile as ModelProfile;
   let choice;
   try {
-    choice = await resolveProfile(profile);
+    // Match /api/models: use the short-lived OIDC token supplied to this
+    // function request instead of relying only on a module-scope env snapshot.
+    const oidcToken = request.headers.get("x-vercel-oidc-token");
+    choice = await resolveProfile(profile, oidcToken);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No cloud model is configured." }, { status: 503 });
   }
