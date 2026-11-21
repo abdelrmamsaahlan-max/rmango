@@ -95,6 +95,25 @@ export type CloudConversation = {
   created_at: string;
   updated_at: string;
 };
+export type CloudAgentTask = {
+  id: string;
+  project_id: string | null;
+  conversation_id: string | null;
+  status: 'queued' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+  task_text: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  events: Array<{
+    id: number;
+    task_id: string;
+    event_type: string;
+    message: string;
+    data: Record<string, unknown>;
+    created_at: string;
+  }>;
+};
 
 export type CloudModelProfile = {
   id: string;
@@ -147,6 +166,7 @@ declare global {
       cloudSignOut: () => Promise<{ ok: boolean }>;
       getCloudModels: () => Promise<CloudModels>;
       getCloudConversations: (projectId?: string) => Promise<CloudConversation[]>;
+      getCloudTasks: (projectId?: string) => Promise<CloudAgentTask[]>;
       loadCloudConversation: (conversationId: string) => Promise<{ conversation: CloudConversation; messages: ChatMessage[] }>;
       createCloudConversation: (payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => Promise<CloudConversation>;
       setCurrentConversationId: (conversationId?: string | null) => Promise<{ ok: boolean }>;
