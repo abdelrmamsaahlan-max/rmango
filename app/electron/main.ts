@@ -478,7 +478,7 @@ function mapCloudMessage(row: any): ChatMessage | null {
   const attachments = Array.isArray(stored.attachments)
     ? stored.attachments.flatMap((item: any) => {
         if (!item || typeof item !== 'object' || typeof item.name !== 'string') return [];
-        const kind = item.kind === 'image' ? 'image' : 'file';
+        const kind: 'image' | 'file' = item.kind === 'image' ? 'image' : 'file';
         return [{
           id: randomUUID(),
           name: item.name.slice(0, 200),
