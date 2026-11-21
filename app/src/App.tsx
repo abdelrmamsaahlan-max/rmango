@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
-  AgentActivity, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
+  AgentActivity, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
@@ -106,6 +106,9 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [studioTools, setStudioTools] = useState<string[]>([]);
+  const [studioReady, setStudioReady] = useState(false);
+  const [studioInstances, setStudioInstances] = useState<StudioInstance[]>([]);
+  const [selectedStudioId, setSelectedStudioId] = useState<string | undefined>();
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -290,8 +293,12 @@ function App() {
   async function refreshMcpState() {
     const state = await window.rmango.getMcpState();
     setStudioTools(state.tools || []);
+    setStudioReady(Boolean(state.studioReady));
+    setStudioInstances(state.studioInstances || []);
+    setSelectedStudioId(state.studioId || undefined);
     setStudioCloudLinked(Boolean(state.cloudLinked));
     setAppState(prev => prev ? { ...prev, studioConnected: state.connected, studioToolCount: state.toolCount } : prev);
+    return state;
   }
 
   async function refreshCloudState() {
@@ -708,10 +715,14 @@ function App() {
     try {
       const result = await window.rmango.connectRoblox();
       if (result.ok) {
-        await refreshMcpState();
-        setToast(result.cloudLinked
-          ? 'Roblox Studio linked to Rmango Cloud · ' + result.toolCount + ' tools discovered'
-          : (result.cloudMessage || ('Studio connected locally · sign in to link cloud AI · ' + result.toolCount + ' tools')));
+        const state = await refreshMcpState();
+        if (!state.studioReady) {
+          setToast('Roblox MCP bridge is connected, but no open Studio place is available. Open your place in Studio, then refresh this connection.');
+        } else if (state.cloudLinked) {
+          setToast('Connected to ' + (studioInstances.find(item => item.id === state.studioId)?.name || 'Roblox Studio') + ' · ' + state.toolCount + ' tools available to RMango.');
+        } else {
+          setToast('Studio place connected locally. ' + (result.cloudMessage || 'Sign in to Rmango Cloud to enable AI actions.'));
+        }
       } else {
         setToast(result.error || 'Could not connect to Roblox Studio.');
       }
@@ -719,6 +730,19 @@ function App() {
       setToast(error instanceof Error ? error.message : 'Connection failed.');
     } finally {
       setConnecting(false);
+    }
+  }
+
+  async function handleSelectStudioInstance(studioId: string) {
+    if (!studioId || studioId === selectedStudioId) return;
+    try {
+      await window.rmango.selectStudioInstance(studioId);
+      const state = await refreshMcpState();
+      const instance = state.studioInstances.find(item => item.id === studioId);
+      setToast('RMango is now targeting ' + (instance?.name || 'the selected Roblox Studio place') + '.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not select that Studio instance.');
+      await refreshMcpState().catch(() => undefined);
     }
   }
 
