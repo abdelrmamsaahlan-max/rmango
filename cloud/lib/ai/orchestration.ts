@@ -41,13 +41,19 @@ const AUDIT_INTENT = /\b(audit|review|inspect|assess|check|evaluate|find problem
 const DESIGN_INTENT = /\b(brainstorm|concept|game design|design a|plan a|ideas for|player experience|visual direction)\b/i;
 const EXPLAIN_INTENT = /^(\s*)(what is|what are|how does|how do|why does|why do|explain|teach me|help me understand)\b/i;
 
+const REPAIR_ACTION = /\b(fix|debug|repair|troubleshoot|investigate|diagnose)\b/i;
+const CREATION_ACTION = /\b(build|create|make|implement|add|generate|rebuild|refactor|upgrade|improve|automate|wire up|set up)\b/i;
+
 function classifyIntent(prompt: string): AgentTaskIntent {
-  // A direct "what/how/why" question should not become a debugging task just
-  // because it contains words such as "error", "bug" or "crash".
+  // Interpret explicit question/review/design framing before generic symptom words.
   if (EXPLAIN_INTENT.test(prompt.trim()) && !BUILD_INTENT.test(prompt)) return "explain";
-  if (DEBUG_INTENT.test(prompt)) return "debug";
   if (AUDIT_INTENT.test(prompt) && !BUILD_INTENT.test(prompt)) return "audit";
   if (DESIGN_INTENT.test(prompt) && !BUILD_INTENT.test(prompt)) return "design";
+
+  // "Build an error-reporting system" is creation; "fix the error-reporting
+  // system" is debugging. Require a repair verb or a standalone symptom.
+  if (REPAIR_ACTION.test(prompt) && DEBUG_INTENT.test(prompt)) return "debug";
+  if (DEBUG_INTENT.test(prompt) && !CREATION_ACTION.test(prompt)) return "debug";
   if (BUILD_INTENT.test(prompt)) return "build";
   return "general";
 }
