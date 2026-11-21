@@ -957,3 +957,102 @@ html, body, #root { background: var(--bg); }
 }
 .workspace-layout:has(.right-sidebar) .main-panel{margin-left:auto}
 .workspace-layout:not(:has(.right-sidebar)) .main-panel{flex:1 1 auto;width:auto;min-width:0;border-left:0}
+
+
+/* Rmango preference controls and quality-of-life polish */
+.settings-modal.cloud-settings-modal{
+  max-height:min(90vh,900px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:#65686f transparent;
+}
+.preferences-panel,.cloud-health-panel{
+  margin:0 0 17px;padding:14px;border:1px solid var(--line);border-radius:11px;background:var(--card);
+}
+.preferences-heading,.cloud-health-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.preferences-heading .field-label,.cloud-health-heading .field-label{margin-top:0}
+.preferences-heading .settings-explainer{margin:4px 0 0}
+.preferences-saved{display:inline-flex;align-items:center;gap:4px;color:#9ed7af;font:8px var(--mono);letter-spacing:.6px}
+.preference-select-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:13px}
+.preference-select-row{display:flex;flex-direction:column;gap:8px;min-width:0}
+.preference-select-row>span,.preference-switch-row>span{display:flex;flex-direction:column;gap:4px;min-width:0}
+.preference-select-row strong,.preference-switch-row strong{font-size:10px;color:#e9ebee;font-weight:650}
+.preference-select-row small,.preference-switch-row small{font-size:8px;color:#a1a6ae;line-height:1.45}
+.preference-select-row .settings-input{height:32px;margin:0;font-size:9px;padding:0 9px}
+.preference-switch-list{display:flex;flex-direction:column;gap:0;margin-top:8px}
+.preference-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid var(--line-soft)}
+.preference-switch-row:first-child{margin-top:4px}
+.preference-switch{width:38px;height:22px;flex:none;position:relative;border:1px solid #555a63;border-radius:99px;padding:2px;background:#363940;transition:background .18s,border-color .18s}
+.preference-switch i{display:block;width:16px;height:16px;border-radius:50%;background:#a3a8af;transition:transform .18s,background .18s}
+.preference-switch.on{background:#536b31;border-color:#819e4b}
+.preference-switch.on i{transform:translateX(16px);background:#f3f7d5}
+.cloud-health-panel{background:linear-gradient(145deg,#25282e,#212329)}
+.cloud-health-heading>div>strong{display:block;margin-top:5px;font-size:11px;color:#eff1f3}
+.health-state{font:8px var(--mono);letter-spacing:.5px;padding:5px 7px;border-radius:6px;border:1px solid #6a4b39;background:#3a2b25;color:#f0ba98}
+.health-state.ready{background:#1f3428;border-color:#3a654a;color:#b9e8c7}
+.cloud-health-panel>p{font-size:9px;line-height:1.55;color:#c1c5cc;margin:11px 0}
+.cloud-setup-instructions{display:flex;flex-direction:column;gap:8px;padding:11px;border:1px solid #755d37;border-radius:8px;background:#342e22;margin:10px 0}
+.cloud-setup-instructions strong{font-size:10px;color:#ffdc9b}
+.cloud-setup-instructions span{font-size:9px;line-height:1.55;color:#e2d6bc}
+.cloud-setup-instructions code{font-size:8px;color:#ffe6b6}
+.cloud-setup-instructions .outline-action{align-self:flex-start;margin-top:2px}
+.cloud-budget-note{display:flex;gap:8px;padding:10px;border:1px solid #67572f;border-radius:8px;background:#332e20;color:#e9d5a0;font-size:9px;line-height:1.5;margin:9px 0}
+.cloud-budget-note svg{flex:none;color:#efc86d}
+.health-refresh{width:100%;justify-content:center;margin-top:5px}
+.map-caption-status i.all-live{background:#eac15f;box-shadow:0 0 8px rgba(234,193,95,.55);animation:rmango-live-pulse 1.7s ease-in-out infinite}
+.app-shell[data-density="compact"] .right-sidebar .inspector-section{padding:10px 12px;margin-bottom:8px}
+.app-shell[data-density="compact"] .workspace-map-shell{padding:10px 12px;margin-bottom:13px}
+.app-shell[data-density="compact"] .message-row{margin-bottom:14px}
+.app-shell[data-density="compact"] .composer-area{padding-top:7px;padding-bottom:8px}
+.app-shell[data-density="compact"] .topbar{height:52px}
+.app-shell[data-density="compact"] .quick-card{min-height:48px}
+.app-shell[data-density="compact"] .preference-switch-row{padding:8px 0}
+.app-shell[data-font-size="small"] .message-content{font-size:10px}
+.app-shell[data-font-size="small"] .composer-box textarea{font-size:10px}
+.app-shell[data-font-size="medium"] .message-content{font-size:11px}
+.app-shell[data-font-size="medium"] .composer-box textarea{font-size:11px}
+.app-shell[data-font-size="large"] .message-content{font-size:13px;line-height:1.8}
+.app-shell[data-font-size="large"] .composer-box textarea{font-size:13px}
+.app-shell[data-motion="reduced"] *,
+.app-shell[data-motion="reduced"] *::before,
+.app-shell[data-motion="reduced"] *::after{
+  animation:none!important;transition:none!important;scroll-behavior:auto!important;
+}
+@keyframes rmango-live-pulse{0%,100%{opacity:.65;transform:scale(.9)}50%{opacity:1;transform:scale(1.18)}}
+@keyframes rmango-modal-in{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+.settings-modal,.approval-modal{animation:rmango-modal-in .18s ease-out}
+.modal-backdrop,.approval-backdrop{backdrop-filter:blur(8px)}
+.toast{animation:rmango-rise .18s ease-out}
+.app-shell button:focus-visible,.app-shell select:focus-visible,.app-shell input:focus-visible,.app-shell textarea:focus-visible{
+  outline:2px solid #eeb84e;outline-offset:2px;
+}
+@media(max-width:620px){
+  .preference-select-grid{grid-template-columns:1fr}
+}
+.app-shell[data-theme="light"] .preferences-panel,
+.app-shell[data-theme="light"] .cloud-health-panel{background:#fff;border-color:#dfe3e8}
+.app-shell[data-theme="light"] .preference-select-row strong,
+.app-shell[data-theme="light"] .preference-switch-row strong,
+.app-shell[data-theme="light"] .cloud-health-heading>div>strong{color:#242830}
+.app-shell[data-theme="light"] .preference-select-row small,
+.app-shell[data-theme="light"] .preference-switch-row small,
+.app-shell[data-theme="light"] .cloud-health-panel>p{color:#68717d}
+.app-shell[data-theme="light"] .preference-switch-row{border-color:#e5e8ed}
+.app-shell[data-theme="light"] .cloud-setup-instructions{background:#fff8e9;border-color:#ead6ad}
+.app-shell[data-theme="light"] .cloud-setup-instructions strong{color:#76551e}
+.app-shell[data-theme="light"] .cloud-setup-instructions span{color:#66583d}
+.app-shell[data-theme="light"] .cloud-setup-instructions code{color:#55431f}
+.app-shell[data-theme="light"] .cloud-budget-note{background:#fff8e9;border-color:#e5d4a6;color:#69552a}
+@media(prefers-color-scheme:light){
+ .app-shell[data-theme="system"] .preferences-panel,
+ .app-shell[data-theme="system"] .cloud-health-panel{background:#fff;border-color:#dfe3e8}
+ .app-shell[data-theme="system"] .preference-select-row strong,
+ .app-shell[data-theme="system"] .preference-switch-row strong,
+ .app-shell[data-theme="system"] .cloud-health-heading>div>strong{color:#242830}
+ .app-shell[data-theme="system"] .preference-select-row small,
+ .app-shell[data-theme="system"] .preference-switch-row small,
+ .app-shell[data-theme="system"] .cloud-health-panel>p{color:#68717d}
+ .app-shell[data-theme="system"] .preference-switch-row{border-color:#e5e8ed}
+ .app-shell[data-theme="system"] .cloud-setup-instructions{background:#fff8e9;border-color:#ead6ad}
+ .app-shell[data-theme="system"] .cloud-setup-instructions strong{color:#76551e}
+ .app-shell[data-theme="system"] .cloud-setup-instructions span{color:#66583d}
+ .app-shell[data-theme="system"] .cloud-setup-instructions code{color:#55431f}
+ .app-shell[data-theme="system"] .cloud-budget-note{background:#fff8e9;border-color:#e5d4a6;color:#69552a}
+}

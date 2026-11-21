@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -15,7 +15,17 @@ type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
 type ChatMessage = { role: 'user' | 'assistant'; content: string; createdAt?: string };
 type Attachment = { name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string };
 type AppearanceTheme = 'dark' | 'light' | 'system';
-type SettingsFile = { projectPath?: string; appearance?: AppearanceTheme };
+type SettingsFile = {
+  projectPath?: string;
+  appearance: AppearanceTheme;
+  density: 'comfortable' | 'compact';
+  animationsEnabled: boolean;
+  fontSize: 'small' | 'medium' | 'large';
+  sendOnEnter: boolean;
+  desktopNotifications: boolean;
+  autoUpdatesEnabled: boolean;
+};
+type SettingsPatch = Partial<Omit<SettingsFile, 'projectPath'>>;
 type CloudSession = {
   accessToken: string;
   refreshToken: string;
@@ -53,6 +63,8 @@ const activeChatRequests = new Map<string, AbortController>();
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
 let lastUpdateCheckAt = 0;
+let updateStartupTimer: NodeJS.Timeout | null = null;
+let updateCheckTimer: NodeJS.Timeout | null = null;
 let appUpdateState: AppUpdateState = {
   status: 'idle',
   currentVersion: app.getVersion(),
@@ -64,19 +76,58 @@ const settingsPath = () => path.join(userData(), 'settings.json');
 const sessionPath = () => path.join(userData(), 'session.json');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
 
+const DEFAULT_SETTINGS: SettingsFile = {
+  appearance: 'dark',
+  density: 'comfortable',
+  animationsEnabled: true,
+  fontSize: 'medium',
+  sendOnEnter: true,
+  desktopNotifications: false,
+  autoUpdatesEnabled: true,
+};
+
+function normaliseSettings(value: Partial<SettingsFile> | null | undefined): SettingsFile {
+  const input = value || {};
+  return {
+    projectPath: typeof input.projectPath === 'string' ? input.projectPath : undefined,
+    appearance: input.appearance === 'light' || input.appearance === 'system' || input.appearance === 'dark' ? input.appearance : DEFAULT_SETTINGS.appearance,
+    density: input.density === 'compact' || input.density === 'comfortable' ? input.density : DEFAULT_SETTINGS.density,
+    animationsEnabled: typeof input.animationsEnabled === 'boolean' ? input.animationsEnabled : DEFAULT_SETTINGS.animationsEnabled,
+    fontSize: input.fontSize === 'small' || input.fontSize === 'large' || input.fontSize === 'medium' ? input.fontSize : DEFAULT_SETTINGS.fontSize,
+    sendOnEnter: typeof input.sendOnEnter === 'boolean' ? input.sendOnEnter : DEFAULT_SETTINGS.sendOnEnter,
+    desktopNotifications: typeof input.desktopNotifications === 'boolean' ? input.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
+    autoUpdatesEnabled: typeof input.autoUpdatesEnabled === 'boolean' ? input.autoUpdatesEnabled : DEFAULT_SETTINGS.autoUpdatesEnabled,
+  };
+}
+
 async function readSettings(): Promise<SettingsFile> {
   try {
     const parsed = JSON.parse(await fs.readFile(settingsPath(), 'utf8')) as Partial<SettingsFile>;
-    const appearance = parsed.appearance === 'light' || parsed.appearance === 'system' || parsed.appearance === 'dark' ? parsed.appearance : 'dark';
-    return { projectPath: typeof parsed.projectPath === 'string' ? parsed.projectPath : undefined, appearance };
+    return normaliseSettings(parsed);
   } catch {
-    return {};
+    return normaliseSettings(DEFAULT_SETTINGS);
   }
 }
 
 async function writeSettings(settings: SettingsFile) {
   await fs.mkdir(userData(), { recursive: true });
-  await fs.writeFile(settingsPath(), JSON.stringify(settings, null, 2), 'utf8');
+  const filePath = settingsPath();
+  const temporaryPath = filePath + '.tmp';
+  await fs.writeFile(temporaryPath, JSON.stringify(normaliseSettings(settings), null, 2), { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(temporaryPath, filePath);
+}
+
+async function configureAutoUpdateSchedule(enabled: boolean) {
+  if (updateStartupTimer) clearTimeout(updateStartupTimer);
+  if (updateCheckTimer) clearInterval(updateCheckTimer);
+  updateStartupTimer = null;
+  updateCheckTimer = null;
+  if (!enabled || !app.isPackaged || process.platform !== 'win32') return;
+
+  updateStartupTimer = setTimeout(() => { void checkForAppUpdates(); }, 8_000);
+  updateStartupTimer.unref?.();
+  updateCheckTimer = setInterval(() => { void checkForAppUpdates(); }, UPDATE_CHECK_INTERVAL_MS);
+  updateCheckTimer.unref?.();
 }
 
 async function getCloudApiBaseUrl(): Promise<string> {
@@ -276,7 +327,7 @@ async function sendCloudMessage(payload: {
 
   const controller = new AbortController();
   activeChatRequests.set(requestId, controller);
-  const timeout = setTimeout(() => controller.abort(new Error('The cloud request timed out. Please try again.')), 125_000);
+  const timeout = setTimeout(() => controller.abort(new Error('The cloud request timed out after 125 seconds. Try a smaller task or check your connection.')), 125_000);
   timeout.unref?.();
 
   try {
@@ -316,6 +367,10 @@ async function sendCloudMessage(payload: {
       }
     }
     content += decoder.decode();
+    const preferences = await readSettings();
+    if (preferences.desktopNotifications && Notification.isSupported() && (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused() || mainWindow.isMinimized())) {
+      new Notification({ title: 'Rmango response ready', body: 'Your Roblox development response has finished.' }).show();
+    }
     const returnedProfile = response.headers.get('X-Rmango-Model-Profile') as CloudProfile | null;
     const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
     return {
@@ -1059,11 +1114,7 @@ function initializeAutoUpdates() {
     });
   });
 
-  // Check once shortly after launch and then every five minutes.
-  const startupTimer = setTimeout(() => { void checkForAppUpdates(); }, 8_000);
-  startupTimer.unref();
-  const updateTimer = setInterval(() => { void checkForAppUpdates(); }, UPDATE_CHECK_INTERVAL_MS);
-  updateTimer.unref();
+  void readSettings().then(settings => configureAutoUpdateSchedule(settings.autoUpdatesEnabled));
 }
 
 app.whenReady().then(() => {
@@ -1084,16 +1135,57 @@ handleIpc('app:get-state', async () => {
     projectFiles: files,
     studioConnected: mcpAvailable(),
     studioToolCount: safeToolList().length,
-    appearance: settings.appearance || 'dark',
+    appearance: settings.appearance,
+    density: settings.density,
+    animationsEnabled: settings.animationsEnabled,
+    fontSize: settings.fontSize,
+    sendOnEnter: settings.sendOnEnter,
+    desktopNotifications: settings.desktopNotifications,
+    autoUpdatesEnabled: settings.autoUpdatesEnabled,
   };
 });
 
-handleIpc('settings:appearance', async (_event, theme: AppearanceTheme) => {
-  if (theme !== 'dark' && theme !== 'light' && theme !== 'system') {
-    throw new Error('Choose Dark, Light, or Device appearance.');
+handleIpc('settings:update', async (_event, patch: SettingsPatch) => {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('Invalid Rmango settings update.');
+  const next = await readSettings();
+  if ('appearance' in patch) {
+    if (patch.appearance !== 'dark' && patch.appearance !== 'light' && patch.appearance !== 'system') throw new Error('Choose Dark, Light, or Device appearance.');
+    next.appearance = patch.appearance;
   }
-  const settings = await readSettings();
-  await writeSettings({ ...settings, appearance: theme });
+  if ('density' in patch) {
+    if (patch.density !== 'comfortable' && patch.density !== 'compact') throw new Error('Choose Comfortable or Compact density.');
+    next.density = patch.density;
+  }
+  if ('animationsEnabled' in patch) {
+    if (typeof patch.animationsEnabled !== 'boolean') throw new Error('Animation preference must be on or off.');
+    next.animationsEnabled = patch.animationsEnabled;
+  }
+  if ('fontSize' in patch) {
+    if (patch.fontSize !== 'small' && patch.fontSize !== 'medium' && patch.fontSize !== 'large') throw new Error('Choose Small, Medium, or Large text.');
+    next.fontSize = patch.fontSize;
+  }
+  if ('sendOnEnter' in patch) {
+    if (typeof patch.sendOnEnter !== 'boolean') throw new Error('Keyboard send preference must be on or off.');
+    next.sendOnEnter = patch.sendOnEnter;
+  }
+  if ('desktopNotifications' in patch) {
+    if (typeof patch.desktopNotifications !== 'boolean') throw new Error('Notification preference must be on or off.');
+    next.desktopNotifications = patch.desktopNotifications;
+  }
+  if ('autoUpdatesEnabled' in patch) {
+    if (typeof patch.autoUpdatesEnabled !== 'boolean') throw new Error('Automatic update preference must be on or off.');
+    next.autoUpdatesEnabled = patch.autoUpdatesEnabled;
+  }
+  await writeSettings(next);
+  if ('autoUpdatesEnabled' in patch) await configureAutoUpdateSchedule(next.autoUpdatesEnabled);
+  return { ok: true, settings: normaliseSettings(next) };
+});
+
+handleIpc('settings:appearance', async (_event, theme: AppearanceTheme) => {
+  if (theme !== 'dark' && theme !== 'light' && theme !== 'system') throw new Error('Choose Dark, Light, or Device appearance.');
+  const current = await readSettings();
+  const next = { ...current, appearance: theme };
+  await writeSettings(next);
   return { ok: true, appearance: theme };
 });
 

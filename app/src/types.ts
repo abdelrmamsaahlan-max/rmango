@@ -1,5 +1,15 @@
 export type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
 
+export type AppPreferences = {
+  appearance: 'dark' | 'light' | 'system';
+  density: 'comfortable' | 'compact';
+  animationsEnabled: boolean;
+  fontSize: 'small' | 'medium' | 'large';
+  sendOnEnter: boolean;
+  desktopNotifications: boolean;
+  autoUpdatesEnabled: boolean;
+};
+
 export type AttachmentKind = 'image' | 'file';
 
 export type ChatAttachment = {
@@ -54,10 +64,9 @@ export type ProjectFile = {
   kind: 'file' | 'folder';
 };
 
-export type AppState = {
+export type AppState = AppPreferences & {
   appVersion: string;
   platform: string;
-  appearance?: 'dark' | 'light' | 'system';
   projectPath: string;
   projectFiles?: ProjectFile[];
   studioConnected: boolean;
@@ -118,6 +127,7 @@ declare global {
     rmango: {
       getAppState: () => Promise<AppState>;
       setAppearance: (theme: 'dark' | 'light' | 'system') => Promise<{ ok: boolean; appearance: 'dark' | 'light' | 'system' }>;
+      updateSettings: (patch: Partial<AppPreferences>) => Promise<{ ok: boolean; settings: AppPreferences }>;
       getCloudState: () => Promise<CloudState>;
       cloudSignIn: (credentials: { email: string; password: string }) => Promise<{ ok: boolean; user: { id: string; email?: string } }>;
       cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => Promise<{ ok: boolean; requiresEmailConfirmation: boolean; user: { id: string; email?: string } }>;

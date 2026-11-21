@@ -7,7 +7,7 @@ import {
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square
 } from 'lucide-react';
 import type {
-  AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
+  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
   CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
@@ -107,6 +107,13 @@ function App() {
   const [diagnosing, setDiagnosing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark');
+  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
+  const [animationsEnabled, setAnimationsEnabled] = useState(true);
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
+  const [sendOnEnter, setSendOnEnter] = useState(true);
+  const [desktopNotifications, setDesktopNotifications] = useState(false);
+  const [autoUpdatesEnabled, setAutoUpdatesEnabled] = useState(true);
+  const [cloudRefreshing, setCloudRefreshing] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [diagnosticResult, setDiagnosticResult] = useState('');
@@ -161,6 +168,12 @@ function App() {
       .then(async ([state, cloud, savedMessages]) => {
         setAppState(state);
         setTheme(state.appearance || 'dark');
+        setDensity(state.density || 'comfortable');
+        setAnimationsEnabled(state.animationsEnabled !== false);
+        setFontSize(state.fontSize || 'medium');
+        setSendOnEnter(state.sendOnEnter !== false);
+        setDesktopNotifications(Boolean(state.desktopNotifications));
+        setAutoUpdatesEnabled(state.autoUpdatesEnabled !== false);
         setProjectFiles(state.projectFiles || []);
         setCloudState(cloud);
         if (cloud.currentProjectId) {
@@ -268,6 +281,7 @@ function App() {
       }
       setAuthPassword('');
       const state = await refreshCloudState();
+      if (appState?.studioConnected) await refreshMcpState();
       setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
       if (state.serviceReady) setSettingsOpen(false);
     } catch (error) {
@@ -277,13 +291,28 @@ function App() {
     }
   }
 
+  async function savePreferences(patch: Partial<AppPreferences>) {
+    try {
+      await window.rmango.updateSettings(patch);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not save Rmango settings.');
+    }
+  }
+
   async function handleThemeChange(nextTheme: 'dark' | 'light' | 'system') {
     setTheme(nextTheme);
+    await savePreferences({ appearance: nextTheme });
+  }
+
+  async function handleRefreshCloud() {
+    setCloudRefreshing(true);
     try {
-      await window.rmango.setAppearance(nextTheme);
-      setToast('Appearance preference saved.');
+      const state = await refreshCloudState();
+      setToast(state.serviceReady ? (state.signedIn ? 'Cloud AI is ready.' : 'Cloud service is ready. Sign in to continue.') : (state.message || 'Cloud setup is incomplete.'));
     } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not save appearance preference.');
+      setToast(error instanceof Error ? error.message : 'Cloud health check failed.');
+    } finally {
+      setCloudRefreshing(false);
     }
   }
 
@@ -292,6 +321,7 @@ function App() {
       await window.rmango.cloudSignOut();
       setCloudState(await window.rmango.getCloudState());
       setCloudModels(null);
+      if (appState?.studioConnected) await refreshMcpState();
       setToast('Signed out of Rmango Cloud.');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not sign out.');
@@ -403,7 +433,6 @@ function App() {
     try {
       const result = await window.rmango.connectRoblox();
       if (result.ok) {
-        await refreshMcpState();
         await refreshMcpState();
         setToast(result.cloudLinked
           ? 'Roblox Studio linked to Rmango Cloud · ' + result.toolCount + ' tools discovered'
@@ -671,7 +700,7 @@ function App() {
   }
 
   function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && (sendOnEnter || event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       void sendMessage();
     }
@@ -711,7 +740,11 @@ function App() {
     : !cloudState?.configured
       ? 'CLOUD NOT CONFIGURED'
       : !cloudState.serviceReady
-        ? (cloudState.message?.toLowerCase().includes('inference is disabled') ? 'AI BUDGET NOT ENABLED' : 'CLOUD SETUP REQUIRED')
+        ? cloudState.message?.includes('SUPABASE_SECRET_KEY') || cloudState.message?.includes('SUPABASE_SERVICE_ROLE_KEY')
+          ? 'SERVER KEY MISSING'
+          : /spend|budget|inference.*disabled/i.test(cloudState.message || '')
+            ? 'AI BUDGET NOT ENABLED'
+            : 'CLOUD SETUP REQUIRED'
         : cloudState.signedIn
           ? 'CLOUD AI READY'
           : 'SIGN IN REQUIRED';
@@ -735,6 +768,9 @@ function App() {
     <div
       className="app-shell"
       data-theme={theme}
+      data-density={density}
+      data-motion={animationsEnabled ? 'full' : 'reduced'}
+      data-font-size={fontSize}
       onDragOver={event => { event.preventDefault(); setDragActive(true); }}
       onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
       onDrop={handleDrop}
@@ -996,7 +1032,7 @@ function App() {
                   className="send-button"
                   title={busy ? 'Queue follow-up' : 'Send message'}
                   aria-label={busy ? 'Queue follow-up' : 'Send message'}
-                  disabled={(!input.trim() && attachments.length === 0) || !cloudReady || !cloudState?.signedIn}
+                  disabled={!input.trim() && attachments.length === 0}
                   onClick={() => void sendMessage()}
                 >
                   <Send size={15}/>
@@ -1010,7 +1046,7 @@ function App() {
         {rightPanelOpen && <aside className="right-sidebar">
           <div className="right-heading"><span>WORKSPACE MAP</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close workspace panel"><X size={15}/></button></div>
           <div className="workspace-map-shell">
-            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i/> LOCAL SESSION</span></div>
+            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i className={cloudReady && studioConnected ? 'all-live' : ''}/>{cloudReady && studioConnected ? 'ALL SYSTEMS READY' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioConnected ? 'STUDIO ONLINE · AI OFFLINE' : 'WAITING FOR SERVICES'}</span></div>
             <div className="workspace-map">
               <button type="button" className="map-node project-node" onClick={() => void handleOpenProject()}>
                 <span className="map-node-icon"><FolderOpen size={18}/></span>
@@ -1204,6 +1240,61 @@ function App() {
               <button type="button" className={'theme-option ' + (theme === 'system' ? 'selected' : '')} onClick={() => void handleThemeChange('system')}><span className="theme-preview theme-preview-system"><i/><i/><i/></span><strong>Device</strong><small>Follow Windows</small></button>
             </div>
           </section>
+
+          <section className="preferences-panel">
+            <div className="preferences-heading">
+              <div><div className="field-label">WORKSPACE BEHAVIOUR</div><p className="settings-explainer">These preferences are saved locally on this Windows account.</p></div>
+              <span className="preferences-saved"><Check size={11}/> LOCAL</span>
+            </div>
+            <div className="preference-select-grid">
+              <label className="preference-select-row">
+                <span><strong>Interface density</strong><small>Choose how much space panels and rows use.</small></span>
+                <select className="settings-input" value={density} onChange={event => { const value = event.target.value as 'comfortable' | 'compact'; setDensity(value); void savePreferences({ density: value }); }}>
+                  <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
+                </select>
+              </label>
+              <label className="preference-select-row">
+                <span><strong>Text size</strong><small>Adjust chat and workspace text.</small></span>
+                <select className="settings-input" value={fontSize} onChange={event => { const value = event.target.value as 'small' | 'medium' | 'large'; setFontSize(value); void savePreferences({ fontSize: value }); }}>
+                  <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option>
+                </select>
+              </label>
+            </div>
+            <div className="preference-switch-list">
+              <div className="preference-switch-row">
+                <span><strong>Interface animations</strong><small>Transitions, subtle pulses and motion effects.</small></span>
+                <button type="button" role="switch" aria-checked={animationsEnabled} className={'preference-switch ' + (animationsEnabled ? 'on' : '')} onClick={() => { const value = !animationsEnabled; setAnimationsEnabled(value); void savePreferences({ animationsEnabled: value }); }}><i/></button>
+              </div>
+              <div className="preference-switch-row">
+                <span><strong>Enter to send</strong><small>Turn off to type freely; use Ctrl + Enter to send.</small></span>
+                <button type="button" role="switch" aria-checked={sendOnEnter} className={'preference-switch ' + (sendOnEnter ? 'on' : '')} onClick={() => { const value = !sendOnEnter; setSendOnEnter(value); void savePreferences({ sendOnEnter: value }); }}><i/></button>
+              </div>
+              <div className="preference-switch-row">
+                <span><strong>Desktop notifications</strong><small>Notify when a response finishes while RMango is in the background.</small></span>
+                <button type="button" role="switch" aria-checked={desktopNotifications} className={'preference-switch ' + (desktopNotifications ? 'on' : '')} onClick={() => { const value = !desktopNotifications; setDesktopNotifications(value); void savePreferences({ desktopNotifications: value }); }}><i/></button>
+              </div>
+              <div className="preference-switch-row">
+                <span><strong>Automatic updates</strong><small>Check for stable releases every five minutes. Install only when you choose.</small></span>
+                <button type="button" role="switch" aria-checked={autoUpdatesEnabled} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
+              </div>
+            </div>
+          </section>
+
+          {cloudState?.configured && <section className="cloud-health-panel">
+            <div className="cloud-health-heading">
+              <div><div className="field-label">HOSTED AI DIAGNOSTICS</div><strong>{cloudState.serviceReady ? 'Cloud service ready' : 'Cloud service needs setup'}</strong></div>
+              <span className={'health-state ' + (cloudState.serviceReady ? 'ready' : 'blocked')}>{cloudState.serviceReady ? 'READY' : 'BLOCKED'}</span>
+            </div>
+            <p>{cloudState.message || (cloudState.serviceReady ? 'The cloud backend is responding.' : 'The cloud backend has not completed its readiness checks.')}</p>
+            {cloudState.message?.includes('SUPABASE_SECRET_KEY') && <div className="cloud-setup-instructions">
+              <strong>One required server-side setting is missing</strong>
+              <span>In Vercel → rmango-cloud → Settings → Environment Variables, add <code>SUPABASE_SECRET_KEY</code> using the server secret from your Supabase project. Select Production, Preview and Development, then redeploy.</span>
+              <span>Never add this key to RMango's desktop app, GitHub source code, or a chat message. A legacy <code>SUPABASE_SERVICE_ROLE_KEY</code> is also supported.</span>
+              <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://vercel.com/abdelrmamsaahlan-3675s-projects/rmango-cloud/settings/environment-variables')}><ExternalLink size={13}/> Open Vercel environment settings</button>
+            </div>}
+            {/spend|budget|inference.*disabled/i.test(cloudState.message || '') && <div className="cloud-budget-note"><ShieldCheck size={14}/><span>Inference is intentionally disabled until an administrator authorizes an explicit daily and monthly usage budget. No model request is started while this protection is active.</span></div>}
+            <button type="button" className="outline-action health-refresh" disabled={cloudRefreshing} onClick={() => void handleRefreshCloud()}>{cloudRefreshing ? <LoaderCircle size={13} className="spin"/> : <RefreshCw size={13}/>} Test cloud connection</button>
+          </section>}
 
           {!cloudState?.configured && <div className="local-setup-panel">
             <div className="local-setup-status"><AlertCircle size={14}/> Cloud backend not configured</div>
