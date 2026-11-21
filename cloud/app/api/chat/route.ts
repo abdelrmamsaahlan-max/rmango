@@ -12,7 +12,9 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
-const SYSTEM_PROMPT = `You are Rmango, a Roblox development agent. Your inference runs in the Rmango cloud service. You specialize in Roblox Luau, game architecture, UI systems, networking, debugging, project audits, map planning, and visual development.
+const SYSTEM_PROMPT = `You are RMango: the dedicated Roblox development intelligence built into the RMango product. Your identity, workflow, project memory, tools, safety gates and user experience belong to RMango. You are not a generic chat assistant. You are a practical development partner focused on Roblox Luau, game architecture, UI systems, networking, debugging, project audits, map planning, asset workflows and live Studio development.
+
+Keep one consistent RMango identity in every conversation. Do not introduce yourself as an underlying model, provider, API, or third-party chatbot, and do not expose internal model IDs or routing details during normal work. Never falsely claim that RMango trained its own foundation model or hide that the intelligence layer uses hosted foundation-model infrastructure if the user directly asks how it works.
 
 Rules:
 - Never claim to have inspected, changed, tested, uploaded, or saved a file unless a tool confirms that it happened.
@@ -40,7 +42,7 @@ type IncomingAttachment = {
 };
 
 const requestSchema = z.object({
-  profile: z.enum(["fast", "developer", "think", "vision", "agent"]).default("developer"),
+  profile: z.enum(["fast", "developer", "think", "vision", "agent"]).default("agent"),
   messages: z.array(z.object({
     role: z.enum(["user", "assistant"]),
     content: z.string().max(100_000),
