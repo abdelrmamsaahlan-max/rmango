@@ -648,21 +648,21 @@ async function disconnectCloudStudioConnector() {
 }
 
 async function projectFiles(root: string, depth = 0): Promise<Array<{ name: string; path: string; kind: 'file' | 'folder' }>> {
-  if (depth > 3) return [];
+  if (depth > 8) return [];
   const ignored = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', 'coverage']);
   let entries;
   try { entries = await fs.readdir(root, { withFileTypes: true }); } catch { return []; }
   const result: Array<{ name: string; path: string; kind: 'file' | 'folder' }> = [];
-  for (const entry of entries.slice(0, 160)) {
+  for (const entry of entries.slice(0, 500)) {
     if (ignored.has(entry.name) || entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
     const fullPath = path.join(root, entry.name);
     if (entry.isDirectory()) {
       result.push({ name: entry.name, path: fullPath, kind: 'folder' });
-      if (depth < 2) result.push(...(await projectFiles(fullPath, depth + 1)).slice(0, 24));
+      if (depth < 8) result.push(...(await projectFiles(fullPath, depth + 1)));
     } else {
       result.push({ name: entry.name, path: fullPath, kind: 'file' });
     }
-    if (result.length >= 180) break;
+    if (result.length >= 2_000) break;
   }
   return result;
 }
@@ -821,7 +821,7 @@ async function uploadCloudProject() {
   if (typeof projectId !== "string") throw new Error("The cloud service did not return a project ID.");
   await writeCloudSession({ ...session, currentProjectId: projectId });
 
-  const entries = (await projectFiles(root)).filter(item => item.kind === "file").slice(0, 120);
+  const entries = (await projectFiles(root)).filter(item => item.kind === "file").slice(0, 2_000);
   const uploaded: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
 
