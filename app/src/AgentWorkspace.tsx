@@ -47,6 +47,7 @@ const statusLabels: Record<string, string> = {
 };
 
 function EventIcon({ type }: { type: string }) {
+  if (/specialist/i.test(type)) return <BrainCircuit size={13} />;
   if (/failed|error|timeout/i.test(type)) return <AlertCircle size={13} />;
   if (/completed|approved|result_ready/i.test(type)) return <CheckCircle2 size={13} />;
   if (/tool|studio/i.test(type)) return <Wrench size={13} />;
@@ -67,6 +68,8 @@ function TaskStatus({ status }: { status: string }) {
 function eventMeta(event: AgentTaskEvent) {
   const data = event.data || {};
   const parts: string[] = [];
+  if (typeof data.title === "string") parts.push(data.title);
+  else if (typeof data.role === "string") parts.push(data.role.replace(/_/g, " "));
   if (typeof data.toolName === "string") parts.push(data.toolName);
 
   if (typeof data.stepNumber === "number") parts.push("Step " + (data.stepNumber + 1));
@@ -106,7 +109,7 @@ export function AgentWorkspace({
   const verification = taskResult.verification as Record<string, any> | undefined;
   const events = useMemo(() => {
     const all = detail?.events || [];
-    if (eventFilter === "tools") return all.filter(event => /tool|studio|approval/i.test(event.event_type));
+    if (eventFilter === "tools") return all.filter(event => /tool|studio|approval|specialist/i.test(event.event_type));
     if (eventFilter === "errors") return all.filter(event => /failed|error|timeout/i.test(event.event_type));
     return all;
   }, [detail?.events, eventFilter]);
@@ -460,7 +463,7 @@ export function AgentWorkspace({
                       <div className="agent-section-heading"><span><Activity size={14} /> LIVE ACTIVITY</span><small>{events.length} saved events</small></div>
                       <div className="agent-event-filters">
                         <button className={eventFilter === "all" ? "active" : ""} onClick={() => setEventFilter("all")}>All</button>
-                        <button className={eventFilter === "tools" ? "active" : ""} onClick={() => setEventFilter("tools")}>Tools</button>
+                        <button className={eventFilter === "tools" ? "active" : ""} onClick={() => setEventFilter("tools")}>Tools & agents</button>
                         <button className={eventFilter === "errors" ? "active" : ""} onClick={() => setEventFilter("errors")}>Errors</button>
                       </div>
                     </div>
@@ -477,6 +480,7 @@ export function AgentWorkspace({
                               {eventMeta(event) && <small>{eventMeta(event)}</small>}
                               {event.data?.inputPreview && <details><summary>Tool input</summary><pre>{String(event.data.inputPreview)}</pre></details>}
                               {event.data?.outputPreview && <details><summary>Tool result</summary><pre>{String(event.data.outputPreview)}</pre></details>}
+                              {event.data?.reportPreview && <details><summary>Specialist review preview</summary><pre>{String(event.data.reportPreview)}</pre></details>}
                               {event.data?.error && <details><summary>Error details</summary><pre>{String(event.data.error)}</pre></details>}
                             </div>
                             <time>{timeLabel(event.created_at)}</time>
