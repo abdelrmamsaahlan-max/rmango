@@ -19,6 +19,7 @@ import { extractSupportedDocument } from "@/lib/ai/documents";
 import { createIntelligencePlan, getIntelligenceLevelLabel, type IntelligenceLevelSetting } from "@/lib/ai/intelligence-controller";
 import { classifyProviderFailure, formatProviderFailure } from "@/lib/ai/provider-errors";
 import { validateMemoryEvidence } from "@/lib/ai/memory-evidence";
+import { validateMemoryEvidence } from "@/lib/ai/memory-evidence";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -119,6 +120,7 @@ function activityToolName(toolName: string) {
     search_project_files: "Search project files",
     read_project_file: "Read project file",
     list_project_memories: "Read project memory",
+    list_project_memory_revisions: "Read memory history",
     save_project_memory: "Update project memory",
     propose_project_file_change: "Prepare a file change",
   };
@@ -811,7 +813,15 @@ export async function POST(request: Request) {
         }
 
         const sameContent = Boolean(existing && existing.content === content && existing.source_ref === verifiedSourceRef);
-        if (sameContent && (!evidence || existing.provenance === "source_excerpt")) {
+        const sameEvidence = Boolean(
+          evidence?.ok &&
+          existing?.provenance === "source_excerpt" &&
+          existing?.verification_status === "excerpt_present" &&
+          existing?.evidence_file_id === sourceFileId &&
+          existing?.evidence_sha256 === evidence.fileSha256 &&
+          existing?.evidence_snippet_sha256 === evidence.snippetSha256
+        );
+        if (sameContent && (!evidence || sameEvidence)) {
           return {
             saved: true,
             updated: false,
@@ -884,7 +894,7 @@ export async function POST(request: Request) {
         const saved = write.data;
         return {
           saved: true,
-          updated: Boolean(existing),
+          updated: Boolean(existing && saved.id === existing.id && existing.content !== content),
           provenanceAvailable,
           memory: {
             id: saved.id,
