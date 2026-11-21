@@ -62,8 +62,11 @@ No inference request was intentionally started during this work.
 - New-window creation is denied; navigation away from the trusted renderer is blocked.
 - External links must parse as HTTPS and cannot contain embedded username/password credentials before they are passed to the OS browser.
 - A renderer Content Security Policy was added with explicit development, cloud, and Supabase connection origins.
-- Chat cancellation is wired through the preload API to an AbortController in Electron main. A visible Stop control preserves any text already streamed into the chat.
-- The selected-project context module fetches only project/file metadata through the authenticated owner-scoped Supabase client, never whole project contents. The chat route verifies supplied project ownership on every turn, associates the selected project with the conversation, and makes a bounded file manifest available to the model. File contents still require an explicit `read_project_file` tool call.
+- Chat cancellation is wired through the preload API to an AbortController in Electron main. A visible Stop control preserves partial output, flushes trailing chunks and ignores late stream events to prevent duplicate text.
+- Local conversation history is encrypted with Electron `safeStorage` on supported Windows builds. Older plaintext history is migrated on first read; subsequent writes use a temporary encrypted file followed by an atomic rename. If secure storage is unavailable, RMango refuses to write new history in plaintext.
+- The Roblox Studio MCP child process receives a minimal Windows environment allowlist rather than the full desktop process environment, reducing accidental inheritance of unrelated developer tokens.
+- Chat stream deltas are coalesced to at most one renderer state update per animation frame, local history writes are throttled to at most once per second, and the in-memory conversation window is bounded.
+- The selected-project context module fetches only project/file metadata through the authenticated owner-scoped Supabase client, never whole project contents. The chat route verifies supplied project ownership on every turn, associates the selected project with the conversation, and appends a bounded file manifest in the user-data channel (not the system-instruction channel). File contents still require an explicit `read_project_file` tool call.
 - The project context block is serialized as JSON and marked untrusted. Names, descriptions, and file paths are not treated as executable instructions.
 
 ### Remaining security work
@@ -134,3 +137,10 @@ Use bounded caches only for non-sensitive data (for example, the public model ca
 ## Test status
 
 This document is an audit/plan, not a declaration that every planned system is complete. Build, automated tests, adversarial security tests, database isolation tests with multiple identities, and performance benchmarks must be recorded from actual CI/test runs before a release is described as production-verified.
+
+
+## Phase 2 verification snapshot
+
+- Cloud route and context module: GitHub Actions run `44919263613` completed with `success`; both TypeScript type-check and Next.js production build steps passed for the selected-project context implementation.
+- Desktop: GitHub Actions Windows installer run `44919394258` was still in progress at the time of this edit. Do not describe the new installer as built or released until this workflow completes and its artifact is checked.
+- No real model request, paid inference, end-to-end authenticated cloud chat, benchmark run, Windows runtime memory/CPU measurement, or security red-team test has been performed. These remain explicitly unverified.
