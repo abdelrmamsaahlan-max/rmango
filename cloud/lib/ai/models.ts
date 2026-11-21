@@ -148,8 +148,8 @@ function pickCandidate(models: GatewayModel[], profile: ModelProfile): GatewayMo
   return candidates[0];
 }
 
-export async function resolveProfile(profile: ModelProfile) {
-  const catalog = await getGatewayCatalog();
+export async function resolveProfile(profile: ModelProfile, requestOidcToken?: string | null) {
+  const catalog = await getGatewayCatalog(requestOidcToken);
   const modelMap = new Map(catalog.map(model => [model.id, model]));
   const configured = optionalEnv(PROFILE_ENV[profile]);
   const primary = configured ? modelMap.get(configured) : pickCandidate(catalog, profile);
