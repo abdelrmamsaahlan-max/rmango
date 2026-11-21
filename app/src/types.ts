@@ -185,7 +185,7 @@ declare global {
       setCurrentConversationId: (conversationId?: string | null) => Promise<{ ok: boolean }>;
       openProject: () => Promise<{ canceled?: boolean; path?: string; files?: ProjectFile[] }>;
       clearProject: () => Promise<any>;
-      uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; skipped: Array<{ name: string; reason: string }> }>;
+      uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; unchanged: number; removed: number; skipped: Array<{ name: string; reason: string }> }>;
       getCloudProjectChanges: (projectId: string) => Promise<{ project: { id: string; name: string }; changes: CloudProjectChange[] }>;
       reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => Promise<{ ok: boolean; status: string; relativePath?: string }>;
       downloadCloudProject: (projectId: string) => Promise<{ canceled: boolean; path?: string; sizeBytes?: number }>;
