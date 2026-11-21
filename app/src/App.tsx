@@ -118,6 +118,7 @@ function App() {
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark');
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
   const [sendOnEnter, setSendOnEnter] = useState(true);
   const [desktopNotifications, setDesktopNotifications] = useState(false);
@@ -191,6 +192,7 @@ function App() {
         setTheme(state.appearance || 'dark');
         setDensity(state.density || 'comfortable');
         setAnimationsEnabled(state.animationsEnabled !== false);
+        setReducedMotion(Boolean(state.reducedMotion));
         setFontSize(state.fontSize || 'medium');
         setSendOnEnter(state.sendOnEnter !== false);
         setDesktopNotifications(Boolean(state.desktopNotifications));
@@ -1034,7 +1036,8 @@ function App() {
       className="app-shell"
       data-theme={theme}
       data-density={density}
-      data-motion={animationsEnabled ? 'full' : 'reduced'}
+      data-motion={animationsEnabled && !reducedMotion ? 'full' : 'reduced'}
+      data-reduced-motion={reducedMotion ? 'true' : 'false'}
       data-font-size={fontSize}
       onDragOver={event => { event.preventDefault(); setDragActive(true); }}
       onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
@@ -1634,6 +1637,10 @@ function App() {
               <div className="preference-switch-row">
                 <span><strong>Interface animations</strong><small>Transitions, subtle pulses and motion effects.</small></span>
                 <button type="button" role="switch" aria-checked={animationsEnabled} className={'preference-switch ' + (animationsEnabled ? 'on' : '')} onClick={() => { const value = !animationsEnabled; setAnimationsEnabled(value); void savePreferences({ animationsEnabled: value }); }}><i/></button>
+              </div>
+              <div className="preference-switch-row">
+                <span><strong>Reduced motion</strong><small>Minimize movement and transitions, independently of system settings.</small></span>
+                <button type="button" role="switch" aria-checked={reducedMotion} className={'preference-switch ' + (reducedMotion ? 'on' : '')} onClick={() => { const value = !reducedMotion; setReducedMotion(value); void savePreferences({ reducedMotion: value }); }}><i/></button>
               </div>
               <div className="preference-switch-row">
                 <span><strong>Enter to send</strong><small>Turn off to type freely; use Ctrl + Enter to send.</small></span>
