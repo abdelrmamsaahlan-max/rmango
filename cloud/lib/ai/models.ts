@@ -91,7 +91,7 @@ let cachedCatalog: { until: number; models: GatewayModel[] } | undefined;
 export async function getGatewayCatalog(): Promise<GatewayModel[]> {
   if (cachedCatalog && cachedCatalog.until > Date.now()) return cachedCatalog.models;
 
-  const token = process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY;
+  const token = process.env.VERCEL_OIDC_TOKEN;
   if (!token) {
     throw new Error("Vercel AI Gateway authentication is not available in this deployment. Configure Vercel OIDC for the cloud project.");
   }
