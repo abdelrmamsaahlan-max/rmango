@@ -809,8 +809,15 @@ export async function POST(request: Request) {
           content: { text: finalText },
           model_profile: profile,
         });
-        await supabase.from("conversations").update({ updated_at: new Date().toISOString() })
+        const conversationTitle = latestUserText.replace(/\\s+/g, " ").trim().slice(0, 72);
+        const conversationUpdate = {
+          updated_at: new Date().toISOString(),
+          ...(conversationTitle ? { title: conversationTitle } : {}),
+        };
+        let titleUpdate = supabase.from("conversations").update(conversationUpdate)
           .eq("id", conversationId).eq("owner_id", user.id);
+        if (conversationTitle) titleUpdate = titleUpdate.eq("title", "New chat");
+        await titleUpdate;
         await admin.rpc("complete_ai_request", {
           p_user_id: user.id,
           p_request_id: requestId,
