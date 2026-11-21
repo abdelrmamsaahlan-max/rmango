@@ -155,18 +155,34 @@ export async function resolveProfile(profile: ModelProfile) {
     throw new Error("No currently available model supports the " + PROFILE_LABELS[profile] + " profile. Ask an administrator to configure a model.");
   }
 
-  const primaryCost = scoreCost(primary);
+  const noMoreExpensive = (candidate: GatewayModel) => {
+    const primaryInput = Number(primary.pricing?.input);
+    const primaryOutput = Number(primary.pricing?.output);
+    const candidateInput = Number(candidate.pricing?.input);
+    const candidateOutput = Number(candidate.pricing?.output);
+    return Number.isFinite(primaryInput) && Number.isFinite(primaryOutput)
+      && Number.isFinite(candidateInput) && Number.isFinite(candidateOutput)
+      && candidateInput <= primaryInput && candidateOutput <= primaryOutput;
+  };
+  const supportsProfile = (candidate: GatewayModel) => {
+    const inputs = candidate.modalities?.input || [];
+    if (!inputs.includes("text")) return false;
+    if (profile === "vision" && !inputs.includes("image")) return false;
+    if (profile === "think" && !supports(candidate, "reasoning")) return false;
+    if ((profile === "agent" || profile === "developer") && !supports(candidate, "tool-use")) return false;
+    return true;
+  };
   const configuredFallbacks = (optionalEnv(FALLBACK_ENV[profile]) || "")
     .split(",")
     .map(value => value.trim())
     .filter(Boolean)
     .map(id => modelMap.get(id))
     .filter((model): model is GatewayModel => Boolean(model))
-    .filter(model => model.id !== primary.id && Number.isFinite(scoreCost(model)) && scoreCost(model) <= primaryCost)
+    .filter(model => model.id !== primary.id && supportsProfile(model) && noMoreExpensive(model))
     .map(model => model.id);
 
   const automaticFallback = pickCandidate(
-    catalog.filter(model => model.id !== primary.id && Number.isFinite(scoreCost(model)) && scoreCost(model) <= primaryCost),
+    catalog.filter(model => model.id !== primary.id && supportsProfile(model) && noMoreExpensive(model)),
     profile,
   );
   const fallbacks = configuredFallbacks.length
