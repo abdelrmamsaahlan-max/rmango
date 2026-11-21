@@ -303,7 +303,7 @@ function App() {
         await refreshMcpState();
         setToast(result.cloudLinked
           ? 'Roblox Studio linked to Rmango Cloud · ' + result.toolCount + ' tools discovered'
-          : (result.cloudMessage || ('Studio connected locally · sign in to link cloud AI · ' + result.toolCount + ' tools')));
+          : (result.cloudMessage || ('Studio connected locally · the guest workspace links automatically · ' + result.toolCount + ' tools')));
       } else {
         setToast(result.error || 'Could not connect to Roblox Studio.');
       }
@@ -646,7 +646,7 @@ function App() {
                 <button type="button" onClick={() => void handleDownloadCloudProject()}><Download size={12}/> Download ZIP</button>
               </div>
             </>}
-            {!cloudReady && <small>Sign in and connect Rmango Cloud to upload</small>}
+            {!cloudReady && <small>RMango AI must be online before you can upload this project</small>}
           </div>}
           {projectFiles.length > 0 && <>
             <div className="file-search"><Search size={13}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Filter files"/></div>
@@ -676,7 +676,7 @@ function App() {
 
         <main className="main-panel">
           <div className="main-toolbar">
-            <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">CLOUD AI</span></div>
+            <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">RMANGO AI</span></div>
             <div className="toolbar-actions">
               <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Cloud model'}</span>
               <button className="subtle-icon" title="Toggle inspector" onClick={() => setRightPanelOpen(value => !value)}><Menu size={16}/></button>
@@ -802,24 +802,24 @@ function App() {
 
           <section className="inspector-section local-section">
             <div className="section-title">
-              <span>CLOUD AI ENGINE</span>
+              <span>RMANGO AI ENGINE</span>
               <span className={'live-indicator ' + (cloudReady ? 'live' : '')}>{cloudReady ? 'ONLINE' : cloudLoading ? 'CHECKING' : 'OFFLINE'}</span>
             </div>
             <div className="local-status-card">
               <div className="local-status-icon"><Sparkles size={19}/></div>
               <div className="local-status-copy">
-                <strong>{cloudReady ? (cloudState?.signedIn ? 'Hosted AI is ready' : 'Cloud service is ready') : 'Cloud connection required'}</strong>
-                <span>{cloudState?.email || cloudState?.apiHost || cloudState?.message || 'No local models or API keys'}</span>
+                <strong>{cloudReady ? (cloudState?.signedIn ? 'RMango AI is ready' : 'Starting guest workspace') : 'RMango AI unavailable'}</strong>
+                <span>{cloudState?.message || (cloudState?.isGuest ? 'Private guest session active on this device' : 'Automatic connection · no user API keys')}</span>
               </div>
               <span className={'status-dot ' + (cloudReady ? 'bright' : '')}/>
               <div className="local-meta"><span>INFERENCE</span><strong>Remote cloud</strong><span>DEVICE</span><strong>Interface only</strong></div>
             </div>
             {cloudState?.signedIn
               ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Cloud model manager <ArrowRight size={13}/></button>
-              : <button className="primary-action" onClick={() => setSettingsOpen(true)}><LockKeyhole size={13}/> Sign in to Rmango <ArrowRight size={13}/></button>}
+              : <button className="primary-action" onClick={() => { void refreshCloudState(); setSettingsOpen(true); }}><RefreshCw size={13}/> Check RMango AI <ArrowRight size={13}/></button>}
             {cloudReady && <div className="connect-help">
               <strong>{currentProfile?.profileLabel || 'Cloud model profiles'}</strong>
-              <span>{currentProfile?.name || 'Choose a model profile below the chat composer.'}</span>
+              <span>{profileCopyForMode(cloudProfile)}</span>
               {currentProfile && <span>
                 {currentProfile.contextWindow ? currentProfile.contextWindow.toLocaleString() + ' context tokens' : 'Context details unavailable'}
                 {' · '}
@@ -842,7 +842,7 @@ function App() {
             <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioConnected ? 'live' : '')}>{studioConnected ? 'CONNECTED' : 'OFFLINE'}</span></div>
             <div className="studio-status-card">
               <div className={'studio-status-icon ' + (studioConnected ? 'live' : '')}><Gamepad2 size={19}/></div>
-              <div className="studio-status-copy"><strong>{studioConnected ? (studioCloudLinked ? 'Studio linked to cloud' : 'Studio session linked') : 'Waiting for Studio'}</strong><span>{studioConnected ? (studioCloudLinked ? 'Secure cloud bridge active' : 'Local MCP connected · sign in to link cloud AI') : 'Enable Studio as MCP server'}</span></div>
+              <div className="studio-status-copy"><strong>{studioConnected ? (studioCloudLinked ? 'Studio linked to cloud' : 'Studio session linked') : 'Waiting for Studio'}</strong><span>{studioConnected ? (studioCloudLinked ? 'Secure cloud bridge active' : 'Local MCP connected · guest cloud session links automatically') : 'Enable Studio as MCP server'}</span></div>
               <span className={'status-dot ' + (studioConnected ? 'bright' : '')}/>
               <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>ACCESS</span><strong>Approval gated</strong></div><div><span>PLATFORM</span><strong>Windows</strong></div></div>
             </div>
