@@ -59,10 +59,10 @@ export async function GET(request: Request, context: { params: Promise<{ taskId:
     .select("id,event_type,message,data,created_at")
     .eq("task_id", taskId)
     .eq("owner_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(100);
+    .order("created_at", { ascending: false })
+    .limit(200);
   if (eventError) return NextResponse.json({ error: "Could not load task events." }, { status: 503 });
-  return NextResponse.json({ task, events: events || [] });
+  return NextResponse.json({ task, events: (events || []).reverse() });
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ taskId: string }> }) {
