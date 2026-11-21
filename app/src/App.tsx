@@ -2157,7 +2157,7 @@ function App() {
                     </div>
                     {cloudState.message?.includes('SUPABASE_SECRET_KEY') && <div className="cloud-setup-instructions">
                       <strong>Server setup is incomplete</strong>
-                      <span>Open Cloudflare → Workers & Pages → rmango-cloud → Settings → Variables and Secrets and configure <code>SUPABASE_SECRET_KEY</code>. Keep it on the cloud server; never add it to the desktop app or source code.</span>
+                      <span>Open Cloudflare → Workers & Pages → rmango → Settings → Variables and Secrets and configure <code>SUPABASE_SECRET_KEY</code>. Keep it on the cloud server; never add it to the desktop app or source code.</span>
                       <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://dash.cloudflare.com/')}><ExternalLink size={13}/> Open Cloudflare dashboard</button>
                     </div>}
                     <button type="button" className="settings-secondary-button" disabled={cloudRefreshing} onClick={() => void handleRefreshCloud()}>
