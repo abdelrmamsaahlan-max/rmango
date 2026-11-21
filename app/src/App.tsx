@@ -3,7 +3,7 @@ import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
-  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
+  LockKeyhole, MailCheck, Eye, EyeOff, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square,
   Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info
 } from 'lucide-react';
@@ -56,6 +56,37 @@ function MangoMark({ size = 34, className = '' }: { size?: number; className?: s
       <path d="M19 23.4c2.2-4.5 5.5-6.9 9.1-7.8" stroke="#FFF0A9" strokeWidth="3" strokeLinecap="round" opacity=".8"/>
       <path d="M16.7 35c.1 5.3 2.5 10 6.2 13" stroke="#F9A829" strokeWidth="1.4" strokeLinecap="round" opacity=".55"/>
     </svg>
+  );
+}
+
+function AccountSecurityVisual() {
+  return (
+    <div className="account-security-art" aria-hidden="true">
+      <div className="account-security-orbit orbit-one" />
+      <div className="account-security-orbit orbit-two" />
+      <span className="account-security-star star-one">✦</span>
+      <span className="account-security-star star-two">✧</span>
+      <svg viewBox="0 0 220 154" role="presentation">
+        <defs>
+          <linearGradient id="account-shield-fill" x1="70" y1="18" x2="154" y2="132" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#E6F4B7"/><stop offset=".55" stopColor="#B6DA79"/><stop offset="1" stopColor="#5A9A59"/>
+          </linearGradient>
+          <linearGradient id="account-shield-edge" x1="82" y1="20" x2="154" y2="131" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#F4FFD9"/><stop offset="1" stopColor="#86B86D"/>
+          </linearGradient>
+        </defs>
+        <path d="M110 17 163 38v37c0 34-23 54-53 66-30-12-53-32-53-66V38l53-21Z" fill="url(#account-shield-fill)" opacity=".16"/>
+        <path d="M110 25 154 42v32c0 27-18 44-44 56-26-12-44-29-44-56V42l44-17Z" fill="url(#account-shield-fill)" stroke="url(#account-shield-edge)" strokeWidth="2.4"/>
+        <path d="M110 39 141 51v23c0 19-12 31-31 41-19-10-31-22-31-41V51l31-12Z" fill="#183C27" opacity=".9"/>
+        <rect x="96" y="68" width="28" height="25" rx="7" fill="#D8F0A5"/>
+        <path d="M101 68v-7a9 9 0 0 1 18 0v7" stroke="#D8F0A5" strokeWidth="5" strokeLinecap="round" fill="none"/>
+        <circle cx="110" cy="80" r="3.2" fill="#345C35"/>
+        <path d="M110 83v6" stroke="#345C35" strokeWidth="2.8" strokeLinecap="round"/>
+        <path d="m49 91 8-8 8 8-8 8-8-8Z" fill="#C8E899" opacity=".85"/>
+        <circle cx="170" cy="47" r="5" fill="#E4F4B5"/><circle cx="167" cy="111" r="3.5" fill="#A8D576"/><circle cx="53" cy="48" r="3" fill="#F3D785"/>
+      </svg>
+      <div className="account-security-glow" />
+    </div>
   );
 }
 
@@ -161,6 +192,11 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authResetBusy, setAuthResetBusy] = useState(false);
   const [authResetSent, setAuthResetSent] = useState(false);
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
+  const [authVerificationFeedback, setAuthVerificationFeedback] = useState('');
+  const [authVerificationError, setAuthVerificationError] = useState(false);
+  const [authVerificationBusy, setAuthVerificationBusy] = useState(false);
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [search, setSearch] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
@@ -574,21 +610,46 @@ function App() {
     }
   }
 
+  async function handleResendEmailConfirmation() {
+    const email = (pendingVerificationEmail || cloudState?.email || authEmail).trim().toLowerCase();
+    if (!email || authVerificationBusy) return;
+    setAuthVerificationBusy(true);
+    setAuthVerificationFeedback('');
+    setAuthVerificationError(false);
+    try {
+      const result = await window.rmango.resendEmailConfirmation({ email });
+      setAuthVerificationFeedback(result.message || 'Check your inbox for a confirmation email.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not request a confirmation email.';
+      setAuthVerificationFeedback(message);
+      setAuthVerificationError(true);
+    } finally {
+      setAuthVerificationBusy(false);
+    }
+  }
+
   async function handleAuth(event: FormEvent) {
     event.preventDefault();
     if (authBusy) return;
     setAuthBusy(true);
     try {
+      const normalizedEmail = authEmail.trim().toLowerCase();
       if (authMode === 'sign-in') {
-        await window.rmango.cloudSignIn({ email: authEmail.trim(), password: authPassword });
+        await window.rmango.cloudSignIn({ email: normalizedEmail, password: authPassword });
+        setPendingVerificationEmail('');
+        setAuthVerificationFeedback('');
+        setAuthVerificationError(false);
       } else {
         const result = await window.rmango.cloudSignUp({
-          email: authEmail.trim(),
+          email: normalizedEmail,
           password: authPassword,
           displayName: authDisplayName.trim() || undefined,
         });
         if (result.requiresEmailConfirmation) {
-          setToast('Check your email to confirm your Rmango account, then sign in.');
+          setPendingVerificationEmail(normalizedEmail);
+          setAuthVerificationFeedback('A confirmation link was requested. Open it on this device or another device, then return here and sign in.');
+          setAuthVerificationError(false);
+          setToast('Check your inbox to verify your Rmango account.');
           setAuthMode('sign-in');
           setAuthPassword('');
           return;
@@ -631,7 +692,13 @@ function App() {
       setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
       if (state.serviceReady) setSettingsOpen(false);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.');
+      const message = error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.';
+      if (authMode === 'sign-in' && /(email.*confirm|confirm.*email|email.*verif|verif.*email)/i.test(message)) {
+        setPendingVerificationEmail(authEmail.trim().toLowerCase());
+        setAuthVerificationFeedback('This account still needs email confirmation. Request a fresh link below, then sign in.');
+        setAuthVerificationError(false);
+      }
+      setToast(message);
     } finally {
       setAuthBusy(false);
     }
@@ -2096,12 +2163,28 @@ function App() {
                         <div className="account-copy">
                           <strong>{cloudState.displayName || cloudState.email || 'Rmango account'}</strong>
                           <span>{cloudState.email || 'Account email unavailable'}</span>
-                          <span>{cloudState.accountVerified
+                          <span className={cloudState.emailVerified ? 'account-email-verified' : 'account-email-pending'}>{cloudState.accountVerified
                             ? (cloudState.emailVerified ? 'Email confirmed' : 'Email not confirmed')
                             : 'Verification status unavailable'}</span>
                           <span>{cloudState.serviceReady ? 'Cloud services online' : 'Connected · cloud services need attention'}</span>
                         </div>
                         <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
+                      </div>
+                      {!cloudState.emailVerified && <div className="account-verify-callout">
+                        <div><AlertCircle size={15}/><span>Your email is not confirmed yet. Confirm it to finish securing your account.</span></div>
+                        <button type="button" className="verification-resend-button" onClick={() => void handleResendEmailConfirmation()} disabled={authVerificationBusy}>
+                          {authVerificationBusy ? <LoaderCircle size={13} className="spin"/> : <MailCheck size={13}/>}
+                          {authVerificationBusy ? 'Sending…' : 'Resend confirmation'}
+                        </button>
+                        {authVerificationFeedback && <p className={'verification-feedback ' + (authVerificationError ? 'is-error' : '')}>{authVerificationFeedback}</p>}
+                      </div>}
+                      <div className="account-device-security">
+                        <div className="account-device-security-icon"><ShieldCheck size={15}/></div>
+                        <div>
+                          <strong>{appState?.secureStorageAvailable ? 'Device key store protected' : 'Device key store needs attention'}</strong>
+                          <span>{appState?.secureStorageProvider || 'Checking operating-system key store'}{appState?.secureStorageMessage ? ' · ' + appState.secureStorageMessage : ' · Account tokens are encrypted using the operating-system key store.'}</span>
+                        </div>
+                        <span className={'account-device-security-status ' + (appState?.secureStorageAvailable ? 'ready' : 'warning')}>{appState?.secureStorageAvailable ? 'SECURE' : 'CHECK'}</span>
                       </div>
                       <div className="settings-inline-status">
                         <span className={'health-state ' + (cloudState.serviceReady ? 'ready' : 'blocked')}>{cloudState.serviceReady ? 'CLOUD READY' : 'CLOUD NEEDS ATTENTION'}</span>
@@ -2110,7 +2193,15 @@ function App() {
                     </section>
                   </> : <>
                     <section className="settings-card">
-                      <div className="settings-card-heading">
+                      <div className="account-auth-hero">
+                          <AccountSecurityVisual/>
+                          <div>
+                            <span className="account-auth-eyebrow">YOUR WORKSPACE, PROTECTED</span>
+                            <h3>One account. Your projects stay yours.</h3>
+                            <p>Email confirmation helps protect access to your cloud workspace and saved Roblox projects.</p>
+                          </div>
+                        </div>
+                        <div className="settings-card-heading">
                         <div className="settings-card-icon"><LockKeyhole size={17}/></div>
                         <div><h3>Connect your account</h3><p>Sign in to use hosted AI, projects, and account-based conversation history.</p></div>
                       </div>
@@ -2122,6 +2213,23 @@ function App() {
                           <span className="provider-symbol local-symbol"><Plus size={15}/></span><span><strong>Create account</strong><small>New Rmango account</small></span>
                         </button>
                       </div>
+                      {pendingVerificationEmail && <div className="verification-panel" role="status" aria-live="polite">
+                        <div className="verification-panel-icon"><MailCheck size={19}/></div>
+                        <div className="verification-panel-copy">
+                          <strong>Check your inbox</strong>
+                          <p>Verification is pending for <b>{pendingVerificationEmail}</b>. Open the confirmation link, then sign in here.</p>
+                        </div>
+                        <div className="verification-actions">
+                          <button type="button" className="verification-resend-button" onClick={() => void handleResendEmailConfirmation()} disabled={authVerificationBusy}>
+                            {authVerificationBusy ? <LoaderCircle size={13} className="spin"/> : <MailCheck size={13}/>}
+                            {authVerificationBusy ? 'Sending…' : 'Resend confirmation'}
+                          </button>
+                          <button type="button" className="verification-change-button" onClick={() => { setPendingVerificationEmail(''); setAuthVerificationFeedback(''); setAuthVerificationError(false); }}>
+                            Use another email
+                          </button>
+                        </div>
+                        {authVerificationFeedback && <p className={'verification-feedback ' + (authVerificationError ? 'is-error' : '')}>{authVerificationFeedback}</p>}
+                      </div>}
                       <form className="settings-auth-form" onSubmit={handleAuth}>
                         {authMode === 'sign-up' && <>
                           <label className="field-label" htmlFor="rmango-display-name">DISPLAY NAME</label>
@@ -2130,7 +2238,12 @@ function App() {
                         <label className="field-label" htmlFor="rmango-email">EMAIL</label>
                         <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => { setAuthEmail(event.target.value); setAuthResetSent(false); }} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
                         <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
-                        <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
+                        <div className="auth-password-wrap">
+                          <input id="rmango-password" className="settings-input" type={showAuthPassword ? 'text' : 'password'} value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
+                          <button type="button" className="auth-password-visibility" aria-label={showAuthPassword ? 'Hide password' : 'Show password'} aria-pressed={showAuthPassword} onClick={() => setShowAuthPassword(value => !value)}>
+                            {showAuthPassword ? <EyeOff size={15}/> : <Eye size={15}/>}
+                          </button>
+                        </div>
                         {authMode === 'sign-in' && <div className="password-recovery-row">
                           <button type="button" className="password-recovery-link" onClick={() => void handlePasswordReset()} disabled={authResetBusy || !authEmail.trim()}>
                             {authResetBusy ? <LoaderCircle size={13} className="spin"/> : <LockKeyhole size={13}/>}
