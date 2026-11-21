@@ -190,7 +190,7 @@ function App() {
     };
     window.addEventListener('keydown', onSettingsShortcut);
     return () => window.removeEventListener('keydown', onSettingsShortcut);
-  }, []);
+  }, [settingsOpen]);
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
