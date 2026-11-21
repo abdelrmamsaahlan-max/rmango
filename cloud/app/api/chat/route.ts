@@ -6,7 +6,7 @@ import { z } from "zod";
 import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
 import { resolveProfile, type ModelProfile } from "@/lib/ai/models";
 import { optionalEnv } from "@/lib/env";
-import { isAllowedStudioTool } from "@/lib/studio-connector";
+import { isAllowedStudioTool, STUDIO_READ_ONLY_TOOLS } from "@/lib/studio-connector";
 import { formatSelectedProjectContext, loadSelectedProjectContext } from "@/lib/ai/project-context";
 import { buildSkillContext } from "@/lib/ai/skills";
 import { buildAgentWorkflowContext } from "@/lib/ai/orchestration";
@@ -148,9 +148,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No cloud model is configured." }, { status: 503 });
   }
 
-  const maxOutputTokens = Math.max(
+  const configuredMaxOutputTokens = Math.max(
     256,
     Math.min(8192, Number(optionalEnv("RMANGO_MAX_OUTPUT_TOKENS") || 4096) || 4096),
+  );
+  const providerOutputLimit = choice.primary.maxOutputTokens > 0
+    ? choice.primary.maxOutputTokens
+    : configuredMaxOutputTokens;
+  // Reserve a proportionate completion budget on smaller-context models while
+  // respecting both the administrator's setting and the model catalogue limit.
+  const contextOutputLimit = choice.primary.contextWindow > 0
+    ? Math.max(256, Math.floor(choice.primary.contextWindow * 0.35))
+    : configuredMaxOutputTokens;
+  const maxOutputTokens = Math.max(
+    256,
+    Math.min(configuredMaxOutputTokens, providerOutputLimit, contextOutputLimit),
   );
 
   let messages = body.messages.slice(-24).map(message => ({
@@ -362,7 +374,10 @@ export async function POST(request: Request) {
 
   // Fit the selected model's actual reported context window before reserving usage.
   // Image payloads are excluded from text estimation and receive a conservative reserve.
-  const imageTokenReserve = attachmentParts.length * 20_000;
+  const imageTokenReservePerAttachment = choice.primary.contextWindow > 0
+    ? Math.min(20_000, Math.max(1_024, Math.floor(choice.primary.contextWindow * 0.1)))
+    : 20_000;
+  const imageTokenReserve = attachmentParts.length * imageTokenReservePerAttachment;
   const contextFit = compactMessagesToContextWindow({
     messages,
     systemPrompt,
@@ -811,6 +826,16 @@ export async function POST(request: Request) {
     }
   }
 
+  // Planning-only requests may inspect the project and Studio, but cannot write
+  // project memory, create proposals or queue mutating Studio commands.
+  const activeProjectTools = workflow.strategy === "planning"
+    ? Object.fromEntries(Object.entries(projectTools).filter(([name]) =>
+        name !== "save_project_memory" && name !== "propose_project_file_change"))
+    : projectTools;
+  const activeStudioTools = workflow.strategy === "planning"
+    ? Object.fromEntries(Object.entries(studioTools).filter(([name]) => STUDIO_READ_ONLY_TOOLS.has(name)))
+    : studioTools;
+
   const requestMessages = messages;
   const gatewayOptions = choice.fallbackIds.length
     ? { gateway: { models: choice.fallbackIds } }
@@ -821,7 +846,7 @@ export async function POST(request: Request) {
       model: gateway(choice.primary.id),
       system: systemPrompt,
       messages: requestMessages,
-      tools: { ...projectTools, ...studioTools },
+      tools: { ...activeProjectTools, ...activeStudioTools },
       stopWhen: stepCountIs(workflow.maxSteps),
       maxOutputTokens: enforcedMaxOutputTokens,
       temperature: 0.2,
