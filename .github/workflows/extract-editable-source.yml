@@ -1,0 +1,60 @@
+name: Extract editable Rmango source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/extract-editable-source.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Extract the developer source bundle
+        shell: pwsh
+        run: |
+          if (Test-Path "app/package.json") {
+            Write-Host "The editable app/ source is already present."
+            exit 0
+          }
+
+          if (-not (Test-Path "source/Rmango-source.zip")) {
+            throw "Missing source/Rmango-source.zip"
+          }
+
+          New-Item -ItemType Directory -Force -Path "app" | Out-Null
+          Expand-Archive -LiteralPath "source/Rmango-source.zip" -DestinationPath "app" -Force
+
+          foreach ($required in @("package.json", "src/App.tsx", "src/styles.css", "electron/main.ts")) {
+            if (-not (Test-Path (Join-Path "app" $required))) {
+              throw "Source archive is missing required file: $required"
+            }
+          }
+
+          Write-Host "Extracted Rmango source into app/."
+
+      - name: Commit editable source
+        shell: pwsh
+        run: |
+          if (Test-Path "app/package.json") {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app
+            git diff --cached --quiet
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "No source changes to commit."
+              exit 0
+            }
+            git commit -m "chore: expose editable Rmango application source"
+            git push origin HEAD:main
+          } else {
+            throw "app/package.json was not created."
+          }
