@@ -123,6 +123,17 @@ function maskLuauComments(source: string): string {
       continue;
     }
 
+    const longString = source.slice(index).match(/^\[(=*)\[/);
+    if (longString) {
+      const close = "]" + (longString[1] || "") + "]";
+      const bodyStart = index + longString[0].length;
+      const closeAt = source.indexOf(close, bodyStart);
+      const end = closeAt < 0 ? source.length : closeAt + close.length;
+      blank(index, end);
+      index = end;
+      continue;
+    }
+
     if (character === "-" && source[index + 1] === "-") {
       const commentStart = index;
       const bracket = source.slice(index + 2).match(/^\[(=*)\[/);
@@ -261,7 +272,7 @@ export function indexLuauSource(relativePath: string, source: string, projectPat
     if (match[1] && match[3]) remoteAliases.set(match[1], match[3]);
   }
 
-  const remoteUsePattern = /\b([A-Za-z_]\w*)\s*:\s*(OnServerEvent|OnClientEvent|OnServerInvoke|OnClientInvoke|FireServer|FireClient|FireAllClients|InvokeServer|InvokeClient)\b/g;
+  const remoteUsePattern = /\b([A-Za-z_]\w*)\s*[:.]\s*(OnServerEvent|OnClientEvent|OnServerInvoke|OnClientInvoke|FireServer|FireClient|FireAllClients|InvokeServer|InvokeClient)\b/g;
   for (const match of code.matchAll(remoteUsePattern)) {
     const variable = match[1];
     const method = match[2];
@@ -317,15 +328,20 @@ export function indexLuauSource(relativePath: string, source: string, projectPat
     );
   }
 
-  const assetPattern = /\b(rbxassetid|rbxthumb):\/\/([0-9]+)/gi;
-  for (const match of code.matchAll(assetPattern)) {
-    const scheme = match[1]?.toLowerCase();
-    const id = match[2];
-    if (!scheme || !id) continue;
-    const reference = scheme + "://" + id;
-    const offset = match.index || 0;
-    symbols.push({ symbolType: "asset", symbolName: reference, lineNumber: lineAt(source, offset) });
-    addKnownDependency(dependencies, "asset_reference", reference, reference, source, offset, 1);
+  const assetPatterns = [
+    /\b(rbxassetid):\/\/([0-9]+)/gi,
+    /\b(rbxthumb):\/\/[^"'\s]*?\bid=([0-9]+)/gi,
+  ];
+  for (const assetPattern of assetPatterns) {
+    for (const match of code.matchAll(assetPattern)) {
+      const scheme = match[1]?.toLowerCase();
+      const id = match[2];
+      if (!scheme || !id) continue;
+      const reference = scheme + "://" + id;
+      const offset = match.index || 0;
+      symbols.push({ symbolType: "asset", symbolName: reference, lineNumber: lineAt(source, offset) });
+      addKnownDependency(dependencies, "asset_reference", reference, reference, source, offset, 1);
+    }
   }
 
   const requireStart = /\brequire\s*\(/g;
