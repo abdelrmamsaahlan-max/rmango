@@ -41,9 +41,9 @@ Installed Windows builds check GitHub Releases after startup and every four hour
 
 ## Automatic updates
 
-Every push to `main` builds a versioned Windows NSIS installer and publishes both the EXE and `latest.yml` update metadata to a GitHub Release. The workflow verifies the EXE and update manifest are present before succeeding.
+Every push to `main` builds and verifies a versioned Windows NSIS installer artifact. It publishes the EXE and `latest.yml` to a public GitHub Release **only when** the GitHub repository variable `RMANGO_CLOUD_API_URL` is set to the deployed Rmango Cloud HTTPS URL. Without that URL, the installer is retained as a CI artifact and no public release is published.
 
-The original 0.2.0 app was built before the updater existed; it needs one manual upgrade to an updater-enabled release. Current published build and signing state should be checked on the Releases page.
+The last pre-cloud desktop release is local-AI based and cannot run the new cloud-only client. After the backend is deployed and `RMANGO_CLOUD_API_URL` is configured, install the first cloud-enabled release manually once; later releases can be installed from inside Rmango. Current published build and signing state should be checked on the Releases page.
 
 ## Developer hot reload
 
