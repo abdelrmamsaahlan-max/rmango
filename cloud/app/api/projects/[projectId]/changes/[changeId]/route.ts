@@ -196,6 +196,53 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
     return NextResponse.json({ error: "Could not apply the proposed file. The original file was preserved." }, { status: 503 });
   }
 
+  // A successful storage upload response is not sufficient: download the
+  // private object and verify the actual persisted bytes before indexing.
+  const { data: readBackBlob, error: readBackError } = await supabase.storage
+    .from("rmango-files").download(storagePath);
+  const readBackHash = readBackBlob
+    ? createHash("sha256").update(Buffer.from(await readBackBlob.arrayBuffer())).digest("hex")
+    : null;
+  if (readBackError || readBackHash !== actualHash) {
+    let rollbackError: unknown = null;
+    if (currentFile && originalBytes) {
+      const restored = await supabase.storage.from("rmango-files").upload(storagePath, originalBytes, {
+        contentType: currentFile.mime_type || "text/plain",
+        upsert: true,
+        cacheControl: "3600",
+      });
+      rollbackError = restored.error;
+      if (!rollbackError) {
+        const { data: rollbackBlob, error: rollbackReadError } = await supabase.storage
+          .from("rmango-files").download(storagePath);
+        const rollbackHash = rollbackBlob
+          ? createHash("sha256").update(Buffer.from(await rollbackBlob.arrayBuffer())).digest("hex")
+          : null;
+        if (rollbackReadError || rollbackHash !== originalHash) rollbackError = rollbackReadError || new Error("Original bytes failed read-back verification.");
+      }
+    } else if (!currentFile) {
+      const removed = await supabase.storage.from("rmango-files").remove([storagePath]);
+      rollbackError = removed.error;
+      if (!rollbackError) {
+        const { data: unexpectedBlob } = await supabase.storage.from("rmango-files").download(storagePath);
+        if (unexpectedBlob) rollbackError = new Error("The newly created object still exists after cleanup.");
+      }
+    }
+    if (rollbackError) {
+      await supabase.from("project_checkpoints").update({ status: "restore_conflict" })
+        .eq("id", checkpointId).eq("owner_id", user.id);
+      return NextResponse.json({
+        error: "The uploaded object failed SHA-256 read-back verification and automatic recovery could not be confirmed. The checkpoint was retained for manual recovery.",
+        checkpointId,
+      }, { status: 503 });
+    }
+    if (currentFile) await supabase.storage.from("rmango-files").remove([checkpointBackupPath]);
+    await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+    return NextResponse.json({
+      error: "The uploaded object failed SHA-256 read-back verification. The original file was restored and verified; no change was applied.",
+    }, { status: 503 });
+  }
+
   const { data: appliedFile, error: indexError } = await supabase.from("project_files").upsert({
     project_id: projectId,
     owner_id: user.id,
@@ -206,8 +253,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
     size_bytes: bytes.length,
     sha256: actualHash,
     indexed_at: null,
-  }, { onConflict: "project_id,relative_path" }).select("id").single();
-  if (indexError || !appliedFile) {
+  }, { onConflict: "project_id,relative_path" }).select("id,sha256,storage_path").single();
+  if (indexError || !appliedFile || appliedFile.sha256 !== actualHash || appliedFile.storage_path !== storagePath) {
     // If the metadata commit failed after the object write, put back the exact
     // snapshot. If this was a newly-created path, remove the unindexed object.
     let rollbackError: unknown = null;

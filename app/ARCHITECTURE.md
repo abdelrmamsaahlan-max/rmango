@@ -162,3 +162,6 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - Process runtime and output are bounded. Git absence and non-repository folders return an explicit unavailable state. File names are parsed and rendered as data, never concatenated into a command.
 - The project explorer displays branch, ahead/behind, staged, unstaged, untracked and conflicted counts, a bounded changed-file list and a bounded diff preview.
 - This first integration is deliberately read-only: no staging, commits, branch switches, checkouts, rollbacks, pushes, hooks, worktrees or GitHub operations are run automatically.
+
+- Before an approved cloud edit is recorded as successful, RMango now downloads the just-uploaded private object and verifies its SHA-256 against the proposed content. It also checks that the project-file index row contains the same hash and storage path. A failed read-back triggers a best-effort restore from the checkpoint and is reported as a failure, not a pass.
+- Checkpoint restoration uses the same read-back hash verification before updating file metadata. On mismatch it attempts to put the previously live bytes back, and reports a recovery conflict if that cannot also be verified.

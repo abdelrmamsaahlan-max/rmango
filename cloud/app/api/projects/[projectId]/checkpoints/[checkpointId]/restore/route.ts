@@ -190,6 +190,41 @@ export async function POST(
       return NextResponse.json({ error: "Could not restore the checkpoint file. The rollback point was retained.", rollbackCheckpointId: rollbackId }, { status: 503 });
     }
 
+    // Verify the actual private-storage bytes before committing restored metadata.
+    const { data: restoredBlob, error: restoredReadError } = await supabase.storage
+      .from("rmango-files").download(targetStoragePath);
+    const readBackHash = restoredBlob
+      ? createHash("sha256").update(Buffer.from(await restoredBlob.arrayBuffer())).digest("hex")
+      : null;
+    if (restoredReadError || readBackHash !== entry.original_sha256) {
+      let rollbackVerified = !rollbackBytes;
+      if (rollbackBytes) {
+        const restoredLive = await supabase.storage.from("rmango-files").upload(targetStoragePath, rollbackBytes, {
+          contentType: currentFile?.mime_type || "text/plain", upsert: true,
+        });
+        if (!restoredLive.error) {
+          const { data: rollbackBlob, error: rollbackReadError } = await supabase.storage
+            .from("rmango-files").download(targetStoragePath);
+          const rollbackHash = rollbackBlob
+            ? createHash("sha256").update(Buffer.from(await rollbackBlob.arrayBuffer())).digest("hex")
+            : null;
+          rollbackVerified = !rollbackReadError && rollbackHash === createHash("sha256").update(rollbackBytes).digest("hex");
+        }
+      } else {
+        const removed = await supabase.storage.from("rmango-files").remove([targetStoragePath]);
+        rollbackVerified = !removed.error;
+      }
+      await supabase.from("project_checkpoints").update({
+        status: rollbackVerified ? "failed" : "restore_conflict",
+      }).eq("id", rollbackId).eq("owner_id", user.id);
+      return NextResponse.json({
+        error: rollbackVerified
+          ? "The restored object failed hash verification. The current live version was restored; no checkpoint restore was applied."
+          : "The restored object failed hash verification and automatic recovery could not be confirmed. Keep the rollback checkpoint for manual recovery.",
+        rollbackCheckpointId: rollbackId,
+      }, { status: 503 });
+    }
+
     const { data: restoredFile, error: upsertError } = await supabase.from("project_files").upsert({
       project_id: projectId,
       owner_id: user.id,
