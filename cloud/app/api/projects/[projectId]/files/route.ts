@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthErrorResponse } from "@/lib/supabase";
@@ -99,14 +100,13 @@ export async function POST(request: Request, context: { params: Promise<{ projec
       file_name: safeName,
       mime_type: payload.mimeType,
       size_bytes: bytes.length,
-      sha256: null,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
       indexed_at: null,
     }, { onConflict: "project_id,relative_path" })
     .select("id,relative_path,file_name,mime_type,size_bytes,created_at")
     .single();
 
   if (insertError || !file) {
-    await supabase.storage.from("rmango-files").remove([storagePath]);
     return NextResponse.json({ error: "Could not index the uploaded source file." }, { status: 503 });
   }
 
