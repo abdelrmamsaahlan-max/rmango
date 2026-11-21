@@ -26,20 +26,22 @@ This roadmap separates existing, verified foundations from work that still needs
 
 - [x] Use the stacked branch containing the project-aware chat, durable agent workspace, source index, security hardening and evaluation loop as the base.
 - [ ] Keep all follow-up work stacked on that base until the parent PR chain is merged in order.
-- [ ] Run the complete cloud, desktop and Windows installer checks on the consolidated branch.
+- [x] Run the complete cloud, desktop and Windows installer checks on the consolidated branch.
 
 **Acceptance:** the agent workspace, workflow APIs, indexer, secure IPC and release checks remain present after each new feature is added.
 
 ### Stage 1 — Zero-configuration first launch
 
-- [ ] Automatically create a private guest identity when the managed service is healthy.
-- [ ] Store the refresh session only through Windows secure storage.
-- [ ] Reuse the identity after normal restarts and recover only from a clearly invalid/revoked anonymous refresh token.
-- [ ] Keep sign-up, email/password, provider keys, terminal commands and model downloads out of the normal first-run flow.
-- [ ] Show clear service-offline and connection-retry states; never label backend provisioning as a user's local setup task.
-- [ ] Keep guest data scoped to that generated identity and explain device-local recovery limitations.
+- [x] Automatically create a private guest identity when the managed service is healthy.
+- [x] Store the refresh session only through Windows secure storage.
+- [x] Reuse the identity after normal restarts and recover only from a clearly invalid/revoked anonymous refresh token.
+- [x] Keep sign-up, email/password, provider keys, terminal commands and model downloads out of the normal first-run flow.
+- [x] Show clear service-offline and connection-retry states; never label backend provisioning as a user's local setup task.
+- [x] Keep guest data scoped to that generated identity and explain device-local recovery limitations.
 
 **Acceptance:** fresh install → first launch → guest identity → model catalogue → first real chat, without manual account or provider setup. This requires the managed backend to be deployed and its guest-auth provider enabled; code alone cannot make an undeployed service live.
+
+**Implementation status:** client and API integration are implemented and CI-verified. End-to-end guest creation, model-catalogue retrieval and a real chat remain blocked only by the undeployed managed service and its one-time Supabase/Vercel operator configuration. No live inference or provider spend has been triggered.
 
 ### Stage 2 — Lead agent and specialist delegation
 
@@ -105,4 +107,8 @@ This roadmap separates existing, verified foundations from work that still needs
 
 - Initial audit: inspected repository tree, PR chain and the stronger stacked implementation. Found PRs #1–#4 are open and layered; the smaller guest-first PR #5 was based directly on `main` and omitted the durable agent workspace and project index.
 - This branch starts from the latest security/evaluation branch so new work preserves those existing capabilities.
-- Stage 1 is being implemented here: automatic anonymous guest workspace, safe public config endpoint, encrypted session persistence, first-run UI and focused tests.
+- Stage 1 guest-first implementation is complete in this branch; the remaining limitation is live service provisioning and end-to-end cloud validation.
+- Stage 1 guest-first code: implemented automatic anonymous signup, HTTPS/public-key validation, safeStorage persistence, narrow refresh recovery, no-sign-in UI and explicit device-scoped guest messaging. Added five desktop guest-auth tests.
+- PR #6 verification on `47acd22e4013e1a0b9095ef23cf11e52d3a58015`: desktop CI run `44914480238` passed (5/5 guest-auth tests, dependency audit, type-check and production build); cloud CI run `44914479982` passed (4/4 project-index tests, audit, type-check and Next.js production build); Windows installer run `44914480075` passed (audit, 5/5 guest-auth tests, Windows packaging, setup EXE verification and artifact upload).
+- Windows test artifact: `Rmango-Setup-0.2.38-x64.exe`, SHA256 `2e541a586c1ef6244314f1620a527b883dcc0d6c4d78dfefe6b6126f707518ae`. This PR-only artifact is unsigned and has an empty cloud URL; it is not a public release and cannot perform hosted chat. It must not be distributed or run by bypassing Windows security warnings.
+- Live cloud/anonymous sign-in/chat remain untested because the dedicated RMango Vercel and Supabase resources are not provisioned. No model inference or spend was enabled.
