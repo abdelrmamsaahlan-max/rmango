@@ -429,6 +429,49 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not save the cloud conversation message." }, { status: 503 });
   }
 
+  let agentTaskId: string | null = null;
+  if (workflow.mode === "coordinated") {
+    const { data: task } = await supabase
+      .from("agent_tasks")
+      .insert({
+        owner_id: user.id,
+        project_id: selectedProjectId || null,
+        conversation_id: conversationId,
+        status: "running",
+        task_text: latestUserPrompt.slice(0, 4_000),
+      })
+      .select("id")
+      .maybeSingle();
+    agentTaskId = task?.id || null;
+  }
+
+  const recordAgentEvent = async (
+    eventType: string,
+    message: string,
+    data: Record<string, unknown> = {},
+  ) => {
+    if (!agentTaskId) return;
+    try {
+      await supabase.from("agent_events").insert({
+        task_id: agentTaskId,
+        owner_id: user.id,
+        event_type: eventType.slice(0, 60),
+        message: message.replace(/[\\r\\n\\t]/g, " ").slice(0, 500),
+        data,
+      });
+    } catch {
+      // Durable activity is best-effort; it must never interrupt a real model response.
+    }
+  };
+
+  if (agentTaskId) {
+    await recordAgentEvent("started", "Started a coordinated Roblox development task.", {
+      profile,
+      domains: workflow.domains,
+      projectId: selectedProjectId || null,
+    });
+  }
+
   const projectTools = {
     list_my_projects: tool({
       description: "List the current user's Roblox projects in the cloud workspace.",
@@ -691,6 +734,7 @@ export async function POST(request: Request) {
             .insert({
               connector_id: activeConnector.id,
               owner_id: user.id,
+              task_id: agentTaskId,
               tool_name: toolName,
               tool_arguments: argumentsValue,
               approval_status: "pending",
@@ -777,9 +821,34 @@ export async function POST(request: Request) {
           p_output_tokens: outputTokens,
           p_estimated_cost_usd: recordedCost,
         });
+        if (agentTaskId) {
+          await supabase.from("agent_tasks").update({
+            status: "completed",
+            result: {
+              modelId: actualModelId,
+              profile,
+              selectedSkills: skills.ids,
+              responsePreview: finalText.slice(0, 3_000),
+            },
+            updated_at: new Date().toISOString(),
+          }).eq("id", agentTaskId).eq("owner_id", user.id);
+          await recordAgentEvent("completed", "The coordinated task completed its model response.", {
+            modelId: actualModelId,
+            outputCharacters: finalText.length,
+          });
+        }
       },
       onError: async () => {
         await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
+        if (agentTaskId) {
+          await supabase.from("agent_tasks").update({
+            status: request.signal.aborted ? "cancelled" : "failed",
+            error: request.signal.aborted ? "Cancelled by the user." : "The model request failed.",
+            updated_at: new Date().toISOString(),
+          }).eq("id", agentTaskId).eq("owner_id", user.id);
+          await recordAgentEvent(request.signal.aborted ? "cancelled" : "failed",
+            request.signal.aborted ? "The user stopped the task." : "The model request failed.");
+        }
       },
     });
 
@@ -810,17 +879,26 @@ export async function POST(request: Request) {
               continue;
             }
             if (part.type === "tool-call") {
-              emit({ type: "activity", activity: { id: part.toolCallId, name: activityToolName(part.toolName), detail: activityToolDetail(part.input, "running"), status: "running", ok: false } });
+              const name = activityToolName(part.toolName);
+              const detail = activityToolDetail(part.input, "running");
+              emit({ type: "activity", activity: { id: part.toolCallId, name, detail, status: "running", ok: false } });
+              void recordAgentEvent("tool_started", name + ": " + detail, { tool: part.toolName });
               continue;
             }
             if (part.type === "tool-result") {
               const failed = Boolean((part as typeof part & { isError?: boolean }).isError);
-              emit({ type: "activity", activity: { id: part.toolCallId, name: activityToolName(part.toolName), detail: activityToolDetail(part.input, failed ? "failed" : "completed"), status: failed ? "failed" : "completed", ok: !failed } });
+              const name = activityToolName(part.toolName);
+              const detail = activityToolDetail(part.input, failed ? "failed" : "completed");
+              emit({ type: "activity", activity: { id: part.toolCallId, name, detail, status: failed ? "failed" : "completed", ok: !failed } });
+              void recordAgentEvent(failed ? "tool_failed" : "tool_completed", name + ": " + detail, { tool: part.toolName });
               continue;
             }
             if (part.type === "tool-error") {
               const toolError = part as typeof part & { toolCallId: string; toolName: string; input: unknown };
-              emit({ type: "activity", activity: { id: toolError.toolCallId, name: activityToolName(toolError.toolName), detail: activityToolDetail(toolError.input, "failed"), status: "failed", ok: false } });
+              const name = activityToolName(toolError.toolName);
+              const detail = activityToolDetail(toolError.input, "failed");
+              emit({ type: "activity", activity: { id: toolError.toolCallId, name, detail, status: "failed", ok: false } });
+              void recordAgentEvent("tool_failed", name + ": " + detail, { tool: toolError.toolName });
               continue;
             }
             if (part.type === "finish") {
@@ -829,6 +907,14 @@ export async function POST(request: Request) {
             }
             if (part.type === "abort") {
               emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Generation was cancelled.", status: "cancelled", ok: false } });
+              if (agentTaskId) {
+                await supabase.from("agent_tasks").update({
+                  status: "cancelled",
+                  error: "Cancelled by the user.",
+                  updated_at: new Date().toISOString(),
+                }).eq("id", agentTaskId).eq("owner_id", user.id);
+                await recordAgentEvent("cancelled", "The user stopped the task.");
+              }
               continue;
             }
             if (part.type === "error") {
