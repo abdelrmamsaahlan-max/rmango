@@ -29,7 +29,7 @@ describe("project source index", () => {
     expect(result.dependencies).toEqual(expect.arrayContaining([
       expect.objectContaining({
         dependencyType: "module_require",
-        targetName: "roundservice",
+        targetName: "RoundService",
         targetRelativePath: "src/Server/Services/RoundService.luau",
         confidence: 0.95,
       }),
