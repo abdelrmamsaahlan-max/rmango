@@ -1,7 +1,15 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import { createClient } from '@supabase/supabase-js';
+import {
+  GOOGLE_OAUTH_CALLBACK_ORIGIN,
+  GOOGLE_OAUTH_CALLBACK_PATH,
+  GOOGLE_OAUTH_CALLBACK_HOST,
+  isValidGoogleOAuthCallback,
+} from './oauth-security.js';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -130,6 +138,7 @@ let cloudRefreshFlight: {
   generation: number;
   promise: Promise<CloudSession>;
 } | null = null;
+let pendingGoogleOAuth: { cancel: () => void } | null = null;
 
 function resetCloudAuthRefreshState() {
   cloudAuthGeneration += 1;
@@ -374,6 +383,223 @@ async function cloudRequestPasswordReset(email: string) {
     method: 'POST',
     body: JSON.stringify({ email }),
   }, false);
+}
+
+type PublicAuthConfiguration = {
+  supabaseUrl: string;
+  publishableKey: string;
+  providers?: { google?: boolean | null };
+};
+
+function callbackPage(response: import('node:http').ServerResponse, status: number, heading: string, message: string) {
+  response.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store, max-age=0',
+    'referrer-policy': 'no-referrer',
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+  });
+  response.end(
+    '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>Rmango sign-in</title><body style="margin:0;background:#101714;color:#eff5ee;font:16px Segoe UI,system-ui,sans-serif;display:grid;min-height:100vh;place-items:center">' +
+    '<main style="max-width:440px;padding:36px;text-align:center"><div style="color:#eac15b;font-size:12px;font-weight:800;letter-spacing:2px">RMANGO</div>' +
+    '<h1 style="font-size:25px">' + heading + '</h1><p style="color:#b5c2b8;line-height:1.6">' + message + '</p>' +
+    '<p style="color:#89998e;font-size:13px">You can close this browser tab and return to the Rmango desktop app.</p></main></body></html>',
+  );
+}
+
+async function cloudSignInWithGoogle() {
+  if (pendingGoogleOAuth) throw new Error('A Google sign-in is already in progress.');
+
+  const configuration = await cloudApiRequest<PublicAuthConfiguration>('/api/auth/config', {}, false);
+  if (!configuration || typeof configuration.supabaseUrl !== 'string' ||
+      typeof configuration.publishableKey !== 'string' || !configuration.publishableKey) {
+    throw new Error('Google sign-in is not configured for this Rmango build.');
+  }
+  const supabaseUrl = new URL(configuration.supabaseUrl);
+  if (supabaseUrl.protocol !== 'https:' || supabaseUrl.username || supabaseUrl.password) {
+    throw new Error('The configured Supabase authentication endpoint is not a trusted HTTPS URL.');
+  }
+  if (configuration.providers?.google === false) {
+    throw new Error('Google sign-in is not enabled for Rmango yet. Enable Google under Supabase Authentication → Providers.');
+  }
+
+  // Supabase stores its PKCE verifier in this private, per-attempt memory store.
+  // The verifier never enters the renderer, browser URL, disk, or application logs.
+  const pkceStorage = new Map<string, string>();
+  const authClient = createClient(supabaseUrl.origin, configuration.publishableKey, {
+    auth: {
+      flowType: 'pkce',
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+      storage: {
+        getItem: (key: string) => pkceStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => { pkceStorage.set(key, value); },
+        removeItem: (key: string) => { pkceStorage.delete(key); },
+      },
+    },
+  });
+
+  const state = randomBytes(32).toString('base64url');
+  const callbackUrl = new URL(GOOGLE_OAUTH_CALLBACK_PATH, GOOGLE_OAUTH_CALLBACK_ORIGIN);
+  callbackUrl.searchParams.set('state', state);
+
+  const server = createServer();
+  let callbackHandled = false;
+  let settled = false;
+  let timeout: NodeJS.Timeout | undefined;
+  let resolveCompletion!: (value: { ok: true; user: { id: string; email?: string } }) => void;
+  let rejectCompletion!: (error: Error) => void;
+  const completion = new Promise<{ ok: true; user: { id: string; email?: string } }>((resolve, reject) => {
+    resolveCompletion = resolve;
+    rejectCompletion = reject;
+  });
+
+  const cleanup = () => {
+    if (timeout) clearTimeout(timeout);
+    if (pendingGoogleOAuth === attempt) pendingGoogleOAuth = null;
+    if (server.listening) server.close();
+    pkceStorage.clear();
+  };
+  const fail = (error: Error) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    rejectCompletion(error);
+  };
+  const succeed = (user: { id: string; email?: string }) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resolveCompletion({ ok: true, user });
+  };
+  const attempt = { cancel: () => fail(new Error('Google sign-in was cancelled.')) };
+  pendingGoogleOAuth = attempt;
+
+  server.on('request', (request, response) => {
+    if (!isValidGoogleOAuthCallback({
+      method: request.method,
+      url: request.url,
+      host: request.headers.host,
+      remoteAddress: request.socket.remoteAddress,
+    }, state)) {
+      callbackPage(response, 400, 'Invalid sign-in callback', 'This request did not match the active Rmango sign-in attempt.');
+      return;
+    }
+    if (callbackHandled || settled) {
+      callbackPage(response, 409, 'Sign-in already processed', 'Return to Rmango and check your account status.');
+      return;
+    }
+    callbackHandled = true;
+
+    const callback = new URL(request.url || '/', GOOGLE_OAUTH_CALLBACK_ORIGIN);
+    const authorizationCode = callback.searchParams.get('code');
+    if (!authorizationCode) {
+      const providerError = callback.searchParams.get('error');
+      const message = providerError === 'access_denied'
+        ? 'Google sign-in was cancelled.'
+        : 'Google did not return a valid authorization code. Start sign-in again from Rmango.';
+      callbackPage(response, 400, 'Sign-in was not completed', message);
+      fail(new Error(message));
+      return;
+    }
+
+    void (async () => {
+      const { data, error } = await authClient.auth.exchangeCodeForSession(authorizationCode);
+      if (error || !data.session) {
+        throw new Error(error?.message || 'Google authorization could not be exchanged for an Rmango session.');
+      }
+
+      const { data: verified, error: verifyError } = await authClient.auth.getUser(data.session.access_token);
+      if (verifyError || !verified.user || verified.user.id !== data.session.user.id) {
+        throw new Error('Google sign-in could not verify the returned Rmango account.');
+      }
+
+      const previousSession = await readCloudSession();
+      const sameAccount = Boolean(previousSession && previousSession.user.id === verified.user.id);
+      if (previousSession && !sameAccount && previousSession.studioConnectorId) {
+        await disconnectCloudStudioConnector().catch(() => undefined);
+      }
+
+      resetCloudAuthRefreshState();
+      const session: CloudSession = {
+        accessToken: data.session.access_token,
+        refreshToken: data.session.refresh_token,
+        expiresAt: data.session.expires_at,
+        user: { id: verified.user.id, email: verified.user.email },
+        ...(sameAccount ? {
+          currentProjectId: previousSession?.currentProjectId,
+          currentConversationId: previousSession?.currentConversationId,
+        } : {}),
+      };
+      await writeCloudSession(session);
+      if (mcpClient) {
+        await discoverStudioInstances().catch(() => []);
+        if (selectedStudioId) await registerCloudStudioConnector().catch(() => undefined);
+      }
+
+      callbackPage(response, 200, 'You’re signed in', 'Google authentication was successful.');
+      succeed(session.user);
+    })().catch(error => {
+      callbackPage(response, 500, 'Sign-in could not be completed', 'Rmango could not verify this Google sign-in. Return to the app and try again.');
+      fail(error instanceof Error ? error : new Error('Google sign-in failed.'));
+    });
+  });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => {
+        server.off('listening', onListening);
+        reject(error);
+      };
+      const onListening = () => {
+        server.off('error', onError);
+        resolve();
+      };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(43821, '127.0.0.1');
+    });
+    server.on('error', error => fail(error));
+
+    timeout = setTimeout(() => {
+      fail(new Error('Google sign-in timed out. Return to Rmango and start again.'));
+    }, 5 * 60 * 1000);
+
+    const { data, error } = await authClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: callbackUrl.toString(),
+        skipBrowserRedirect: true,
+        queryParams: { prompt: 'select_account' },
+      },
+    });
+    if (error || !data.url) {
+      throw new Error(error?.message || 'Rmango could not start Google sign-in.');
+    }
+
+    const authorizationUrl = new URL(data.url);
+    if (authorizationUrl.protocol !== 'https:' ||
+        authorizationUrl.origin !== supabaseUrl.origin ||
+        !authorizationUrl.pathname.endsWith('/auth/v1/authorize')) {
+      throw new Error('Supabase returned an unexpected Google authorization URL.');
+    }
+
+    await shell.openExternal(authorizationUrl.toString());
+    return await completion;
+  } catch (error) {
+    fail(error instanceof Error ? error : new Error('Google sign-in failed.'));
+    throw error;
+  } finally {
+    if (!settled) fail(new Error('Google sign-in was closed.'));
+  }
+}
+
+function cloudCancelGoogleSignIn() {
+  if (!pendingGoogleOAuth) return { ok: false, message: 'No Google sign-in is in progress.' };
+  pendingGoogleOAuth.cancel();
+  return { ok: true };
 }
 
 async function cloudSignUp(email: string, password: string, displayName?: string) {
@@ -1703,11 +1929,14 @@ handleIpc('settings:appearance', async (_event, theme: AppearanceTheme) => {
 handleIpc('cloud:state', () => getCloudState());
 handleIpc('cloud:usage', () => getCloudUsage());
 handleIpc('cloud:sign-in', async (_event, payload: { email: string; password: string }) => {
-  if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
+  if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string' ||
+      payload.email.length > 254 || payload.password.length > 128) {
     throw new Error('Enter your Rmango account email and password.');
   }
   return cloudSignIn(payload.email, payload.password);
 });
+handleIpc('cloud:sign-in-google', () => cloudSignInWithGoogle());
+handleIpc('cloud:cancel-google-sign-in', () => cloudCancelGoogleSignIn());
 handleIpc('cloud:password-reset', async (_event, payload: { email: string }) => {
   if (!payload || typeof payload.email !== 'string') throw new Error('Enter your Rmango account email.');
   return cloudRequestPasswordReset(payload.email);
