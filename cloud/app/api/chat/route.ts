@@ -162,6 +162,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "That conversation does not belong to this account." }, { status: 404 });
     }
   } else {
+    if (body.projectId) {
+      const { data: ownedProject, error: projectError } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("id", body.projectId)
+        .eq("owner_id", user.id)
+        .maybeSingle();
+      if (projectError || !ownedProject) {
+        return NextResponse.json({ error: "That cloud project does not belong to this account." }, { status: 404 });
+      }
+    }
     const firstPrompt = body.messages.find(message => message.role === "user")?.content || "New chat";
     const { data: createdConversation, error: createConversationError } = await supabase
       .from("conversations")
