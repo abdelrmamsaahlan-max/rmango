@@ -1105,6 +1105,7 @@ function App() {
         <nav className="activity-rail">
           <button className="rail-button active" title="Workspace"><Bot size={18}/></button>
           <button className={"rail-button " + (leftSidebarOpen ? "active" : "")} title="Project files" onClick={() => setLeftSidebarOpen(value => !value)}><Folder size={18}/></button>
+          <button className="rail-button" title="Cloud projects" onClick={() => { setLeftSidebarOpen(true); setCloudProjectSearch(''); }}><Layers3 size={18}/></button>
           <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
           <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
           <div className="rail-spacer"/>
@@ -1143,6 +1144,32 @@ function App() {
             </>}
             {!cloudReady && <small>Sign in and connect Rmango Cloud to upload</small>}
           </div>}
+          <section className="cloud-projects-panel">
+            <div className="cloud-projects-heading">
+              <span>CLOUD PROJECTS</span>
+              <button type="button" title="Create cloud project" disabled={!cloudState?.signedIn || !cloudReady} onClick={() => setProjectDialog({ mode: 'create', name: '', description: '' })}><Plus size={13}/></button>
+            </div>
+            {cloudProjects.length > 4 && <div className="cloud-project-search"><Search size={12}/><input value={cloudProjectSearch} onChange={event => setCloudProjectSearch(event.target.value)} placeholder="Search cloud projects"/></div>}
+            {!cloudState?.signedIn
+              ? <div className="cloud-project-empty">Sign in to manage cloud projects.</div>
+              : filteredCloudProjects.length === 0
+                ? <div className="cloud-project-empty">{cloudProjects.length ? 'No projects match your search.' : 'Create a cloud project to store scripts, decisions and project memory.'}</div>
+                : <div className="cloud-project-list">
+                  {filteredCloudProjects.slice(0, 20).map(project =>
+                    <div className={'cloud-project-row ' + (cloudProjectId === project.id ? 'selected' : '')} key={project.id}>
+                      <button type="button" className="cloud-project-select" disabled={busy} onClick={() => void handleSelectCloudProject(project)} title={project.description || project.name}>
+                        <span className="cloud-project-mark"><Gamepad2 size={13}/></span>
+                        <span className="cloud-project-copy"><strong>{project.name}</strong><small>{project.description || 'Roblox development project'}</small></span>
+                        {cloudProjectId === project.id && <span className="cloud-project-active-dot"/>}
+                      </button>
+                      <div className="cloud-project-actions-mini">
+                        <button type="button" title="Rename project" aria-label={'Rename ' + project.name} disabled={busy} onClick={() => openRenameProject(project)}><Pencil size={11}/></button>
+                        <button type="button" title="Delete project" aria-label={'Delete ' + project.name} disabled={busy} onClick={() => void handleDeleteCloudProject(project)}><Trash2 size={11}/></button>
+                      </div>
+                    </div>
+                  )}
+                </div>}
+          </section>
           {projectFiles.length > 0 && <>
             <div className="file-search"><Search size={13}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Filter files"/></div>
             <div className="file-tree">
@@ -1485,6 +1512,30 @@ function App() {
           <div className="right-footer"><ShieldCheck size={13}/> Every Studio change requires your approval.</div>
         </aside>}
       </div>
+
+      {projectDialog && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !savingProject) setProjectDialog(null); }}>
+        <form className="settings-modal cloud-project-dialog" onSubmit={event => { event.preventDefault(); void handleSaveCloudProject(); }}>
+          <div className="modal-header">
+            <div>
+              <div className="modal-kicker">CLOUD PROJECT WORKSPACE</div>
+              <h2>{projectDialog.mode === 'create' ? 'Create a project' : 'Rename project'}</h2>
+              <p>Keep project files, AI conversations, architecture notes and development tasks organized together.</p>
+            </div>
+            <button type="button" className="icon-button" disabled={savingProject} onClick={() => setProjectDialog(null)}><X size={17}/></button>
+          </div>
+          <label className="field-label" htmlFor="cloud-project-name">PROJECT NAME</label>
+          <input id="cloud-project-name" className="settings-input" value={projectDialog.name} onChange={event => setProjectDialog(current => current ? { ...current, name: event.target.value } : current)} placeholder="My Roblox game" maxLength={100} required autoFocus/>
+          <label className="field-label" htmlFor="cloud-project-description">DESCRIPTION</label>
+          <textarea id="cloud-project-description" className="settings-input project-description-input" value={projectDialog.description} onChange={event => setProjectDialog(current => current ? { ...current, description: event.target.value } : current)} placeholder="What are you building? Key systems, genre and current goals…" maxLength={2000} rows={4}/>
+          <div className="modal-footer">
+            <button type="button" className="cancel-button" disabled={savingProject} onClick={() => setProjectDialog(null)}>Cancel</button>
+            <button type="submit" className="save-button" disabled={savingProject || !projectDialog.name.trim()}>
+              {savingProject ? <LoaderCircle size={14} className="spin"/> : projectDialog.mode === 'create' ? <Plus size={14}/> : <Check size={14}/>}
+              {projectDialog.mode === 'create' ? 'Create project' : 'Save changes'}
+            </button>
+          </div>
+        </form>
+      </div>}
 
       {projectChangesOpen && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setProjectChangesOpen(false); }}>
         <div className="settings-modal project-changes-modal">
