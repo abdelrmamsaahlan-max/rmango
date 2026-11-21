@@ -47,5 +47,8 @@ jobs:
       - name: Type-check cloud backend
         run: npm run typecheck
 
+      - name: Run project index tests
+        run: npm test
+
       - name: Build cloud backend
         run: npm run build
