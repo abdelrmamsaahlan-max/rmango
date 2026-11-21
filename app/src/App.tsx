@@ -7,7 +7,7 @@ import {
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3
 } from 'lucide-react';
 import type {
-  AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModels,
+  AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels,
   CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
@@ -275,28 +275,6 @@ function App() {
       setDiagnosticResult(error instanceof Error ? error.message : String(error));
     } finally {
       setDiagnosing(false);
-    }
-  }
-
-  async function handleSaveSettings(event: FormEvent) {
-    event.preventDefault();
-    setSavingSettings(true);
-    try {
-      const result = await window.rmango.saveSettings({
-        provider,
-        model,
-        apiKey: provider === 'ollama' ? undefined : apiKey.trim() || undefined,
-      });
-      const next = await window.rmango.getSettings();
-      setSettings(next);
-      setApiKey('');
-      if (provider === 'ollama') setLocalAi(await window.rmango.getLocalAiState(model));
-      setSettingsOpen(false);
-      setToast(result.message || 'Settings saved.');
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not save settings.');
-    } finally {
-      setSavingSettings(false);
     }
   }
 
@@ -604,18 +582,18 @@ function App() {
               <button className="subtle-icon" title={studioConnected ? 'Disconnect' : 'Connect'} onClick={() => studioConnected ? void handleDisconnect() : void handleConnect()}>{studioConnected ? <Check size={14}/> : <Link2 size={14}/>}</button>
             </div>
             <div className="integration-row">
-              <div className="integration-icon local"><Cpu size={14}/></div>
-              <div><strong>Ollama Local AI</strong><span>{localStatus}</span></div>
-              <button className="subtle-icon" title="Check local AI" onClick={() => void refreshLocalAi()}><RefreshCw size={13}/></button>
+              <div className="integration-icon local"><Sparkles size={14}/></div>
+              <div><strong>Rmango Cloud AI</strong><span>{cloudState?.signedIn ? (cloudReady ? 'Connected · ' + (currentProfile?.profileLabel || 'Profile ready') : 'Account connected') : cloudState?.configured ? 'Sign in required' : 'Backend not configured'}</span></div>
+              <button className="subtle-icon" title="Cloud account and models" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/></button>
             </div>
           </div>
         </aside>
 
         <main className="main-panel">
           <div className="main-toolbar">
-            <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">LOCAL-FIRST</span></div>
+            <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">CLOUD AI</span></div>
             <div className="toolbar-actions">
-              <span className="model-chip"><Sparkles size={12}/>{provider === 'ollama' ? model : (settings?.model || model)}</span>
+              <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Cloud model'}</span>
               <button className="subtle-icon" title="Toggle inspector" onClick={() => setRightPanelOpen(value => !value)}><Menu size={16}/></button>
             </div>
           </div>
@@ -627,15 +605,15 @@ function App() {
                   <div className="welcome-orb"><div className="welcome-logo"><MangoMark size={66}/></div><span className="orb-spark spark-one"/><span className="orb-spark spark-two"/><span className="orb-spark spark-three"/></div>
                   <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX BUILD PARTNER <span className="eyebrow-line"/></div>
                   <h1>Make something<br/><em>mango-nificent.</em></h1>
-                  <p>Inspect your place, understand your scripts, design maps and build Roblox systems with a local AI model connected to Studio.</p>
+                  <p>Inspect your place, understand your scripts, design maps and build Roblox systems with remotely hosted AI models.</p>
 
-                  {!localReady && <div className="setup-card">
-                    <div className="setup-card-icon"><Cpu size={19}/></div>
+                  {!cloudReady && <div className="setup-card">
+                    <div className="setup-card-icon"><Sparkles size={19}/></div>
                     <div className="setup-card-copy">
-                      <strong>{!localAi?.running ? 'Set up your local AI' : 'Download your local model'}</strong>
-                      <span>{!localAi?.running ? 'Install Ollama once. Rmango will use it on this computer, without a provider API key.' : model + ' is ready to download to this computer.'}</span>
+                      <strong>{cloudState?.configured ? 'Connect your Rmango account' : 'Rmango Cloud setup required'}</strong>
+                      <span>{cloudState?.message || 'Cloud model inference is remote. No local AI runtime or model downloads are needed.'}</span>
                     </div>
-                    <button onClick={() => setSettingsOpen(true)}>Set up <ArrowRight size={13}/></button>
+                    <button onClick={() => setSettingsOpen(true)}>{cloudState?.configured ? 'Sign in' : 'Details'} <ArrowRight size={13}/></button>
                   </div>}
 
                   <div className="quick-grid">
