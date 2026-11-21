@@ -99,9 +99,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
   const previousResult = (task.result || {}) as Record<string, unknown>;
   const storedProfile = previousResult.modelProfile;
   const profile: ModelProfile = isModelProfile(storedProfile) ? storedProfile : "agent";
+  const runToken = randomUUID();
   const nextResult = isResume
-    ? { ...previousResult, modelProfile: profile }
-    : { modelProfile: profile, stage: "queued" };
+    ? { ...previousResult, modelProfile: profile, runToken }
+    : { modelProfile: profile, stage: "queued", runToken };
 
   const { data: queued, error: queueError } = await supabase.from("agent_tasks")
     .update({
@@ -118,7 +119,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
   if (queueError || !queued) return NextResponse.json({ error: "The task changed before it could be queued again." }, { status: 409 });
 
   try {
-    const run = await start(runAgentTask, [taskId, user.id, profile]);
+    const run = await start(runAgentTask, [taskId, user.id, profile, runToken]);
     const { error: runError } = await supabase.from("agent_tasks")
       .update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() })
       .eq("id", taskId)
