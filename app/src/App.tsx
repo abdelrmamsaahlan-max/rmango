@@ -370,6 +370,7 @@ function App() {
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
+    event.stopPropagation();
     setDragActive(false);
     if (event.dataTransfer.files?.length) void addFiles(event.dataTransfer.files);
   }
@@ -633,10 +634,10 @@ function App() {
               {studioConnected && studioTools.length
                 ? studioTools.slice(0, 9).map(name => {
                     const needsApproval = [
-                      'multi_edit','execute_luau','generate_mesh','generate_material',
-                      'generate_procedural_model','generate_animation','generate_avatar',
-                      'insert_asset','upload_image','start_stop_play','character_navigation',
-                      'user_keyboard_input','user_mouse_input','save_place',
+                      'multi_edit','execute_luau','generate_mesh','generate_material','generate_texture',
+                      'generate_procedural_model','generate_scene','generate_animation','generate_avatar',
+                      'auto_setup_avatar','segment_mesh','insert_asset','upload_image','start_stop_play',
+                      'character_navigation','user_keyboard_input','user_mouse_input','save_place',
                     ].includes(name);
                     return <div className="tool-item" key={name}><span className={'tool-icon ' + (needsApproval ? 'approve' : '')}><Wrench size={12}/></span><span>{name}</span><span className={'tool-read-tag ' + (needsApproval ? 'approve' : '')}>{needsApproval ? 'ASK' : 'READ'}</span></div>;
                   })
