@@ -29,7 +29,10 @@ export async function POST(request: Request) {
       : authCode === "email_not_confirmed"
         ? "Confirm your Rmango email address before signing in. Check your inbox and spam folder for the confirmation email."
         : error?.message || "Sign in failed.";
-    return NextResponse.json({ error: message }, { status: 401 });
+    return NextResponse.json(
+      { error: message },
+      { status: 401, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
   }
 
   return NextResponse.json({
