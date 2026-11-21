@@ -55,14 +55,27 @@ export async function GET(request: Request, context: { params: Promise<{ taskId:
     .maybeSingle();
   if (error || !task) return NextResponse.json({ error: "Agent task not found." }, { status: 404 });
 
-  const { data: events, error: eventError } = await supabase.from("agent_events")
-    .select("id,event_type,message,data,created_at")
-    .eq("task_id", taskId)
-    .eq("owner_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(200);
+  const [{ data: events, error: eventError }, { data: feedbackEvent, error: feedbackError }] = await Promise.all([
+    supabase.from("agent_events")
+      .select("id,event_type,message,data,created_at")
+      .eq("task_id", taskId)
+      .eq("owner_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase.from("agent_learning_events")
+      .select("signal_data,updated_at")
+      .eq("task_id", taskId)
+      .eq("owner_id", user.id)
+      .eq("signal_type", "user_feedback")
+      .maybeSingle(),
+  ]);
   if (eventError) return NextResponse.json({ error: "Could not load task events." }, { status: 503 });
-  return NextResponse.json({ task, events: (events || []).reverse() });
+  if (feedbackError) return NextResponse.json({ error: "Could not load task feedback." }, { status: 503 });
+  const helpful = feedbackEvent?.signal_data?.helpful;
+  const feedback = typeof helpful === "boolean"
+    ? { helpful, updated_at: feedbackEvent.updated_at }
+    : null;
+  return NextResponse.json({ task, events: (events || []).reverse(), feedback });
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ taskId: string }> }) {
