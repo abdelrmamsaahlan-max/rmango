@@ -6,6 +6,12 @@ on:
       - main
     tags:
       - "v*"
+  pull_request:
+    branches:
+      - upgrade/project-context-retrieval
+    paths:
+      - "app/**"
+      - ".github/workflows/windows-installer.yml"
   workflow_dispatch:
     inputs:
       tag_name:
@@ -78,7 +84,12 @@ jobs:
         run: |
           $configPath = "app-src/cloud-config.json"
           $apiUrl = ($env:RMANGO_CLOUD_API_URL ?? "").Trim().TrimEnd("/")
-          if ($apiUrl) {
+          # Pull-request builds are artifact-only: never publish a release from an unmerged PR.
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            @{ apiBaseUrl = "" } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
+            "configured=false" >> $env:GITHUB_OUTPUT
+            Write-Host "PR build selected: installer will be uploaded as a workflow artifact only."
+          } elseif ($apiUrl) {
             $parsed = [Uri]::new($apiUrl)
             if ($parsed.Scheme -ne "https" -or -not $parsed.IsAbsoluteUri) {
               throw "RMANGO_CLOUD_API_URL must be an absolute HTTPS URL."
@@ -146,8 +157,23 @@ jobs:
             if (-not $base.Success) {
               throw "The base package version '$($package.version)' is not a valid major.minor.patch version."
             }
-            # Each main-branch build receives a strictly increasing patch number.
-            $version = "$($base.Groups['major'].Value).$($base.Groups['minor'].Value).${{ github.run_number }}"
+            # Each build receives a monotonically increasing patch number within the minor line.
+            $publishedPatch = 0
+            try {
+              $headers = @{ Accept = "application/vnd.github+json" }
+              $tags = Invoke-RestMethod -Uri "https://api.github.com/repos/abdelrmamsaahlan-max/rmango/releases?per_page=100" -Headers $headers
+              foreach ($release in $tags) {
+                $pattern = '^v?' + [regex]::Escape($base.Groups['major'].Value) + '\.' + [regex]::Escape($base.Groups['minor'].Value) + '\.(\d+)'
+                $match = [regex]::Match([string]$release.tag_name, $pattern)
+                if ($match.Success) {
+                  $publishedPatch = [math]::Max($publishedPatch, [int]$match.Groups[1].Value)
+                }
+              }
+            } catch {
+              Write-Warning "Could not read published release versions; falling back to the package patch version."
+            }
+            $nextPatch = [math]::Max([int]$base.Groups['patch'].Value, $publishedPatch) + 1
+            $version = "$($base.Groups['major'].Value).$($base.Groups['minor'].Value).$nextPatch"
           }
 
           if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
