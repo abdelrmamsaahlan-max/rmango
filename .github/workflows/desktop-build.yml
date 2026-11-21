@@ -12,6 +12,7 @@ on:
       - main
       - upgrade/project-context-retrieval
       - upgrade/agent-workspace-studio
+      - upgrade/rmango-native-identity-ui
     paths:
       - "app/**"
       - ".github/workflows/desktop-build.yml"
@@ -42,7 +43,10 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --no-fund
+
+      - name: Audit dependency tree
+        run: npm audit --audit-level=high
 
       - name: Type-check Electron and renderer
         run: npm run typecheck
