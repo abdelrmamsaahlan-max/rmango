@@ -66,6 +66,9 @@ type SettingsFile = {
   sendOnEnter: boolean;
   desktopNotifications: boolean;
   autoUpdatesEnabled: boolean;
+  defaultCloudProfile: CloudProfile;
+  saveLocalChatHistory: boolean;
+  showInspectorByDefault: boolean;
 };
 type SettingsPatch = Partial<Omit<SettingsFile, 'projectPath'>>;
 type CloudSession = {
@@ -142,6 +145,9 @@ const DEFAULT_SETTINGS: SettingsFile = {
   sendOnEnter: true,
   desktopNotifications: false,
   autoUpdatesEnabled: true,
+  defaultCloudProfile: 'developer',
+  saveLocalChatHistory: true,
+  showInspectorByDefault: true,
 };
 
 function normaliseSettings(value: Partial<SettingsFile> | null | undefined): SettingsFile {
@@ -156,6 +162,9 @@ function normaliseSettings(value: Partial<SettingsFile> | null | undefined): Set
     sendOnEnter: typeof input.sendOnEnter === 'boolean' ? input.sendOnEnter : DEFAULT_SETTINGS.sendOnEnter,
     desktopNotifications: typeof input.desktopNotifications === 'boolean' ? input.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
     autoUpdatesEnabled: typeof input.autoUpdatesEnabled === 'boolean' ? input.autoUpdatesEnabled : DEFAULT_SETTINGS.autoUpdatesEnabled,
+    defaultCloudProfile: input.defaultCloudProfile === 'fast' || input.defaultCloudProfile === 'developer' || input.defaultCloudProfile === 'think' || input.defaultCloudProfile === 'vision' || input.defaultCloudProfile === 'agent' ? input.defaultCloudProfile : DEFAULT_SETTINGS.defaultCloudProfile,
+    saveLocalChatHistory: typeof input.saveLocalChatHistory === 'boolean' ? input.saveLocalChatHistory : DEFAULT_SETTINGS.saveLocalChatHistory,
+    showInspectorByDefault: typeof input.showInspectorByDefault === 'boolean' ? input.showInspectorByDefault : DEFAULT_SETTINGS.showInspectorByDefault,
   };
 }
 
@@ -1620,6 +1629,9 @@ handleIpc('app:get-state', async () => {
     sendOnEnter: settings.sendOnEnter,
     desktopNotifications: settings.desktopNotifications,
     autoUpdatesEnabled: settings.autoUpdatesEnabled,
+    defaultCloudProfile: settings.defaultCloudProfile,
+    saveLocalChatHistory: settings.saveLocalChatHistory,
+    showInspectorByDefault: settings.showInspectorByDefault,
   };
 });
 
@@ -1658,7 +1670,24 @@ handleIpc('settings:update', async (_event, patch: SettingsPatch) => {
     if (typeof patch.autoUpdatesEnabled !== 'boolean') throw new Error('Automatic update preference must be on or off.');
     next.autoUpdatesEnabled = patch.autoUpdatesEnabled;
   }
+  if ('defaultCloudProfile' in patch) {
+    if (!['fast', 'developer', 'think', 'vision', 'agent'].includes(String(patch.defaultCloudProfile))) {
+      throw new Error('Choose a supported default AI profile.');
+    }
+    next.defaultCloudProfile = patch.defaultCloudProfile as CloudProfile;
+  }
+  if ('saveLocalChatHistory' in patch) {
+    if (typeof patch.saveLocalChatHistory !== 'boolean') throw new Error('Local chat history preference must be on or off.');
+    next.saveLocalChatHistory = patch.saveLocalChatHistory;
+  }
+  if ('showInspectorByDefault' in patch) {
+    if (typeof patch.showInspectorByDefault !== 'boolean') throw new Error('Inspector preference must be on or off.');
+    next.showInspectorByDefault = patch.showInspectorByDefault;
+  }
   await writeSettings(next);
+  if ('saveLocalChatHistory' in patch && !next.saveLocalChatHistory) {
+    try { await fs.rm(sessionPath(), { force: true }); } catch { /* cache may not exist */ }
+  }
   if ('autoUpdatesEnabled' in patch) await configureAutoUpdateSchedule(next.autoUpdatesEnabled);
   return { ok: true, settings: normaliseSettings(next) };
 });
@@ -1781,6 +1810,11 @@ handleIpc('studio:approval-result', (_event, response: { requestId: string; appr
 
 handleIpc('chat:load', async () => {
   try {
+    const preferences = await readSettings();
+    if (!preferences.saveLocalChatHistory) {
+      try { await fs.rm(sessionPath(), { force: true }); } catch { /* cache may not exist */ }
+      return [];
+    }
     const filePath = sessionPath();
     const stored = await fs.readFile(filePath, 'utf8');
     if (!safeStorage.isEncryptionAvailable()) return [];
@@ -1856,10 +1890,15 @@ handleIpc('chat:load', async () => {
   }
 });
 handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
+  if (!Array.isArray(messages)) throw new Error('Invalid local chat history.');
+  const preferences = await readSettings();
+  if (!preferences.saveLocalChatHistory) {
+    try { await fs.rm(sessionPath(), { force: true }); } catch { /* cache may not exist */ }
+    return { ok: true, saved: false };
+  }
   if (!safeStorage.isEncryptionAvailable()) {
     throw new Error('Windows secure storage is unavailable. Chat history was not written in plaintext.');
   }
-  if (!Array.isArray(messages)) throw new Error('Invalid local chat history.');
   await fs.mkdir(userData(), { recursive: true });
   const cleaned = messages.slice(-100).map(message => ({
     ...message,
