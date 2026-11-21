@@ -78,6 +78,9 @@ export type CloudState = {
   serviceReady?: boolean;
   signedIn: boolean;
   email?: string;
+  displayName?: string;
+  emailVerified?: boolean;
+  accountVerified?: boolean;
   apiHost?: string;
   message?: string;
   currentProjectId?: string;

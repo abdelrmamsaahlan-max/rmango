@@ -52,19 +52,52 @@ const SKILLS: RmangoSkill[] = [
   },
   {
     id: "worldbuilding-3d-assets",
-    version: "1.0.0",
+    version: "1.1.0",
     label: "Worldbuilding and 3D Asset Production",
-    description: "Roblox environments, level design, meshes, materials, scene generation and asset provenance.",
-    triggers: [/map/i, /world/i, /environment/i, /3d/i, /mesh/i, /model/i, /building/i, /asset/i, /prop/i, /terrain/i, /level design/i, /scene/i, /lobby/i, /obstacle/i],
-    instructions: `Translate visual requests into a production brief: silhouette, scale, palette, material language, reference direction, lighting, gameplay readability, collision, modular pieces, hierarchy and mobile performance. Prefer generate_scene for coherent scene/layout work, generate_procedural_model for deterministic primitive-built objects, generate_mesh for unique textured 3D assets, generate_material for reusable material variants, and generate_texture for authored surface details. Search Creator Store assets before inserting existing content; verify creator/source, asset type, permissions and fit. Never invent asset IDs. Preview generated results, inspect hierarchy/collisions/scale, and optimize repeated props for instancing and reasonable draw calls. If a tool is unavailable, offer a concrete Studio-ready plan or script instead of claiming a model was generated.`
+    description: "Roblox environments, modular level design, MeshParts, PBR materials, collision and production-ready asset workflows.",
+    triggers: [/map/i, /world/i, /environment/i, /3d/i, /mesh/i, /model/i, /building/i, /asset/i, /prop/i, /terrain/i, /level design/i, /scene/i, /lobby/i, /obstacle/i, /meshpart/i, /surfaceappearance/i, /collision fidelity/i, /blender/i, /\.fbx\b/i, /\.glb\b/i, /\.gltf\b/i, /uv unwrap/i, /pbr/i],
+    instructions: `Treat every 3D task as a production pipeline, not just a request to spawn Parts. First inspect the existing DataModel, target platform, desired scale, pivot/origin, visual references and gameplay purpose. Specify silhouette, proportions, modularity, poly/triangle budget, topology, UV layout, texture resolution, material slots, collision proxy, LOD strategy, attachments, hierarchy and interaction points before creating the asset.
+
+Use the actually registered Studio schema and prefer the most suitable tool: generate_scene for coherent layout/blockout; generate_procedural_model for deterministic geometry made from primitives; generate_mesh for a unique textured mesh; generate_material and generate_texture for reusable surface work; search_asset then inspect the returned creator, asset type, permissions and preview before insert_asset. Never guess tool parameters or asset IDs. Do not treat a successful generation call as proof of a finished, correctly scaled or optimized model.
+
+For Blender-to-Studio pipelines, explain the mesh preparation/export/import sequence: apply object transforms, set a clean origin/pivot, remove hidden geometry and non-manifold leftovers, use sensible triangulation, unwrap UVs without avoidable stretching, pack UVs with padding, bake or author appropriate albedo/normal/roughness/metalness maps, and use a consistent naming convention. Confirm current Roblox Importer support and the real registered exporter/importer bridge before claiming to transfer a file. Studio workflows commonly use FBX, OBJ and glTF 2.0; for the documented Blender axis setup, keep scale at 1 and export Forward Z / Up Y. Check the live documentation when export options or limits are uncertain.
+
+In Studio, inspect MeshPart Size, PivotOffset, RenderFidelity, CollisionFidelity, DoubleSided, TextureID/SurfaceAppearance, collision groups, CanCollide, CanQuery, CanTouch, Anchored and network ownership. Separate visual mesh from simple collision geometry for complex props. Static scenery should generally be anchored; moving assemblies need deliberate physics/network ownership. Reuse modular meshes and textures, avoid one-off high-detail meshes for repeated background props, and profile draw calls, memory, physics and mobile frame time. Use SurfaceAppearance only with valid maps and appropriate asset permissions. Preserve existing art direction, never copy protected game assets, and never say a Blender model was built/imported unless the corresponding tool or Studio result confirms it. If file transfer or Blender tools are absent, provide a concrete, reproducible Blender and Studio workflow rather than claiming it ran.`
   },
   {
     id: "characters-animation",
-    version: "1.0.0",
+    version: "1.1.0",
     label: "Characters and Animation",
-    description: "R6/R15 rigs, animation generation, NPC movement, state and handoff.",
-    triggers: [/animation/i, /animate/i, /rig/i, /r6/i, /r15/i, /npc/i, /character/i, /walk cycle/i, /emote/i, /cutscene/i, /holding/i],
-    instructions: `Inspect the existing rig type and hierarchy before generating animation. Use generate_animation for prompt-based R15 animation when available and target the correct rig. Plan animation states and transitions (idle, locomotion, action, recovery) and prevent conflicting tracks. Use Animator/AnimationController appropriately; do not assume an asset ID exists before the tool returns it. For NPC-heavy scenes, consider client-side cosmetic animation/culling and avoid simulating unnecessary Humanoids. Test movement, attachment offsets, replication and hand/prop handoffs in Studio.`
+    description: "R6/R15 and custom rigs, Animator pipelines, keyframes, NPC state machines, prop interaction and replication.",
+    triggers: [/animation/i, /animate/i, /rig/i, /r6/i, /r15/i, /npc/i, /character/i, /walk cycle/i, /emote/i, /cutscene/i, /holding/i, /keyframe/i, /animator/i, /animationcontroller/i, /motor6d/i, /bone rig/i, /animation editor/i, /easing/i, /animation priority/i],
+    instructions: `Inspect the actual character rig before proposing tracks: identify R6, R15, custom Motor6D rigs or skinned/bone rigs; inspect root part, Humanoid/AnimationController, Animator, joints/bones, attachments and current animation scripts. Do not assume an R15 animation can be loaded on R6 or a custom rig without conversion/compatible joints. Roblox Studio's prompt-based generate_animation tool targets R15; use it only when its live schema is registered, respect its documented duration/format constraints, and use the returned result/asset ID rather than inventing one.
+
+For implementation, use an Animator under the correct Humanoid or AnimationController and load tracks through Animator:LoadAnimation. Avoid deprecated Humanoid:LoadAnimation patterns. Keep asset ownership, experience permissions, publishing and moderation in mind. Plan animation sets as state machines with clear transitions: idle, walk, run, jump/fall, action, hit/recovery, emote and interrupted states. Choose AnimationPriority deliberately (Core/Idle/Movement/Action), blend tracks with weights and fade times, avoid multiple scripts fighting over the same joint, and stop/cleanup tracks and connections when the character changes or despawns. Use loop settings and keyframe names intentionally; use marker events for footstep/impact/sound/VFX timing where supported. Reason about keyframe spacing, easing/curve quality, motion arcs, foot locking and readable silhouettes rather than adding arbitrary frames.
+
+For animated NPCs, decide whether Humanoid+Animator is required or whether a simpler client-side cosmetic rig/AnimationController is cheaper. Keep consequential NPC state and gameplay authority on the server, but avoid needless server work for cosmetic movement. Validate animation replication in a multi-client test. For holding, handing over or equipping props, use rig-appropriate Attachment/Motor6D or constraints, align grip offsets in the real character pose, and test ownership, weld cleanup and handoff timing. Preload frequently used animation assets where appropriate and handle load failures/timeouts without freezing the character. For Blender/custom animation imports, inspect armature/bone names, rest pose, skin weights, root motion expectations and joint compatibility before import; use the Roblox Importer/Animation Editor workflow and inspect the resulting rig. Never claim an animation was generated, published or played unless Studio confirms it; report R6/R15 limitations and unverified replication honestly.`
+  },
+
+  {
+    id: "blender-asset-pipeline",
+    version: "1.0.0",
+    label: "Blender and Character Asset Pipeline",
+    description: "Blender modeling, UVs, PBR maps, rigging, skin weights, FBX/OBJ/glTF export and Roblox import validation.",
+    triggers: [/blender/i, /fbx/i, /gltf/i, /glb\b/i, /obj export/i, /uv unwrap/i, /retopolog/i, /weight paint/i, /skin weight/i, /armature/i, /sculpt/i, /mesh cleanup/i, /texture bake/i],
+    instructions: `Act as a pipeline specialist across Blender and Roblox Studio. Begin with the intended in-game use, target device, scale, topology needs, rig type and import route. Give Blender steps that are repeatable: organize collections, apply rotation/scale, set an intentional origin, rename meshes/materials/bones consistently, remove hidden/internal faces, fix normals, check manifold geometry, unwrap UVs, pack islands with bleed/padding, and create only the texture maps the Roblox material setup will consume. Avoid excessive subdivisions and unnecessary modifiers in the exported copy; retain a non-destructive working file separately.
+
+For characters, distinguish object parenting from armature deformation, inspect bone roll/rest pose, naming, hierarchy, root/pelvis convention, skin weights, deformation around shoulders/elbows/knees and influence counts. Test extreme poses before export. Explain when rigid Motor6D joints are more appropriate than a weighted skinned mesh. For animation transfer, verify skeleton compatibility and rest pose before importing; do not promise a one-click transfer between arbitrary rigs.
+
+Use supported formats based on the current Roblox Importer workflow (FBX, OBJ or glTF 2.0 when appropriate), apply transforms and validate units/axis orientation. The Creator Hub Blender workflow documents scale 1, Forward Z and Up Y for its prescribed export setup; check the current page and actual dialog options rather than assuming every Blender version labels settings identically. After import, inspect MeshPart/Bone/Attachment hierarchy, scale, pivot, materials, texture permissions, collision, rig deformation and animation tracks in Studio. Do not claim this app can operate Blender directly unless a real Blender bridge/tool is currently connected and its call succeeded. When there is no Blender bridge, supply exact Blender actions and a Studio import checklist; do not fabricate file writes or screenshots.`
+  },
+  {
+    id: "vfx-lighting-materials",
+    version: "1.0.0",
+    label: "Roblox VFX and Lighting",
+    description: "Particle systems, Beams, Trails, TweenService, lighting, atmosphere and performant visual feedback.",
+    triggers: [/vfx/i, /visual effect/i, /particle/i, /beam/i, /trail/i, /lighting/i, /atmosphere/i, /post.?processing/i, /color correction/i, /bloom/i, /tween/i, /impact effect/i],
+    instructions: `Design effects as a reusable, event-driven system with a clear start, lifetime and cleanup. Use Attachment + ParticleEmitter for emitted particles, Beam/Trail for attachment-driven paths, and appropriate NumberSequence/ColorSequence curves for size, transparency, color, drag, acceleration and lifetime. Use TweenService for bounded property transitions; cancel/clean up tweens and temporary instances. Use Debris or explicit lifecycle cleanup for short-lived effect instances. Keep gameplay-critical hit detection and damage separate from cosmetic client-side effects.
+
+For scene lighting, define a coherent global baseline (Lighting technology and time-of-day, Atmosphere, Sky, ColorCorrectionEffect, BloomEffect and DepthOfFieldEffect only where justified) and use local lights sparingly. Avoid excessive transparent overdraw, high-rate emitters, oversized particle counts and unbounded per-frame loops. Test effects on low-end/mobile hardware and maintain visibility/contrast in bright and dark scenes. Verify current property names and classes using live Studio schemas or Creator Hub documentation before editing; do not claim a visual effect is live until it has been inserted and inspected in Studio.`
   },
   {
     id: "audio-and-music-systems",
@@ -92,7 +125,7 @@ const SKILLS: RmangoSkill[] = [
   },
 ];
 
-const MAX_SKILLS_PER_TURN = 4;
+const MAX_SKILLS_PER_TURN = 5;
 
 export function selectRmangoSkills(input: string, hasImage = false, hasDocument = false) {
   const text = input.slice(-24_000);
@@ -125,7 +158,7 @@ export function buildSkillContext(input: string, options?: { hasImage?: boolean;
   );
   return {
     ids: skills.map(skill => skill.id),
-    version: "1.0.0",
+    version: "1.1.0",
     systemText: [
       "ACTIVE RMANGO SKILLS — versioned, locally selected without an extra model call.",
       "Use only the skills relevant to this turn; do not repeat the whole playbook to the user.",
