@@ -31,11 +31,11 @@ export type ModelChoice = {
 };
 
 const PROFILE_LABELS: Record<ModelProfile, string> = {
-  fast: "Rmango Fast",
-  developer: "Rmango Developer",
-  think: "Rmango Think",
-  vision: "Rmango Vision",
-  agent: "Rmango Agent",
+  fast: "Quick",
+  developer: "Build",
+  think: "Deep Think",
+  vision: "Vision",
+  agent: "Agent",
 };
 
 const PROFILE_ENV: Record<ModelProfile, string> = {
