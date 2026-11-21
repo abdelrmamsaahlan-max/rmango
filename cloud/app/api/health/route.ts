@@ -50,7 +50,7 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    service: "rmango-cloud",
+    service: "rmango",
     status: infrastructureReady ? "ready" : "configuration_required",
     aiReady,
     ...configuration,
