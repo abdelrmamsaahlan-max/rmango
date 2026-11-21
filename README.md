@@ -7,13 +7,23 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 - **Vercel + Next.js** hosts the API and agent routes.
 - **Vercel AI Gateway** routes hosted models and exposes live model capability/pricing metadata.
 - **Vercel OIDC** authenticates AI Gateway requests from Vercel deployments. No static AI Gateway key or provider key is configured in production.
-- **Supabase Auth, Postgres and private Storage** hold user accounts, projects, conversations, messages, uploaded source files, project proposals and usage events.
-- The Windows desktop connects over HTTPS, stores account tokens and local chat history using Windows secure storage, validates the configured cloud URL, and accepts IPC only from its trusted renderer.
+- **Supabase Auth, Postgres and private Storage** hold automatically created guest identities, projects, conversations, messages, uploaded source files, project proposals and usage events.
+- The Windows desktop automatically creates a private guest identity after the service is healthy, stores its session and local chat history using Windows secure storage, validates the configured cloud URL, and accepts IPC only from its trusted renderer.
 - A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is an allowlisted tool bridge only; model inference stays hosted.
+
+## First launch — no account or AI setup
+
+When the managed RMango service is deployed, the desktop automatically creates a private Supabase anonymous guest identity after its health check succeeds. A user can install RMango, launch it and start chatting without entering an email address, creating a password, choosing a model provider, pasting an API key, installing Ollama or downloading model weights.
+
+The app retrieves only the Supabase URL and public publishable key from `/api/public/config`. It creates the anonymous identity directly from the desktop so Supabase applies its per-client-IP abuse and rate limits. The resulting access/refresh session is written using Electron `safeStorage`; no plaintext session is written to disk.
+
+Guest workspace history belongs to that generated identity and normally persists across app restarts on the same Windows profile. It is not currently a recoverable account. Deleting RMango's local app data or moving to another computer can make that guest workspace inaccessible. Identity linking/recovery is a future feature.
+
+This is zero-configuration for users, not infrastructure-free for the RMango operator. Before public launch, enable Supabase Anonymous Sign-Ins, configure CAPTCHA/abuse controls, deploy the cloud service, and explicitly authorize a server-side model usage budget. Do not disable Supabase rate limits.
 
 ## Important deployment status
 
-The cloud backend source, migrations and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** The desktop currently shows “Cloud not configured” until an administrator provisions the cloud service and sets the public URL.
+The cloud backend source, migrations and desktop guest flow are committed to GitHub. **The cloud backend is not deployed, and the migrations have not yet been applied to a dedicated Rmango project.** Once the service operator completes the one-time deployment, the app creates a guest workspace automatically; end users will not configure cloud services or AI providers.
 
 No hosted model request or paid inference has been run from this code. No cloud project or provider spend has been activated by this change.
 
@@ -21,13 +31,14 @@ No hosted model request or paid inference has been run from this code. No cloud 
 
 1. Authorize the Rmango Vercel team/project scope.
 2. Create a dedicated Supabase project for Rmango. Do not reuse an unrelated app database.
-3. Apply migrations in order: `202611210001_rmango_cloud.sql`, `202611220001_rmango_agent_workspace.sql`, then `202611230001_rmango_learning_loop.sql`.
-4. Create a Vercel project from this repository with Root Directory set to `cloud`.
-5. Enable Vercel OIDC for the Vercel project.
-6. Add the server-only environment variables described in [cloud/README.md](cloud/README.md).
-7. Explicitly authorize an AI Gateway/provider spending budget in the admin account.
-8. Set the GitHub Actions repository variable `RMANGO_CLOUD_API_URL` to the public HTTPS Vercel URL.
-9. Push/rebuild the desktop installer so the public cloud URL is included in `app/cloud-config.json`.
+3. Apply migrations in order: `202611210001_rmango_cloud.sql`, `202611220001_rmango_agent_workspace.sql`, `202611230001_rmango_learning_loop.sql`, then `202611230002_rmango_project_index_v2.sql`.
+4. Enable **Anonymous Sign-Ins** in Supabase Auth for the dedicated RMango project.
+5. Create a Vercel project from this repository with Root Directory set to `cloud`.
+6. Enable Vercel OIDC for the Vercel project.
+7. Add the server-only environment variables described in [cloud/README.md](cloud/README.md).
+8. Explicitly authorize an AI Gateway/provider spending budget in the admin account.
+9. Set the GitHub Actions repository variable `RMANGO_CLOUD_API_URL` to the public HTTPS Vercel URL.
+10. Push/rebuild the desktop installer so the public cloud URL is included in `app/cloud-config.json`.
 
 Cloud inference has a cost. The database usage policy is disabled by default; an administrator must set global daily/monthly USD caps and explicitly enable it before any inference request can start. Per-user request/token quotas and a second Vercel AI Gateway budget provide additional limits.
 
@@ -37,7 +48,7 @@ Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) 
 
 The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
 
-Installed Windows builds check GitHub Releases after startup, every five minutes while running, and when Windows resumes from sleep. Updates download in the background and installation still requires your click. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+Installed Windows builds check GitHub Releases after startup, every five minutes while running, and when Windows resumes from sleep. Updates download in the background, then wait for your click on **Restart & install**. See [Automatic updates](#automatic-updates).
 
 ## Automatic updates
 
@@ -84,23 +95,23 @@ Setup: in Roblox Studio open **Assistant → … → Manage MCP Servers**, enabl
 
 ## Cloud project workflow
 
-1. Sign in to a Rmango account.
-2. Open a local Roblox source folder in Rmango.
-3. Explicitly choose **Upload project to Cloud**.
-4. Supported text/source files upload into the user's private cloud workspace.
-5. Ask Rmango Agent to inspect files or propose a change.
-6. Review and accept/reject proposed file changes in Rmango.
-7. Download the approved cloud project as a ZIP.
+1. Open a local Roblox source folder in Rmango. A private guest workspace is created automatically when the managed service is online.
+2. Explicitly choose **Upload project to Cloud**.
+3. Supported text/source files upload into your private guest workspace.
+4. Ask Rmango Agent to inspect files or propose a change.
+5. Review and accept/reject proposed file changes in Rmango.
+6. Download the approved cloud project as a ZIP.
 
 Current source-file import is limited to 120 files, 512 KB per file and supported text formats. Binary `.rbxl` / `.rbxm` projects are not parsed by this version.
 
 ## Current limitations
 
-- The Vercel cloud app and Supabase project are not provisioned yet; real account/chat calls are not live.
+- The Vercel cloud app and dedicated Supabase project are not provisioned yet; automatic guest creation and real hosted chat cannot run until the operator completes deployment.
 - Model profiles are dynamically selected from Gateway catalogue metadata. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
-- The desktop and cloud backend have CI build checks; full cloud login, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
-- Long-running agent work is not yet moved to a durable workflow/worker system; current chat requests and Studio tool calls have bounded request timeouts.
-- Admin usage dashboard, admin model-routing editor, durable task queue, PDF/DOCX parsing, vector RAG, full project dependency indexing and binary Roblox project import are not complete.
+- The desktop and cloud backend have CI build checks; live anonymous guest creation, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
+- The Agent Workspace supports durable plan/implementation tasks with saved events, pause/resume/cancel/retry and an incremental source index. Index v2 also extracts DataStore/MemoryStore names, remote method references, common UI Instance.new classes/names and literal Roblox asset IDs from Luau source. These are source-level hints with confidence scores, not proof of the live Studio hierarchy or runtime behavior. Normal chat Studio calls remain synchronous and bounded by request timeouts.
+- The Lead agent can request up to three metered, read-only specialist reviews per task (Luau, gameplay, UI/UX, world, assets/animation, QA, performance, security and constrained research analysis). Formal conflict-resolution records, parallel sibling-agent runs, agent-level cost dashboards and external web research are still future work.
+- Admin usage dashboard, admin model-routing editor, PDF/DOCX parsing, vector RAG, parser-backed/full semantic project indexing and binary Roblox project import are not complete.
 - Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. A separate Vercel AI Gateway budget is still required.
 
 ## Repository structure

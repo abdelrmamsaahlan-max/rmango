@@ -1,4 +1,4 @@
-import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentWorkspace } from './AgentWorkspace';
 import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
@@ -106,11 +106,6 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [diagnosticResult, setDiagnosticResult] = useState('');
-  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authDisplayName, setAuthDisplayName] = useState('');
-  const [authBusy, setAuthBusy] = useState(false);
   const [search, setSearch] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
@@ -154,7 +149,7 @@ function App() {
           catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models.'); }
         }
       })
-      .catch(() => setToast('Could not load Rmango cloud state. Check the backend configuration.'))
+      .catch(() => setToast('Could not connect to RMango AI. Check your internet connection and retry.'))
       .finally(() => setCloudLoading(false));
 
     return () => {
@@ -202,48 +197,6 @@ function App() {
     return state;
   }
 
-  async function handleAuth(event: FormEvent) {
-    event.preventDefault();
-    if (authBusy) return;
-    setAuthBusy(true);
-    try {
-      if (authMode === 'sign-in') {
-        await window.rmango.cloudSignIn({ email: authEmail.trim(), password: authPassword });
-      } else {
-        const result = await window.rmango.cloudSignUp({
-          email: authEmail.trim(),
-          password: authPassword,
-          displayName: authDisplayName.trim() || undefined,
-        });
-        if (result.requiresEmailConfirmation) {
-          setToast('Check your email to confirm your Rmango account, then sign in.');
-          setAuthMode('sign-in');
-          setAuthPassword('');
-          return;
-        }
-      }
-      setAuthPassword('');
-      const state = await refreshCloudState();
-      setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
-      if (state.serviceReady) setSettingsOpen(false);
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.');
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
-  async function handleSignOut() {
-    try {
-      await window.rmango.cloudSignOut();
-      setCloudState(await window.rmango.getCloudState());
-      setCloudModels(null);
-      setToast('Signed out of Rmango Cloud.');
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not sign out.');
-    }
-  }
-
   async function handleCheckUpdates() {
     try {
       const state = await window.rmango.checkForUpdates();
@@ -271,7 +224,7 @@ function App() {
     if (!appState?.projectPath || uploadingProject) return;
     if (!cloudState?.configured || !cloudState.serviceReady || !cloudState.signedIn) {
       setSettingsOpen(true);
-      setToast('Sign in to a configured Rmango Cloud account before uploading this project.');
+      setToast('Your RMango guest workspace is not ready. Retry the connection before uploading this project.');
       return;
     }
     setUploadingProject(true);
@@ -353,7 +306,7 @@ function App() {
         await refreshMcpState();
         setToast(result.cloudLinked
           ? 'Roblox Studio linked to Rmango Cloud · ' + result.toolCount + ' tools discovered'
-          : (result.cloudMessage || ('Studio connected locally · sign in to link Rmango · ' + result.toolCount + ' tools')));
+          : (result.cloudMessage || ('Studio connected locally · guest workspace links automatically · ' + result.toolCount + ' tools')));
       } else {
         setToast(result.error || 'Could not connect to Roblox Studio.');
       }
@@ -453,7 +406,7 @@ function App() {
     }
     if (!cloudState.signedIn) {
       setSettingsOpen(true);
-      setToast('Sign in to your Rmango account to use Rmango Intelligence.');
+      setToast('RMango could not start your guest workspace. Retry the service connection.');
       return;
     }
 
@@ -562,17 +515,17 @@ function App() {
   }, [projectFiles, search]);
 
   const studioConnected = appState?.studioConnected ?? false;
-  const cloudReady = Boolean(cloudState?.configured && cloudState.serviceReady);
+  const cloudReady = Boolean(cloudState?.configured && cloudState.serviceReady && cloudState.signedIn);
   const currentProfile = cloudModels?.profiles.find(item => item.profile === cloudProfile);
   const cloudStatusLabel = cloudLoading
-    ? 'CHECKING CLOUD'
+    ? 'CONNECTING TO RMANGO AI'
     : !cloudState?.configured
-      ? 'CLOUD NOT CONFIGURED'
+      ? 'RMANGO AI OFFLINE'
       : !cloudState.serviceReady
-        ? 'CLOUD SETUP REQUIRED'
+        ? 'RMANGO AI STARTING'
         : cloudState.signedIn
-          ? 'RMANGO READY'
-          : 'SIGN IN REQUIRED';
+          ? (cloudState.isGuest ? 'GUEST WORKSPACE' : 'RMANGO READY')
+          : 'STARTING WORKSPACE';
 
   const quickPrompts = [
     {
@@ -608,9 +561,9 @@ function App() {
         <button className={'runtime-pill ' + (cloudReady ? 'ready' : '')} onClick={() => setSettingsOpen(true)}>
           <span className="runtime-dot"/>{cloudStatusLabel}
         </button>
-        {cloudState?.signedIn
-          ? <button className="top-settings" onClick={() => setSettingsOpen(true)} title="Cloud account">{cloudState.email || 'Account'}</button>
-          : <button className="top-settings" onClick={() => setSettingsOpen(true)}>Sign in</button>}
+        <button className="top-settings" onClick={() => setSettingsOpen(true)} title="RMango AI status">
+          {cloudState?.signedIn ? (cloudState.isGuest ? 'Guest workspace' : (cloudState.email || 'RMango workspace')) : 'AI status'}
+        </button>
         <div className={'connection-pill ' + (studioConnected ? 'connected' : '')}>
           <span className="status-dot"/>{studioConnected ? 'Studio connected' : 'Studio offline'}
         </div>
@@ -696,7 +649,7 @@ function App() {
                 <button type="button" onClick={() => void handleDownloadCloudProject()}><Download size={12}/> Download ZIP</button>
               </div>
             </>}
-            {!cloudReady && <small>Sign in and connect Rmango Cloud to upload</small>}
+            {!cloudReady && <small>RMango AI must be online before this project can be uploaded</small>}
           </div>}
           {projectFiles.length > 0 && <>
             <div className="file-search"><Search size={13}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Filter files"/></div>
@@ -718,7 +671,7 @@ function App() {
             </div>
             <div className="integration-row">
               <div className="integration-icon local"><Sparkles size={14}/></div>
-              <div><strong>Rmango Intelligence</strong><span>{cloudState?.signedIn ? (cloudReady ? 'Connected · ' + (currentProfile?.profileLabel || 'Profile ready') : 'Account connected') : cloudState?.configured ? 'Sign in required' : 'Backend not configured'}</span></div>
+              <div><strong>Rmango Intelligence</strong><span>{cloudState?.signedIn ? (cloudReady ? (cloudState.isGuest ? 'Guest workspace ready' : 'Connected') : 'Waiting for service') : cloudState?.configured ? 'Starting guest workspace' : 'Service not connected'}</span></div>
               <button className="subtle-icon" title="Rmango account and work modes" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/></button>
             </div>
           </div>
@@ -749,10 +702,10 @@ function App() {
                   {!cloudReady && <div className="setup-card">
                     <div className="setup-card-icon"><Sparkles size={19}/></div>
                     <div className="setup-card-copy">
-                      <strong>{cloudState?.configured ? 'Connect your Rmango account' : 'Rmango Cloud setup required'}</strong>
+                      <strong>{cloudState?.configured ? 'Connecting your guest workspace' : 'RMango AI service is not online yet'}</strong>
                       <span>{cloudState?.message || 'Rmango runs through its hosted intelligence service. No local model downloads are required.'}</span>
                     </div>
-                    <button onClick={() => setSettingsOpen(true)}>{cloudState?.configured ? 'Sign in' : 'Details'} <ArrowRight size={13}/></button>
+                    <button onClick={() => { void refreshCloudState(); }}>{cloudState?.configured ? 'Retry' : 'Details'} <ArrowRight size={13}/></button>
                   </div>}
 
                   <div className="quick-grid">
@@ -880,9 +833,11 @@ function App() {
               <span className={'status-dot ' + (cloudReady ? 'bright' : '')}/>
               <div className="local-meta"><span>INTELLIGENCE</span><strong>Rmango engine</strong><span>RUNTIME</span><strong>Hosted</strong></div>
             </div>
-            {cloudState?.signedIn
-              ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Rmango Intelligence <ArrowRight size={13}/></button>
-              : <button className="primary-action" onClick={() => setSettingsOpen(true)}><LockKeyhole size={13}/> Sign in to Rmango <ArrowRight size={13}/></button>}
+            <button className="primary-action" onClick={() => { void refreshCloudState(); setSettingsOpen(true); }}>
+              {cloudState?.signedIn ? <Settings2 size={13}/> : <RefreshCw size={13}/>}
+              {cloudState?.signedIn ? 'RMango AI preferences' : 'Check RMango AI'}
+              <ArrowRight size={13}/>
+            </button>
             {cloudReady && <div className="connect-help">
               <strong>{currentProfile?.profileLabel || 'Rmango work modes'}</strong>
               <span>{'One assistant. The right work mode for the task.'}</span>
@@ -895,7 +850,7 @@ function App() {
             <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioConnected ? 'live' : '')}>{studioConnected ? 'CONNECTED' : 'OFFLINE'}</span></div>
             <div className="studio-status-card">
               <div className={'studio-status-icon ' + (studioConnected ? 'live' : '')}><Gamepad2 size={19}/></div>
-              <div className="studio-status-copy"><strong>{studioConnected ? (studioCloudLinked ? 'Studio linked to cloud' : 'Studio session linked') : 'Waiting for Studio'}</strong><span>{studioConnected ? (studioCloudLinked ? 'Secure cloud bridge active' : 'Local MCP connected · sign in to link cloud AI') : 'Enable Studio as MCP server'}</span></div>
+              <div className="studio-status-copy"><strong>{studioConnected ? (studioCloudLinked ? 'Studio linked to cloud' : 'Studio session linked') : 'Waiting for Studio'}</strong><span>{studioConnected ? (studioCloudLinked ? 'Secure cloud bridge active' : 'Local MCP connected · guest cloud session links automatically') : 'Enable Studio as MCP server'}</span></div>
               <span className={'status-dot ' + (studioConnected ? 'bright' : '')}/>
               <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>ACCESS</span><strong>Approval gated</strong></div><div><span>PLATFORM</span><strong>Windows</strong></div></div>
             </div>
@@ -1027,51 +982,41 @@ function App() {
           </div>
 
           {!cloudState?.configured && <div className="local-setup-panel">
-            <div className="local-setup-status"><AlertCircle size={14}/> Cloud backend not configured</div>
-            <p>This build connects to Rmango's hosted intelligence service. Its server is not configured yet, and this version will not start Ollama or another local model as a fallback.</p>
+            <div className="local-setup-status"><AlertCircle size={14}/> RMango AI service is not connected</div>
+            <p>There is nothing to configure on this PC. The managed RMango service needs its one-time deployment before chat can start. You do not need an account, provider key, Supabase setup or local model runtime.</p>
           </div>}
 
-          {cloudState?.configured && !cloudState.signedIn && <>
-            <div className="field-label">RMANGO ACCOUNT</div>
-            <div className="provider-options">
-              <button type="button" className={'provider-option ' + (authMode === 'sign-in' ? 'selected' : '')} onClick={() => setAuthMode('sign-in')}>
-                <span className="provider-symbol local-symbol"><LockKeyhole size={15}/></span><span><strong>Sign in</strong><small>Existing account</small></span>
-              </button>
-              <button type="button" className={'provider-option ' + (authMode === 'sign-up' ? 'selected' : '')} onClick={() => setAuthMode('sign-up')}>
-                <span className="provider-symbol local-symbol"><Plus size={15}/></span><span><strong>Create account</strong><small>New Rmango account</small></span>
-              </button>
+          {cloudState?.configured && !cloudState.serviceReady && <div className="local-setup-panel">
+            <div className="local-setup-status"><AlertCircle size={14}/> RMango AI is temporarily unavailable</div>
+            <p>{cloudState.message || 'The managed RMango AI service is not ready yet.'} This is a service-side issue, not a setting you need to change.</p>
+          </div>}
+
+          {cloudState?.configured && cloudState.serviceReady && !cloudState.signedIn && <div className="local-setup-panel">
+            <div className="local-setup-status"><AlertCircle size={14}/> Guest workspace could not start</div>
+            <p>{cloudState.message || 'RMango could not create your automatic guest session.'} Check your internet connection, then retry. No sign-up is required.</p>
+            <div className="modal-footer">
+              <button type="button" className="save-button" onClick={() => void refreshCloudState()}><RefreshCw size={13}/> Retry connection</button>
             </div>
-            <form onSubmit={handleAuth}>
-              {authMode === 'sign-up' && <>
-                <label className="field-label" htmlFor="rmango-display-name">DISPLAY NAME</label>
-                <input id="rmango-display-name" className="settings-input" value={authDisplayName} onChange={event => setAuthDisplayName(event.target.value)} placeholder="Your name" maxLength={60}/>
-              </>}
-              <label className="field-label" htmlFor="rmango-email">EMAIL</label>
-              <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => setAuthEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
-              <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
-              <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
-              <div className="secure-note"><LockKeyhole size={13}/><span>Your Rmango account connects your private workspace, project context, and Studio tools. No separate AI-provider account is needed.</span></div>
-              <div className="modal-footer">
-                <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
-                <button type="submit" className="save-button" disabled={authBusy || !authEmail.trim() || !authPassword}>
-                  {authBusy ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={14}/>}
-                  {authMode === 'sign-in' ? 'Sign in' : 'Create account'}
-                </button>
-              </div>
-            </form>
-          </>}
+          </div>}
 
           {cloudState?.signedIn && <>
             <div className="account-card">
               <div className="account-avatar"><MangoMark size={27}/></div>
-              <div className="account-copy"><strong>{cloudState.email || 'Rmango account'}</strong><span>{cloudState.serviceReady ? 'Cloud services online' : 'Account connected · backend setup required'}</span></div>
-              <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
+              <div className="account-copy">
+                <strong>{cloudState.isGuest ? 'Guest workspace' : (cloudState.email || 'RMango workspace')}</strong>
+                <span>{cloudState.serviceReady ? (cloudState.isGuest ? 'Automatically created · no sign-up needed' : 'RMango Intelligence connected') : 'Waiting for RMango AI service'}</span>
+              </div>
             </div>
 
+            {cloudState.isGuest && <div className="secure-note">
+              <LockKeyhole size={13}/>
+              <span>Your guest session is encrypted with Windows secure storage and stays on this Windows profile. It cannot yet be recovered on another PC or after deleting RMango's local app data.</span>
+            </div>}
+
             <div className="field-label">RMANGO WORK MODES</div>
-            <p className="settings-explainer">Choose the kind of work you need. The assistant keeps the same Rmango identity while adjusting how it plans, reasons, and uses tools.</p>
+            <p className="settings-explainer">Choose the kind of work you need. RMango keeps the same Roblox-focused identity while adjusting how it plans, reasons and uses tools.</p>
             {!cloudModels?.profiles.length
-              ? <div className="tools-empty"><Cpu size={18}/><span>Rmango work modes are unavailable until its hosted intelligence service is configured.</span></div>
+              ? <div className="tools-empty"><Cpu size={18}/><span>RMango work modes are temporarily unavailable. Refresh the service status to retry.</span></div>
               : <div className="cloud-model-list">
                 {cloudModels.profiles.map((profile: CloudModelProfile) =>
                   <button type="button" className={'cloud-model-card ' + (cloudProfile === profile.profile ? 'selected' : '')} key={profile.profile} onClick={() => setCloudProfile(profile.profile)}>
@@ -1087,12 +1032,12 @@ function App() {
                   </button>
                 )}
               </div>}
-            <div className="secure-note"><ShieldCheck size={13}/><span>RMango owns the Roblox agent, project context, tool orchestration, workflows and product experience. Its foundation-model engine is hosted; RMango is not claiming to have trained a separate foundation model.</span></div>
+            <div className="secure-note"><ShieldCheck size={13}/><span>RMango owns its Roblox agent workflows, project context and tool orchestration. The hosted foundation model is not continuously retrained by project memory.</span></div>
           </>}
 
           <div className="modal-footer">
             <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
-            {cloudState?.signedIn && <button type="button" className="save-button" onClick={() => void refreshCloudState()}><RefreshCw size={13}/> Refresh cloud status</button>}
+            {cloudState?.configured && <button type="button" className="save-button" onClick={() => void refreshCloudState()}><RefreshCw size={13}/> Refresh status</button>}
           </div>
         </div>
       </div>}

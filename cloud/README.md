@@ -7,22 +7,40 @@ This folder is the hosted backend for the Rmango Windows desktop client. **All l
 - Next.js App Router API hosted on Vercel.
 - Vercel AI Gateway for model routing, capability catalogue, live model prices, and fallback models.
 - Vercel OIDC for Gateway authentication. Production does not use AI_GATEWAY_API_KEY or provider API keys.
-- Supabase Auth, Postgres and private Storage for accounts, projects, messages, file metadata, proposals, tasks and usage.
+- Supabase Auth, Postgres and private Storage for automatic anonymous guest identities, projects, messages, file metadata, proposals, tasks and usage.
 - Windows desktop client connects over HTTPS.
 - Optional Roblox Studio MCP bridge runs locally only as a secure tool-transport process. It does not load or run a language model; AI inference remains in the cloud.
 
 ## Deployment status
 
-The backend source and database migration are committed in this repository. They are **not yet deployed** and the migration has **not yet been applied to a Supabase project**. No paid model inference request has been made.
+The backend source, migrations and guest-auth API are committed in this repository. They are **not yet deployed** and the migrations have **not yet been applied to a dedicated Supabase project**. No paid model inference request has been made.
 
 Deployment requires:
 1. An approved Vercel project in the account/team that owns the Rmango domain and release.
 2. A new dedicated Supabase project for Rmango. Do not reuse unrelated projects.
 3. Vercel OIDC enabled for the cloud project.
 4. Apply the base database migration, then the incremental workspace/index migration, then the project learning/evaluation migration.
-5. Server-only environment variables configured in Vercel.
-6. An HTTPS deployment URL added as the GitHub repository variable RMANGO_CLOUD_API_URL.
-7. An administrator explicitly authorizing the cloud Gateway budget/spend policy before model-generation requests are enabled.
+5. Enable **Anonymous Sign-Ins** in Supabase Auth.
+6. Configure CAPTCHA/abuse protection for anonymous signup before a broad public launch.
+7. Set server-only environment variables in Vercel.
+8. Add the HTTPS deployment URL as the GitHub repository variable RMANGO_CLOUD_API_URL.
+9. Have an administrator explicitly authorize the cloud Gateway budget/spend policy before model-generation requests are enabled.
+
+## Automatic guest access
+
+The Windows desktop performs guest creation automatically when `/api/health` reports the hosted service ready:
+
+1. It requests `/api/public/config`.
+2. That endpoint returns only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. It must never return `SUPABASE_SERVICE_ROLE_KEY`, Vercel OIDC tokens or model-provider secrets.
+3. The desktop validates that the Supabase URL is a public HTTPS origin, then calls Supabase Auth's anonymous signup endpoint directly using the public publishable key.
+4. It verifies that Supabase returned `user.is_anonymous === true`.
+5. It persists the access/refresh tokens only through Electron `safeStorage`.
+
+Creating the identity directly from the desktop allows Supabase to apply its normal per-client-IP anonymous-sign-in rate limits. The guest identity is an authenticated Supabase user and existing owner-scoped row-level security policies continue to bind projects, chats, files, memories and tasks to `auth.uid()`.
+
+Guest identities are not recoverable accounts in this implementation. Local encrypted session data normally survives restarts on the same Windows profile, but deleting RMango app data or switching computers can lose access. Account linking and cross-device recovery are future work.
+
+Enable Anonymous Sign-Ins in Supabase Authentication for this dedicated project. Supabase recommends CAPTCHA or Cloudflare Turnstile protection for public anonymous signup; test and enforce that abuse protection before promoting the service to a broad public audience. Do not disable provider rate limits.
 
 ## Vercel setup
 
@@ -38,7 +56,7 @@ Create a **new** Supabase project for Rmango. Apply:
 
 `supabase/migrations/202611210001_rmango_cloud.sql`
 
-The two migrations create:
+The ordered migrations create:
 - Email/password accounts and user profiles.
 - Projects, conversations, messages, private project files and project memories.
 - Pending file-change proposals and review status.
@@ -49,7 +67,7 @@ The two migrations create:
 - Compact project task-evaluation signals and optional helpful/not-helpful feedback; these are context/evaluation data, not foundation-model training.
 - A private `rmango-files` storage bucket and owner-only row/object policies.
 
-Apply `supabase/migrations/202611210001_rmango_cloud.sql` first, followed by `supabase/migrations/202611220001_rmango_agent_workspace.sql`. The second migration is incremental and expects the base project tables to exist. Apply `supabase/migrations/202611230001_rmango_learning_loop.sql` third; it adds owner-scoped task evaluation and optional feedback records.
+Apply `supabase/migrations/202611210001_rmango_cloud.sql` first, followed by `supabase/migrations/202611220001_rmango_agent_workspace.sql`. The second migration is incremental and expects the base project tables to exist. Apply `supabase/migrations/202611230001_rmango_learning_loop.sql` third; it adds owner-scoped task evaluation and optional feedback records. Apply `supabase/migrations/202611230002_rmango_project_index_v2.sql` fourth; it expands the dependency-type constraint for DataStore, UI and asset references.
 
 The service-role key is only used in cloud server code for atomic usage accounting. Never add it to the desktop app, any `NEXT_PUBLIC_*` variable or a public GitHub Actions variable.
 
@@ -114,7 +132,8 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 ## Current endpoints
 
 - `/api/health` — non-secret backend readiness state.
-- `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out` — Rmango accounts.
+- `/api/public/config` — public Supabase URL and publishable key only, for automatic guest creation.
+- `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out` — optional email-account endpoints; the desktop's first-launch guest flow uses Supabase Auth directly.
 - `/api/models` — live model profiles and capability/price metadata.
 - `/api/chat` — authenticated streaming cloud chat and cloud agent tools.
 - `/api/projects` — account-owned cloud project index/create.
@@ -130,13 +149,15 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 ## Limitations in this build
 
 - Desktop import scans up to 2,000 non-hidden project entries and uploads supported text/source files up to 512 KB each. Binary `.rbxl` and `.rbxm` files, assets and files outside the supported text formats are reported as skipped; they are not unpacked or parsed.
-- The Luau index is a lightweight, versioned source scanner. It extracts module/function/service/remote symbols and common `require`/instance references; it is not a full Luau AST, type checker, or proof that a referenced instance exists in the live DataModel. Ambiguous or unresolved links retain low confidence.
+- The Luau index is a lightweight, versioned source scanner. Index v2 extracts module/function/service/remote/DataStore/UI/asset symbols; `require` and instance references; remote event/function usage sites; named DataStore/MemoryStore calls; common UI `Instance.new` classes and `.Name` assignments; and literal `rbxassetid://` / `rbxthumb` references. Records include source line numbers and confidence values. This remains static source evidence: it is not a full Luau AST, type checker, complete UI tree, client/server proof, live DataModel inspection, asset availability check or runtime success signal. Ambiguous/unresolved file links retain low confidence.
 - Durable tasks index stale uploaded source files, create an implementation plan, run a WorkflowAgent loop, and can call the currently registered allowlisted Roblox Studio MCP tools through the local desktop bridge. Studio commands are persisted against the task; mutating tools wait for the desktop approval decision. Pausing/cancelling also cancels pending Studio commands.
 - The Electron Agent Workspace reads task state and event history from cloud storage, so task lists, plans, activity, errors and reports remain available after the desktop app closes. The UI polls saved task state; it does not depend on a single open window or chat transcript.
 - Playtest verification is conservative. RMango marks runtime verified only when the connected Studio subagent returns an explicit passing playtest result and a subsequent console inspection gives a clean result. A started play session, successful code edit or successful tool call alone is not a pass.
 - Normal chat Studio calls remain synchronous and can time out; the durable Studio tool path is used by the Agent Workspace task workflow.
 - Admin usage reports/policy editing UI is not complete. Policies can be managed in the database for now.
-- Full Luau AST/type analysis, automated arbitrary game-specific test generation, vector/embedding RAG, full binary place/model parsing, complete semantic dependency analysis, side-by-side proposal diff UI and specialist-agent delegation are not complete.
+- Bounded specialist reviews are available to the Lead WorkflowAgent: nine role-specific read-only reviewers share the same owner-scoped indexed source, selected files, memories and task context. Each review has its own usage reservation, a 1,200-token output cap, and a limit of three distinct roles per task attempt. Specialist request/start/result/failure events are persisted and visible in Agent Workspace. Specialists cannot edit files or call Studio; the Lead remains responsible for all proposals, Studio operations, approvals and verification.
+- Formal conflict-resolution records, sibling-agent cancellation/cost dashboards, controlled parallel specialist runs, and live external browsing for the Research Analyst are not implemented. The current Research Analyst only reviews supplied evidence and flags external claims for verification.
+- Full Luau AST/type analysis, complete UI hierarchy and client/server architecture mapping, automated arbitrary game-specific test generation, vector/embedding RAG, full binary place/model parsing, complete semantic dependency analysis and side-by-side proposal diff UI are not complete.
 - Cloud inference, signup, storage, and real Roblox Studio playtest still require an activated Rmango Supabase/Vercel deployment and a connected desktop Studio session. This PR's CI verifies code builds and unit tests; it does not substitute for a live game playtest.
 
 ## Local development

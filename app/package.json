@@ -17,7 +17,8 @@
     "dist:win": "powershell -NoProfile -ExecutionPolicy Bypass -File build/generate-icon.ps1 && npm run build && electron-builder --win nsis --x64 --publish never",
     "clean": "node -e \"for (const p of ['dist','dist-electron','release']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
-    "dist:win:publish": "powershell -NoProfile -ExecutionPolicy Bypass -File build/generate-icon.ps1 && npm run build && electron-builder --win nsis --x64 --publish always"
+    "dist:win:publish": "powershell -NoProfile -ExecutionPolicy Bypass -File build/generate-icon.ps1 && npm run build && electron-builder --win nsis --x64 --publish always",
+    "test": "node --experimental-strip-types --test electron/guest-auth.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

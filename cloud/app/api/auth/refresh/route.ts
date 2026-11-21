@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({
-    user: { id: data.user.id, email: data.user.email },
+    user: { id: data.user.id, email: data.user.email, isAnonymous: data.user.is_anonymous === true },
     session: {
       accessToken: data.session.access_token,
       refreshToken: data.session.refresh_token,

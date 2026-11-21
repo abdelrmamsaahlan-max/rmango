@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import electronUpdater from 'electron-updater';
+import { describeGuestAuthFailure, isInvalidGuestRefreshError, parseAnonymousGuestSession, publicSupabaseOrigin } from './guest-auth.js';
 
 const { autoUpdater } = electronUpdater;
 
@@ -19,7 +20,7 @@ type CloudSession = {
   accessToken: string;
   refreshToken: string;
   expiresAt?: number;
-  user: { id: string; email?: string };
+  user: { id: string; email?: string; isAnonymous?: boolean };
   studioConnectorId?: string;
   studioConnectorSecret?: string;
   currentProjectId?: string;
@@ -48,6 +49,7 @@ let selectedStudioId: string | undefined;
 let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
+let guestSessionPromise: Promise<CloudSession> | null = null;
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
 let appUpdateState: AppUpdateState = {
@@ -151,7 +153,13 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
     accessToken: payload.session.accessToken,
     refreshToken: payload.session.refreshToken,
     expiresAt: payload.session.expiresAt,
-    user: payload.user,
+    user: {
+      id: payload.user.id,
+      email: payload.user.email || session.user.email,
+      isAnonymous: typeof payload.user.isAnonymous === 'boolean'
+        ? payload.user.isAnonymous
+        : session.user.isAnonymous,
+    },
   };
   await writeCloudSession(next);
   return next;
@@ -159,7 +167,7 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
 
 async function getValidCloudSession(): Promise<CloudSession> {
   let session = await readCloudSession();
-  if (!session) throw new Error('Sign in to your Rmango account to use cloud AI.');
+  if (!session) throw new Error('RMango could not start your guest workspace. Check the service connection and retry.');
   if (session.expiresAt && session.expiresAt * 1000 < Date.now() + 90_000) {
     session = await refreshCloudSession(session);
   }
@@ -237,34 +245,142 @@ async function cloudSignOut() {
   return { ok: true };
 }
 
+async function createGuestSession(): Promise<CloudSession> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. RMango cannot safely save your guest session on this device.');
+  }
+
+  const config = await cloudApiRequest<{ supabaseUrl?: string; publishableKey?: string }>(
+    '/api/public/config',
+    {},
+    false,
+  );
+  if (
+    typeof config.supabaseUrl !== 'string' ||
+    typeof config.publishableKey !== 'string' ||
+    !config.publishableKey ||
+    config.publishableKey.length > 8_192
+  ) {
+    throw new Error('The RMango service did not return valid public guest-auth settings.');
+  }
+
+  const supabaseOrigin = publicSupabaseOrigin(config.supabaseUrl);
+
+  // Create the anonymous identity from this desktop. Supabase therefore sees
+  // each user's IP for its normal anonymous-sign-in rate limits. The only key
+  // sent here is the public publishable key; service-role, OIDC and model
+  // provider secrets remain on the server.
+  const response = await fetch(supabaseOrigin + '/auth/v1/signup', {
+    method: 'POST',
+    headers: {
+      apikey: config.publishableKey,
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({ data: { name: 'RMango Guest', app: 'rmango-desktop' } }),
+    signal: AbortSignal.timeout(25_000),
+  });
+
+  const raw = await response.text();
+  let payload: unknown = {};
+  try { payload = raw ? JSON.parse(raw) : {}; }
+  catch { payload = { message: raw.slice(0, 400) }; }
+
+  if (!response.ok) {
+    throw new Error(describeGuestAuthFailure(response.status, payload));
+  }
+
+  const guest = parseAnonymousGuestSession(payload);
+  const session: CloudSession = {
+    ...guest,
+    user: { ...guest.user },
+  };
+  await writeCloudSession(session);
+
+  if (mcpClient) {
+    await registerCloudStudioConnector().catch(() => undefined);
+  }
+  return session;
+}
+
+function getOrCreateGuestSession(): Promise<CloudSession> {
+  if (!guestSessionPromise) {
+    guestSessionPromise = createGuestSession().finally(() => {
+      guestSessionPromise = null;
+    });
+  }
+  return guestSessionPromise;
+}
+
 async function getCloudState() {
   const apiBaseUrl = await getCloudApiBaseUrl();
-  const session = await readCloudSession();
+  let currentSession = await readCloudSession();
   if (!apiBaseUrl) {
-    return { configured: false, signedIn: Boolean(session), email: session?.user.email, message: 'Cloud backend URL has not been configured in this build.' };
+    return {
+      configured: false,
+      signedIn: Boolean(currentSession),
+      isGuest: currentSession?.user.isAnonymous === true,
+      email: currentSession?.user.email,
+      message: 'The managed RMango AI service is not connected to this build yet.',
+    };
   }
+
   let serviceReady = false;
   let healthError: string | undefined;
+  let sessionError: string | undefined;
   try {
     const health = await cloudApiRequest<any>('/api/health', {}, false);
     serviceReady = health.status === 'ready';
-    if (!serviceReady) healthError = 'Cloud backend needs its database and Vercel AI Gateway to be configured.';
+    if (!serviceReady) {
+      healthError = 'The RMango AI service is not ready. Its operator must finish the one-time deployment and usage setup.';
+    }
   } catch (error) {
-    healthError = error instanceof Error ? error.message : 'Cloud backend is unavailable.';
+    healthError = error instanceof Error ? error.message : 'The RMango AI service is temporarily unavailable.';
   }
-  let signedIn = Boolean(session);
-  let email = session?.user.email;
-  if (session) {
-    try { await getValidCloudSession(); } catch { signedIn = false; email = undefined; }
+
+  if (serviceReady) {
+    if (!currentSession) {
+      try {
+        currentSession = await getOrCreateGuestSession();
+      } catch (error) {
+        sessionError = error instanceof Error ? error.message : 'RMango could not start a guest workspace.';
+      }
+    } else {
+      try {
+        currentSession = await getValidCloudSession();
+        if (mcpClient && !currentSession.studioConnectorId) {
+          await registerCloudStudioConnector().catch(() => undefined);
+          currentSession = await readCloudSession() || currentSession;
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'The saved RMango session is unavailable.';
+        if (currentSession.user.isAnonymous && isInvalidGuestRefreshError(detail)) {
+          await clearCloudSession();
+          currentSession = null;
+          try {
+            currentSession = await getOrCreateGuestSession();
+          } catch (guestError) {
+            sessionError = guestError instanceof Error ? guestError.message : detail;
+          }
+        } else {
+          // Preserve the encrypted session during transient network/provider
+          // errors. A later retry can refresh it without losing guest data.
+          sessionError = detail;
+          currentSession = null;
+        }
+      }
+    }
   }
+
   return {
     configured: true,
     serviceReady,
-    signedIn,
-    email,
+    signedIn: Boolean(currentSession),
+    isGuest: currentSession?.user.isAnonymous === true,
+    email: currentSession?.user.email,
     apiHost: new URL(apiBaseUrl).host,
-    message: healthError,
-    currentProjectId: session?.currentProjectId,
+    message: sessionError || healthError,
+    currentProjectId: currentSession?.currentProjectId,
   };
 }
 
