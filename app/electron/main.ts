@@ -7,7 +7,6 @@ import { createClient } from '@supabase/supabase-js';
 import {
   GOOGLE_OAUTH_CALLBACK_ORIGIN,
   GOOGLE_OAUTH_CALLBACK_PATH,
-  GOOGLE_OAUTH_CALLBACK_HOST,
   isValidGoogleOAuthCallback,
 } from './oauth-security.js';
 import fs from 'node:fs/promises';
