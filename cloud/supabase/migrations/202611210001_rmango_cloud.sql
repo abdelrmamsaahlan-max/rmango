@@ -93,6 +93,24 @@ create table if not exists public.project_memories (
 );
 create index if not exists project_memories_project_idx on public.project_memories(owner_id, project_id);
 
+create table if not exists public.project_changes (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  conversation_id uuid references public.conversations(id) on delete set null,
+  relative_path text not null,
+  file_name text not null,
+  original_sha256 text,
+  proposed_content text not null,
+  proposed_sha256 text not null,
+  change_summary text not null,
+  status text not null default 'pending' check (status in ('pending','approved','rejected','conflict')),
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists project_changes_owner_project_idx
+  on public.project_changes(owner_id, project_id, status, created_at desc);
+
 create table if not exists public.agent_tasks (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
@@ -190,6 +208,7 @@ alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
 alter table public.project_files enable row level security;
 alter table public.project_memories enable row level security;
+alter table public.project_changes enable row level security;
 alter table public.agent_tasks enable row level security;
 alter table public.agent_events enable row level security;
 alter table public.studio_connectors enable row level security;
@@ -231,6 +250,16 @@ using (owner_id = (select auth.uid())) with check (
     select 1 from public.projects p where p.id = project_id and p.owner_id = (select auth.uid())
   )
 );
+create policy "project changes owner read" on public.project_changes for select to authenticated
+using (owner_id = (select auth.uid()));
+create policy "project changes owner insert" on public.project_changes for insert to authenticated
+with check (
+  owner_id = (select auth.uid()) and status = 'pending' and exists (
+    select 1 from public.projects p where p.id = project_id and p.owner_id = (select auth.uid())
+  )
+);
+create policy "project changes owner review" on public.project_changes for update to authenticated
+using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
 
 create policy "agent tasks owner all" on public.agent_tasks for all to authenticated
 using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
