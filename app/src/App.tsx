@@ -136,6 +136,8 @@ function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
+  const [authResetBusy, setAuthResetBusy] = useState(false);
+  const [authResetSent, setAuthResetSent] = useState(false);
   const [search, setSearch] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
@@ -511,6 +513,22 @@ function App() {
       setToast(error instanceof Error ? error.message : 'Could not resume this conversation.');
     } finally {
       setLoadingConversationId(null);
+    }
+  }
+
+  async function handlePasswordReset() {
+    const email = authEmail.trim().toLowerCase();
+    if (!email || authResetBusy) return;
+    setAuthResetBusy(true);
+    setAuthResetSent(false);
+    try {
+      const result = await window.rmango.requestPasswordReset({ email });
+      setAuthResetSent(true);
+      setToast(result.message || 'If an account exists, a recovery email has been sent.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not request a password reset.');
+    } finally {
+      setAuthResetBusy(false);
     }
   }
 
@@ -1798,9 +1816,16 @@ function App() {
                 <input id="rmango-display-name" className="settings-input" value={authDisplayName} onChange={event => setAuthDisplayName(event.target.value)} placeholder="Your name" maxLength={60}/>
               </>}
               <label className="field-label" htmlFor="rmango-email">EMAIL</label>
-              <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => setAuthEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
+              <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => { setAuthEmail(event.target.value); setAuthResetSent(false); }} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
               <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
               <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
+              {authMode === 'sign-in' && <div className="password-recovery-row">
+                <button type="button" className="password-recovery-link" onClick={() => void handlePasswordReset()} disabled={authResetBusy || !authEmail.trim()}>
+                  {authResetBusy ? <LoaderCircle size={13} className="spin"/> : <LockKeyhole size={13}/>}
+                  {authResetBusy ? 'Sending recovery email…' : 'Forgot password? Send a reset link'}
+                </button>
+                {authResetSent && <p className="password-recovery-note">If an account exists for this email, a recovery link has been sent. Open it in your browser, choose a new password, then return here to sign in.</p>}
+              </div>}
               <div className="secure-note"><LockKeyhole size={13}/><span>These are your Rmango account credentials, not an AI provider API key. AI provider credentials stay on the cloud server.</span></div>
               <div className="modal-footer">
                 <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
