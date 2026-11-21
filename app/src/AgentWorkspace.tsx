@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Activity, AlertCircle, ArrowUpRight, BrainCircuit, CheckCircle2, Clock3,
   Code2, Layers3, LoaderCircle, Pause, Play, RefreshCw, RotateCcw, Send,
-  ShieldCheck, Sparkles, Square, Workflow, Wrench,
+  ShieldCheck, Sparkles, Square, ThumbsDown, ThumbsUp, Workflow, Wrench,
 } from "lucide-react";
 import type {
   AgentTask, AgentTaskDetail, AgentTaskEvent, CloudProfile, ProjectIndexStatus,
@@ -96,6 +96,7 @@ export function AgentWorkspace({
   const [submitting, setSubmitting] = useState(false);
   const [acting, setActing] = useState(false);
   const [indexing, setIndexing] = useState(false);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [eventFilter, setEventFilter] = useState<"all" | "tools" | "errors">("all");
   const listInFlight = useRef(false);
   const detailInFlight = useRef(false);
@@ -247,6 +248,22 @@ export function AgentWorkspace({
     }
   }
 
+  async function handleFeedback(helpful: boolean) {
+    if (!selectedTask || selectedTask.status !== "completed" || feedbackBusy) return;
+    setFeedbackBusy(true);
+    try {
+      const result = await window.rmango.submitAgentFeedback({ taskId: selectedTask.id, helpful });
+      setDetail(current => current && current.task.id === selectedTask.id
+        ? { ...current, feedback: result.feedback }
+        : current);
+      onNotify("Feedback saved. RMango uses ratings and verified outcomes to improve future project guidance.");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Could not save task feedback.");
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }
+
   const status = selectedTask?.status || "";
   const canPause = status === "running" || status === "queued" || status === "waiting_approval";
   const canResume = status === "paused";
@@ -393,6 +410,26 @@ export function AgentWorkspace({
                       {taskResult.output ? <pre>{String(taskResult.output)}</pre> : <div className="agent-section-placeholder">Tool results, implementation notes and the final report will appear here.</div>}
                       {Array.isArray(taskResult.toolsUsed) && taskResult.toolsUsed.length > 0 && (
                         <div className="agent-tool-chips">{taskResult.toolsUsed.map((name: string) => <span key={name}>{name}</span>)}</div>
+                      )}
+                      {selectedTask.status === "completed" && (
+                        <div className="agent-feedback">
+                          <span>Was this result useful?</span>
+                          <div>
+                            <button type="button" title="Helpful" aria-label="Mark result helpful"
+                              className={detail?.feedback?.helpful === true ? "selected" : ""}
+                              onClick={() => void handleFeedback(true)} disabled={feedbackBusy}>
+                              <ThumbsUp size={14} />
+                            </button>
+                            <button type="button" title="Not helpful" aria-label="Mark result not helpful"
+                              className={detail?.feedback?.helpful === false ? "selected" : ""}
+                              onClick={() => void handleFeedback(false)} disabled={feedbackBusy}>
+                              <ThumbsDown size={14} />
+                            </button>
+                          </div>
+                          <small>{detail?.feedback
+                            ? "Feedback saved. It informs future project guidance."
+                            : "Optional feedback helps RMango evaluate future project guidance."}</small>
+                        </div>
                       )}
                     </section>
                   </div>
