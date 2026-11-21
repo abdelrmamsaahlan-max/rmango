@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
-  AgentActivity, CloudAgentTask, CloudConversation, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
+  AgentActivity, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
@@ -211,7 +211,7 @@ function App() {
         if (state.studioConnected) void refreshMcpState();
         if (cloud.signedIn && cloud.serviceReady) {
           try {
-            const [models, conversations, tasks] = await Promise.all([
+            const [models, conversations, tasks, projects] = await Promise.all([
               window.rmango.getCloudModels(),
               window.rmango.getCloudConversations(),
               window.rmango.getCloudTasks(),
@@ -297,7 +297,7 @@ function App() {
     if (state.signedIn && state.serviceReady) {
       setConversationId(state.currentConversationId || undefined);
       try {
-        const [models, conversations, tasks] = await Promise.all([
+        const [models, conversations, tasks, projects] = await Promise.all([
           window.rmango.getCloudModels(),
           window.rmango.getCloudConversations(),
           window.rmango.getCloudTasks(),
