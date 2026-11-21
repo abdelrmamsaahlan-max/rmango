@@ -48,7 +48,7 @@ Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) 
 
 The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
 
-Installed Windows builds check GitHub Releases after startup, every five minutes while running, and when Windows resumes from sleep. Updates download in the background and installation still requires your click. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+Installed Windows builds check GitHub Releases after startup, every five minutes while running, and when Windows resumes from sleep. Updates download in the background, then wait for your click on **Restart & install**. See [Automatic updates](#automatic-updates).
 
 ## Automatic updates
 
@@ -102,15 +102,15 @@ Setup: in Roblox Studio open **Assistant → … → Manage MCP Servers**, enabl
 6. Review and accept/reject proposed file changes in Rmango.
 7. Download the approved cloud project as a ZIP.
 
-Current source-file import is limited to 120 files, 512 KB per file and supported text formats. Binary `.rbxl` / `.rbxm` projects are not parsed by this version. Binary `.rbxl` / `.rbxm` projects are not parsed by this version.
+Current source-file import is limited to 120 files, 512 KB per file and supported text formats. Binary `.rbxl` / `.rbxm` projects are not parsed by this version.
 
 ## Current limitations
 
 - The Vercel cloud app and dedicated Supabase project are not provisioned yet; automatic guest creation and real hosted chat cannot run until the operator completes deployment.
 - Model profiles are dynamically selected from Gateway catalogue metadata. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
-- The desktop and cloud backend have CI build checks; full cloud login, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
-- Long-running agent work is not yet moved to a durable workflow/worker system; current chat requests and Studio tool calls have bounded request timeouts.
-- Admin usage dashboard, admin model-routing editor, durable task queue, PDF/DOCX parsing, vector RAG, full project dependency indexing and binary Roblox project import are not complete.
+- The desktop and cloud backend have CI build checks; live anonymous guest creation, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
+- The Agent Workspace supports durable plan/implementation tasks with saved events, pause/resume/cancel/retry and an incremental source index. Normal chat Studio calls remain synchronous and bounded by request timeouts.
+- Independent specialist-agent delegation, admin usage dashboard, admin model-routing editor, PDF/DOCX parsing, vector RAG, parser-backed/full semantic project indexing and binary Roblox project import are not complete.
 - Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. A separate Vercel AI Gateway budget is still required.
 
 ## Repository structure
