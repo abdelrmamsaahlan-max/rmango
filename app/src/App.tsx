@@ -353,7 +353,7 @@ function App() {
         await refreshMcpState();
         setToast(result.cloudLinked
           ? 'Roblox Studio linked to Rmango Cloud · ' + result.toolCount + ' tools discovered'
-          : (result.cloudMessage || ('Studio connected locally · sign in to link cloud AI · ' + result.toolCount + ' tools')));
+          : (result.cloudMessage || ('Studio connected locally · sign in to link Rmango · ' + result.toolCount + ' tools')));
       } else {
         setToast(result.error || 'Could not connect to Roblox Studio.');
       }
@@ -453,7 +453,7 @@ function App() {
     }
     if (!cloudState.signedIn) {
       setSettingsOpen(true);
-      setToast('Sign in to your Rmango account to use cloud AI.');
+      setToast('Sign in to your Rmango account to use Rmango Intelligence.');
       return;
     }
 
@@ -719,7 +719,7 @@ function App() {
             <div className="integration-row">
               <div className="integration-icon local"><Sparkles size={14}/></div>
               <div><strong>Rmango Intelligence</strong><span>{cloudState?.signedIn ? (cloudReady ? 'Connected · ' + (currentProfile?.profileLabel || 'Profile ready') : 'Account connected') : cloudState?.configured ? 'Sign in required' : 'Backend not configured'}</span></div>
-              <button className="subtle-icon" title="Cloud account and models" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/></button>
+              <button className="subtle-icon" title="Rmango account and work modes" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/></button>
             </div>
           </div>
         </aside>
@@ -750,7 +750,7 @@ function App() {
                     <div className="setup-card-icon"><Sparkles size={19}/></div>
                     <div className="setup-card-copy">
                       <strong>{cloudState?.configured ? 'Connect your Rmango account' : 'Rmango Cloud setup required'}</strong>
-                      <span>{cloudState?.message || 'Cloud model inference is remote. No local AI runtime or model downloads are needed.'}</span>
+                      <span>{cloudState?.message || 'Rmango runs through its hosted intelligence service. No local model downloads are required.'}</span>
                     </div>
                     <button onClick={() => setSettingsOpen(true)}>{cloudState?.configured ? 'Sign in' : 'Details'} <ArrowRight size={13}/></button>
                   </div>}
@@ -955,7 +955,7 @@ function App() {
                     <div><strong>{item.name}</strong><span>{item.detail}</span></div>
                   </div>
                 )
-              : <div className="activity-empty"><Activity size={15}/><span>Tool calls and model actions appear here.</span></div>}
+              : <div className="activity-empty"><Activity size={15}/><span>RMango's tool calls and development activity appear here.</span></div>}
           </section>
           <div className="right-footer"><ShieldCheck size={13}/> Every Studio change requires your approval.</div>
         </aside>}
@@ -1020,7 +1020,7 @@ function App() {
           <div className="modal-header">
             <div>
               <div className="modal-kicker">RMANGO CLOUD PLATFORM</div>
-              <h2>Cloud AI workspace</h2>
+              <h2>Rmango Intelligence</h2>
               <p>One Rmango assistant, built around Roblox development. Choose a work mode; Rmango handles the engine and routing.</p>
             </div>
             <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button>
@@ -1071,7 +1071,7 @@ function App() {
             <div className="field-label">RMANGO WORK MODES</div>
             <p className="settings-explainer">Choose the kind of work you need. The assistant keeps the same Rmango identity while adjusting how it plans, reasons, and uses tools.</p>
             {!cloudModels?.profiles.length
-              ? <div className="tools-empty"><Cpu size={18}/><span>Cloud model catalogue unavailable. The administrator must configure Vercel AI Gateway.</span></div>
+              ? <div className="tools-empty"><Cpu size={18}/><span>Rmango work modes are unavailable until its hosted intelligence service is configured.</span></div>
               : <div className="cloud-model-list">
                 {cloudModels.profiles.map((profile: CloudModelProfile) =>
                   <button type="button" className={'cloud-model-card ' + (cloudProfile === profile.profile ? 'selected' : '')} key={profile.profile} onClick={() => setCloudProfile(profile.profile)}>
@@ -1082,9 +1082,6 @@ function App() {
                       <span>{profileCopy[profile.profile].description}</span>
                       <span className="cloud-capabilities">
                         {profileCopy[profile.profile].tags.map(tag => <i key={tag}>{tag}</i>)}
-                        {profileCopy[profile.profile].tags.includes('Reasoning') ? <i>Reasoning</i> : null}
-                        {profileCopy[profile.profile].tags.includes('Vision') ? <i>Vision</i> : null}
-                        {profileCopy[profile.profile].tags.includes('Studio tools') ? <i>Studio tools</i> : null}
                       </span>
                     </span>
                   </button>
