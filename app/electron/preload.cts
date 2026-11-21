@@ -11,6 +11,12 @@ const api = {
   getCloudModels: () => ipcRenderer.invoke('cloud:models'),
   openProject: () => ipcRenderer.invoke('project:open'),
   clearProject: () => ipcRenderer.invoke('project:clear'),
+  uploadCloudProject: () => ipcRenderer.invoke('project:upload-cloud'),
+  onProjectUploadProgress: (callback: (event: any) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: any) => callback(payload);
+    ipcRenderer.on('project:upload-progress', listener);
+    return () => ipcRenderer.removeListener('project:upload-progress', listener);
+  },
   connectRoblox: () => ipcRenderer.invoke('mcp:connect'),
   disconnectRoblox: () => ipcRenderer.invoke('mcp:disconnect'),
   getMcpState: () => ipcRenderer.invoke('mcp:state'),
