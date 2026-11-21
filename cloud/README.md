@@ -118,15 +118,20 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 - `/api/projects/:id/changes` — pending project changes.
 - `/api/projects/:id/changes/:changeId` — approve/reject a file change with original-hash conflict detection.
 - `/api/projects/:id/download` — owner-authenticated ZIP export.
+- `/api/agent/tasks` — create a durable project-scoped agent workflow and list the user's tasks.
+- `/api/agent/tasks/:taskId` — read task state/events and pause, resume, cancel or retry an owned task.
 - `/api/studio/register`, `poll`, `result`, `disconnect` — authenticated local Studio connector.
 
 ## Limitations in this build
 
 - Cloud project import supports text/source files up to 512 KB per file and 120 files per desktop upload. Binary `.rbxl` and `.rbxm` project files are not parsed here.
 - The Windows client still has a local-folder picker and local Roblox Studio MCP transport. These are for file selection and Studio control only, not AI inference.
-- Studio tool calls are synchronous within a bounded chat route and can time out. A durable WorkflowAgent/queue worker for tasks that outlive a web request is not complete yet.
+- The durable Workflow SDK task API now checkpoints a plan phase and a separate project-inspection/implementation phase, records task events, and supports pause/resume/cancel/retry at phase boundaries. An execution token fences stale attempts so an older retry cannot overwrite a newer one.
+- Durable tasks currently work against uploaded cloud-project text/source files. Their edits are reviewable proposals; the workflow does not directly invoke the local Studio MCP bridge, and it explicitly reports that Roblox runtime/playtest verification has not happened.
+- The Electron UI does not yet include a full durable-task monitor for these endpoints. Task creation and controls are currently available through the authenticated cloud API.
+- Studio tool calls made through normal chat remain synchronous within a bounded request and can time out.
 - Admin usage reports/policy editing UI is not complete. Policies can be managed in the database for now.
-- PDF/DOCX parsing, embeddings/vector RAG, project-wide dependency indexing, diff viewer for proposed file content, and automated Luau test runners are not complete.
+- PDF/DOCX parsing, embeddings/vector RAG, complete dependency indexing, a side-by-side proposal diff viewer, specialist-agent delegation, and automated Luau test runners are not complete.
 - No end-to-end cloud inference, real account signup, Studio bridge or ZIP export test has been performed because the cloud database/project has not been provisioned.
 
 ## Local development
