@@ -260,6 +260,7 @@ button:disabled{cursor:not-allowed;opacity:.5}
 .activity-check{width:17px;height:17px;display:flex;align-items:center;justify-content:center;border-radius:50%;flex:none}
 .activity-check.ok{background:#29482d;color:#b8e78e}
 .activity-check.bad{background:#4b3027;color:#f0a88d}
+.activity-check.running{background:#3a3b24;color:#e4d27c}
 .activity-item>div{display:flex;flex-direction:column;gap:3px;min-width:0}
 .activity-item strong{font-size:9px;color:#d2dfc9;font-weight:600}
 .activity-item span{font-size:8px;color:#879b83;line-height:1.4;overflow-wrap:anywhere}
