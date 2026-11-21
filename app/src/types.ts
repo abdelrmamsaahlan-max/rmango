@@ -28,6 +28,15 @@ export type ChatMessage = {
   modelProfile?: CloudProfile;
 };
 
+export type ProjectUploadProgress = {
+  projectId: string;
+  completed: number;
+  total: number;
+  uploaded: number;
+  skipped: number;
+  currentFile: string;
+};
+
 export type ProjectFile = {
   name: string;
   path: string;
@@ -102,6 +111,8 @@ declare global {
       getCloudModels: () => Promise<CloudModels>;
       openProject: () => Promise<{ canceled?: boolean; path?: string; files?: ProjectFile[] }>;
       clearProject: () => Promise<any>;
+      uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; skipped: Array<{ name: string; reason: string }> }>;
+      onProjectUploadProgress: (callback: (event: ProjectUploadProgress) => void) => () => void;
       connectRoblox: () => Promise<any>;
       disconnectRoblox: () => Promise<any>;
       getMcpState: () => Promise<any>;
