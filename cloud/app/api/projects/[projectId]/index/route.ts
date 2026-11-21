@@ -73,7 +73,7 @@ export async function POST(request: Request, context: { params: Promise<{ projec
   if (activeRun) return NextResponse.json({ run: activeRun, alreadyRunning: true }, { status: 202 });
 
   try {
-    const run = await start(runProjectIndexWorkflow, [projectId, user.id]);
+    const run = await start(runProjectIndexWorkflow, [projectId, user.id, true]);
     return NextResponse.json({ workflowRunId: run.runId, status: "running" }, { status: 202 });
   } catch (error) {
     return NextResponse.json({
