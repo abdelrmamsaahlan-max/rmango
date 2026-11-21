@@ -64,8 +64,8 @@ function estimateTokens(text: string) {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
-function estimateCostUsd(inputTokens: number, outputTokens: number, inputPerMillion: number | null, outputPerMillion: number | null) {
-  if (inputPerMillion === null || outputPerMillion === null) return 0;
+function estimateCostUsd(inputTokens: number, outputTokens: number, inputPerMillion: number | null, outputPerMillion: number | null): number | null {
+  if (inputPerMillion === null || outputPerMillion === null) return null;
   return (inputTokens * inputPerMillion + outputTokens * outputPerMillion) / 1_000_000;
 }
 
@@ -190,14 +190,28 @@ export async function POST(request: Request) {
     conversationId = createdConversation.id;
   }
 
-  const estimateInputTokens = estimateTokens(JSON.stringify(messages));
+  const estimateInputTokens = Math.ceil(estimateTokens(JSON.stringify(messages)) * 1.25);
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
+  const estimatedCost = estimateCostUsd(
+    estimateInputTokens,
+    maxOutputTokens,
+    choice.primary.inputUsdPerMillionTokens,
+    choice.primary.outputUsdPerMillionTokens,
+  );
+  if (estimatedCost === null) {
+    return NextResponse.json({
+      error: "This model's published price metadata is unavailable. No paid request was started.",
+      reason: "model_cost_unavailable",
+    }, { status: 503 });
+  }
+
   const requestId = randomUUID();
   const { data: reservation, error: reserveError } = await admin.rpc("reserve_ai_request", {
     p_user_id: user.id,
     p_request_id: requestId,
     p_model_profile: profile,
     p_estimated_tokens: estimatedTokens,
+    p_estimated_cost_usd: recordedCost,
   });
 
   if (reserveError) {
@@ -207,12 +221,22 @@ export async function POST(request: Request) {
     }, { status: 503 });
   }
   if (!reservation?.allowed) {
+    const adminDisabled = reservation?.reason === "admin_spend_policy_not_enabled";
     return NextResponse.json({
-      error: "Your Rmango usage limit has been reached.",
+      error: adminDisabled
+        ? "Cloud AI is not enabled yet. An administrator must configure and authorize the spend limits first."
+        : "Your Rmango usage limit has been reached.",
       reason: reservation?.reason || "usage_limit",
-      message: "Your account has a daily or monthly request/token limit. Try again after it resets or contact the Rmango administrator.",
-    }, { status: 429 });
+      message: adminDisabled
+        ? "No model request was started and no AI usage was charged."
+        : "Your account or global daily/monthly request, token or spend limit has been reached. Try again after it resets or contact the Rmango administrator.",
+    }, { status: adminDisabled ? 503 : 429 });
   }
+
+  const enforcedMaxOutputTokens = Math.min(
+    maxOutputTokens,
+    Math.max(256, Number(reservation.max_output_tokens) || 4096),
+  );
 
   const latestUserText = body.messages.filter(message => message.role === "user").at(-1)?.content || "";
   const attachmentMetadata = (body.attachments || []).map(item => ({
@@ -432,7 +456,7 @@ export async function POST(request: Request) {
       messages: requestMessages,
       tools: { ...projectTools, ...studioTools },
       stopWhen: stepCountIs(8),
-      maxOutputTokens,
+      maxOutputTokens: enforcedMaxOutputTokens,
       temperature: 0.2,
       abortSignal: request.signal,
       providerOptions: gatewayOptions,
@@ -440,12 +464,13 @@ export async function POST(request: Request) {
         const inputTokens = Number(usage.inputTokens ?? 0);
         const outputTokens = Number(usage.outputTokens ?? 0);
         const actualModelId = modelResponse.modelId || choice.primary.id;
-        const estimatedCost = estimateCostUsd(
+        const actualCost = estimateCostUsd(
           inputTokens,
           outputTokens,
           choice.primary.inputUsdPerMillionTokens,
           choice.primary.outputUsdPerMillionTokens,
         );
+        const recordedCost = actualCost ?? estimatedCost;
         const finalText = text || "";
         await supabase.from("messages").insert({
           conversation_id: conversationId,
