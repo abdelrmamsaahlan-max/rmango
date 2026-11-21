@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { start } from "workflow/api";
 import { z } from "zod";
-import { getAuthErrorResponse } from "@/lib/supabase";
+import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
 import { isModelProfile, type ModelProfile } from "@/lib/ai/models";
 import { runAgentTask } from "@/workflows/agent-task";
 
@@ -10,13 +10,9 @@ export const dynamic = "force-dynamic";
 
 const actionSchema = z.object({ action: z.enum(["pause", "resume", "cancel", "retry"]) });
 
-async function appendEvent(supabase: Awaited<ReturnType<typeof getSupabase>>, ownerId: string, taskId: string, eventType: string, message: string) {
-  await supabase.from("agent_events").insert({ owner_id: ownerId, task_id: taskId, event_type: eventType, message });
-}
-
-async function getSupabase() {
-  const { createAdminClient } = await import("@/lib/supabase");
-  return createAdminClient();
+async function appendEvent(ownerId: string, taskId: string, eventType: string, message: string) {
+  const admin = createAdminClient();
+  await admin.from("agent_events").insert({ owner_id: ownerId, task_id: taskId, event_type: eventType, message });
 }
 
 export async function GET(request: Request, context: { params: Promise<{ taskId: string }> }) {
@@ -73,7 +69,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       .select("id")
       .maybeSingle();
     if (error || !data) return NextResponse.json({ error: "The task changed before it could be paused. Refresh and try again." }, { status: 409 });
-    await appendEvent(supabase, user.id, taskId, "paused", "Pause requested. The current model/tool step will finish before the workflow pauses at its next checkpoint.");
+    await appendEvent(user.id, taskId, "paused", "Pause requested. The current model/tool step will finish before the workflow pauses at its next checkpoint.");
     return NextResponse.json({ ok: true, status: "paused", checkpointPause: true });
   }
 
@@ -90,7 +86,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       .select("id")
       .maybeSingle();
     if (error || !data) return NextResponse.json({ error: "The task changed before cancellation could be saved." }, { status: 409 });
-    await appendEvent(supabase, user.id, taskId, "cancelled", "Cancellation saved. Any active workflow step stops at its next checkpoint.");
+    await appendEvent(user.id, taskId, "cancelled", "Cancellation saved. Any active workflow step stops at its next checkpoint.");
     return NextResponse.json({ ok: true, status: "cancelled", checkpointCancel: true });
   }
 
@@ -127,8 +123,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       .update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() })
       .eq("id", taskId)
       .eq("owner_id", user.id);
-    if (runError) await appendEvent(supabase, user.id, taskId, "warning", "Workflow was restarted, but its run ID could not be recorded.");
-    await appendEvent(supabase, user.id, taskId, isResume ? "resumed" : "retried", isResume ? "Resumed from the last saved workflow checkpoint." : "Started a new attempt after the previous failure.");
+    if (runError) await appendEvent(user.id, taskId, "warning", "Workflow was restarted, but its run ID could not be recorded.");
+    await appendEvent(user.id, taskId, isResume ? "resumed" : "retried", isResume ? "Resumed from the last saved workflow checkpoint." : "Started a new attempt after the previous failure.");
     return NextResponse.json({ ok: true, status: "queued", workflowRunId: run.runId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not restart the task workflow.";
@@ -137,7 +133,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       error: message.slice(0, 2_000),
       updated_at: new Date().toISOString(),
     }).eq("id", taskId).eq("owner_id", user.id).eq("status", "queued");
-    await appendEvent(supabase, user.id, taskId, "restart_failed", message);
+    await appendEvent(user.id, taskId, "restart_failed", message);
     return NextResponse.json({ error: "Could not restart the task: " + message }, { status: 503 });
   }
 }
