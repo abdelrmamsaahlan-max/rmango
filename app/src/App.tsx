@@ -341,6 +341,7 @@ function App() {
   const [showInspectorByDefault, setShowInspectorByDefault] = useState(true);
   const [cloudRefreshing, setCloudRefreshing] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [toast, setToast] = useState('');
   const [diagnosticResult, setDiagnosticResult] = useState('');
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
@@ -373,18 +374,32 @@ function App() {
   const deltaFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const onSettingsShortcut = (event: globalThis.KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === ',') {
+    const onWorkspaceShortcut = (event: globalThis.KeyboardEvent) => {
+      const modifier = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (modifier && key === ',') {
         event.preventDefault();
         setSettingsSection('general');
         setSettingsOpen(true);
-      } else if (event.key === 'Escape' && settingsOpen) {
-        setSettingsOpen(false);
+      } else if (modifier && key === 'b') {
+        event.preventDefault();
+        setLeftSidebarCollapsed(value => !value);
+        setLeftSidebarOpen(true);
+      } else if (modifier && event.shiftKey && key === 'i') {
+        event.preventDefault();
+        setRightPanelOpen(value => !value);
+      } else if (modifier && key === 'l') {
+        event.preventDefault();
+        composerRef.current?.focus();
+      } else if (event.key === 'Escape') {
+        if (settingsOpen) setSettingsOpen(false);
+        else if (rightPanelOpen) setRightPanelOpen(false);
+        else if (leftSidebarCollapsed) setLeftSidebarCollapsed(false);
       }
     };
-    window.addEventListener('keydown', onSettingsShortcut);
-    return () => window.removeEventListener('keydown', onSettingsShortcut);
-  }, [settingsOpen]);
+    window.addEventListener('keydown', onWorkspaceShortcut);
+    return () => window.removeEventListener('keydown', onWorkspaceShortcut);
+  }, [settingsOpen, rightPanelOpen, leftSidebarCollapsed]);
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
@@ -1578,7 +1593,7 @@ function App() {
       <div className="workspace-layout">
         <nav className="activity-rail">
           <button className="rail-button active" title="Workspace" aria-label="Workspace" onClick={() => { setLeftSidebarOpen(true); setRightPanelOpen(false); }}><Bot size={18}/></button>
-          <button className={"rail-button " + (leftSidebarOpen ? "active" : "")} title="Project files" aria-label="Project files" onClick={() => setLeftSidebarOpen(value => !value)}><Folder size={18}/></button>
+          <button className={"rail-button " + (!leftSidebarCollapsed ? "active" : "")} title="Toggle project sidebar (Ctrl+B)" aria-label="Toggle project sidebar" onClick={() => { setLeftSidebarCollapsed(value => !value); setLeftSidebarOpen(true); }}><Folder size={18}/></button>
           <button className="rail-button" title="Cloud projects" aria-label="Cloud projects" onClick={() => { setLeftSidebarOpen(true); setCloudProjectSearch(''); }}><Layers3 size={18}/></button>
           <button className="rail-button" title="AI chat" aria-label="Focus chat composer" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
           <button className="rail-button" title="Session inspector" aria-label="Session inspector" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
@@ -1586,8 +1601,8 @@ function App() {
           <button className="rail-button" title="Settings" onClick={() => { setSettingsSection('general'); setSettingsOpen(true); }}><Settings2 size={18}/></button>
         </nav>
 
-        <aside className={"left-sidebar " + (leftSidebarOpen ? "visible" : "")}>
-          <div className="sidebar-heading"><span>WORKSPACE</span><button className="subtle-icon" title="Workspace menu"><MoreHorizontal size={16}/></button></div>
+        <aside className={"left-sidebar " + (leftSidebarOpen ? "visible" : "") + (leftSidebarCollapsed ? " collapsed" : "")}>
+          <div className="sidebar-heading"><span>PROJECTS</span><button type="button" className="subtle-icon sidebar-collapse-button" title="Collapse project sidebar (Ctrl+B)" aria-label="Collapse project sidebar" onClick={() => setLeftSidebarCollapsed(true)}><PanelRight size={15}/></button></div>
           <div className="project-card">
             <div className="project-icon"><Gamepad2 size={17}/></div>
             <div className="project-details">
