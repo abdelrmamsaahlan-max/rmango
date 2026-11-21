@@ -10,20 +10,22 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1",
-    "dev:electron": "wait-on tcp:5173 && npm run build:electron && electron .",
+    "dev:electron": "wait-on tcp:5173 && nodemon --watch electron --ext ts,cts --exec \"npm run build:electron && electron .\"",
     "build": "npm run typecheck && npm run build:electron && vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "start": "electron .",
     "dist:win": "powershell -NoProfile -ExecutionPolicy Bypass -File build/generate-icon.ps1 && npm run build && electron-builder --win nsis --x64 --publish never",
     "clean": "node -e \"for (const p of ['dist','dist-electron','release']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "dist:win:publish": "powershell -NoProfile -ExecutionPolicy Bypass -File build/generate-icon.ps1 && npm run build && electron-builder --win nsis --x64 --publish always"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "lucide-react": "^0.468.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "zod": "^4.1.0"
+    "zod": "^4.1.0",
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
@@ -35,7 +37,8 @@
     "electron-builder": "^26.0.12",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
-    "wait-on": "^8.0.3"
+    "wait-on": "^8.0.3",
+    "nodemon": "^3.1.10"
   },
   "build": {
     "appId": "com.rmango.desktop",
@@ -60,7 +63,8 @@
         }
       ],
       "artifactName": "Rmango-Setup-${version}-${arch}.${ext}",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,
@@ -73,9 +77,22 @@
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "differentialPackage": false
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "abdelrmamsaahlan-max",
+        "repo": "rmango",
+        "releaseType": "release",
+        "publishAutoUpdate": true
+      }
+    ]
   },
   "engines": {
     "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abdelrmamsaahlan-max/rmango.git"
   }
 }
