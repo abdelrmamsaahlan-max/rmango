@@ -76,7 +76,7 @@ The cloud agent can therefore operate only on an open Studio session that the us
 
 ## Desktop updates
 
-The Windows app uses electron-updater with GitHub Releases. The build injects only the public HTTPS `RMANGO_CLOUD_API_URL` GitHub Actions variable; no provider/database secrets enter the client. If the URL is not configured, CI produces an artifact but does not publish a public release. Once configured, stable releases include the installer and `latest.yml`. The app checks on startup and every four hours, downloads in background, and waits for the user to choose restart/install.
+The Windows app uses electron-updater with GitHub Releases. The build injects only the public HTTPS `RMANGO_CLOUD_API_URL` GitHub Actions variable; no provider/database secrets enter the client. If the URL is not configured, CI produces an artifact but does not publish a public release. Once configured, stable releases include the installer and `latest.yml`. The app checks shortly after startup and every five minutes, downloads in background, and waits for the user to choose restart/install.
 
 ## Development reload
 
@@ -84,8 +84,8 @@ Vite handles React/CSS HMR. Nodemon rebuilds Electron main/preload source and re
 
 ## Not complete yet
 
-- Cloud/Vercel project and dedicated Supabase database still need provisioning.
-- No live login/inference/usage/quota/Studio-connector/ZIP end-to-end tests.
+- The Vercel cloud deployment and dedicated Supabase database are provisioned. The server-only Supabase service-role secret and desktop public cloud URL still need final configuration; paid inference remains disabled.
+- Full authenticated end-to-end tests are still pending. Model inference is intentionally not tested or enabled until a separate paid budget is approved.
 - Durable workflow/worker execution for tasks longer than bounded chat request timeouts.
 - Admin model policy and cost dashboard.
 - PDF/DOCX parsing, embeddings/vector RAG and project-wide dependency indexing.
@@ -95,3 +95,12 @@ Vite handles React/CSS HMR. Nodemon rebuilds Electron main/preload source and re
 ## Deployment
 
 See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migration and GitHub `RMANGO_CLOUD_API_URL` configuration.
+
+
+## Phase 2 security and context updates
+
+- The Electron main process validates the sender frame for every IPC handler, restricts renderer navigation and new windows, and validates HTTPS external links.
+- The renderer has a restrictive Content Security Policy.
+- Chat generation can be cancelled from the composer; the desktop aborts the active HTTP stream and preserves partial output.
+- The selected-project context layer loads an owner-checked project and a bounded metadata-only file manifest. File contents remain on-demand through the read tool, and all project metadata is treated as untrusted.
+- See [Phase 2 audit and architecture plan](../docs/PHASE2-AUDIT.md).
