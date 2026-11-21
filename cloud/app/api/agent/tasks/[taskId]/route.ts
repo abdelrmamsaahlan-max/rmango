@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { start } from "workflow/api";
+import { resumeHook, start } from "workflow/api";
 import { z } from "zod";
 import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
 import { isModelProfile, type ModelProfile } from "@/lib/ai/models";
@@ -16,6 +16,31 @@ async function appendEvent(ownerId: string, taskId: string, eventType: string, m
   await admin.from("agent_events").insert({ owner_id: ownerId, task_id: taskId, event_type: eventType, message });
 }
 
+async function cancelPendingStudioCommands(ownerId: string, taskId: string, reason: string) {
+  const admin = createAdminClient();
+  const { data: commands } = await admin.from("studio_commands")
+    .select("id")
+    .eq("task_id", taskId)
+    .eq("owner_id", ownerId)
+    .in("execution_status", ["queued", "running"])
+    .limit(30);
+  for (const command of commands || []) {
+    await admin.from("studio_commands")
+      .update({
+        execution_status: "cancelled",
+        error: reason.slice(0, 1_000),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", command.id)
+      .eq("owner_id", ownerId)
+      .in("execution_status", ["queued", "running"]);
+    try {
+      await resumeHook(command.id, { ok: false, error: reason });
+    } catch {
+      // The local result may already have resumed the hook.
+    }
+  }
+}
 export async function GET(request: Request, context: { params: Promise<{ taskId: string }> }) {
   const { context: auth, response } = await getAuthErrorResponse(request);
   if (response) return response;
@@ -70,7 +95,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       .select("id")
       .maybeSingle();
     if (error || !data) return NextResponse.json({ error: "The task changed before it could be paused. Refresh and try again." }, { status: 409 });
-    await appendEvent(user.id, taskId, "paused", "Pause requested. The current model/tool step will finish before the workflow pauses at its next checkpoint.");
+    await cancelPendingStudioCommands(user.id, taskId, "Task paused by the user. The pending Studio tool call was cancelled.");
+    await appendEvent(user.id, taskId, "paused", "Pause requested. Pending Studio tools were cancelled and the workflow will resume from its saved checkpoint.");
     return NextResponse.json({ ok: true, status: "paused", checkpointPause: true });
   }
 
@@ -87,7 +113,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ taskI
       .select("id")
       .maybeSingle();
     if (error || !data) return NextResponse.json({ error: "The task changed before cancellation could be saved." }, { status: 409 });
-    await appendEvent(user.id, taskId, "cancelled", "Cancellation saved. Any active workflow step stops at its next checkpoint.");
+    await cancelPendingStudioCommands(user.id, taskId, "Task cancelled by the user. The pending Studio tool call was cancelled.");
+    await appendEvent(user.id, taskId, "cancelled", "Cancellation saved. Pending Studio commands were cancelled and the durable workflow was signalled to stop.");
     return NextResponse.json({ ok: true, status: "cancelled", checkpointCancel: true });
   }
 
