@@ -4,7 +4,7 @@ import {
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
   LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send,
-  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3
+  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square
 } from 'lucide-react';
 import type {
   AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
@@ -111,6 +111,8 @@ function App() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
+  const cancelledRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
@@ -487,16 +489,37 @@ function App() {
         message.id === requestId ? { ...message, content: result.content, modelProfile: result.profile } : message
       ));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The Rmango cloud request failed.';
-      setMessages(current => current.map(item =>
-        item.id === requestId
-          ? { ...item, content: 'I could not complete that request.\n\n' + message }
-          : item
-      ));
+      const wasCancelled = cancelledRequestIdRef.current === requestId;
+      if (wasCancelled) {
+        setMessages(current => current.map(item =>
+          item.id === requestId ? { ...item, content: item.content || 'Response stopped.' } : item
+        ));
+      } else {
+        const message = error instanceof Error ? error.message : 'The Rmango cloud request failed.';
+        setMessages(current => current.map(item =>
+          item.id === requestId
+            ? { ...item, content: item.content ? item.content + '\n\n' + message : 'I could not complete that request.\n\n' + message }
+            : item
+        ));
+      }
       if (pending.length) setAttachments(current => [...pending, ...current].slice(0, 8));
     } finally {
+      if (activeRequestIdRef.current === requestId) activeRequestIdRef.current = null;
+      if (cancelledRequestIdRef.current === requestId) cancelledRequestIdRef.current = null;
       setBusy(false);
       composerRef.current?.focus();
+    }
+  }
+
+  async function handleCancelMessage() {
+    const requestId = activeRequestIdRef.current;
+    if (!requestId) return;
+    cancelledRequestIdRef.current = requestId;
+    try {
+      const result = await window.rmango.cancelMessage(requestId);
+      setToast(result.ok ? 'Stopping the response…' : 'The response has already finished.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not stop the current response.');
     }
   }
 
@@ -827,8 +850,14 @@ function App() {
                   <input ref={fileInputRef} className="hidden-file-input" type="file" multiple onChange={handleFileChange}/>
                   <span className="composer-hint">Enter to send · Shift + Enter for new line</span>
                 </div>
-                <button className="send-button" disabled={(!input.trim() && attachments.length === 0) || busy || !cloudReady || !cloudState?.signedIn} onClick={() => void sendMessage()}>
-                  {busy ? <LoaderCircle size={16} className="spin"/> : <Send size={15}/>}
+                <button
+                  className={'send-button ' + (busy ? 'cancel-button' : '')}
+                  title={busy ? 'Stop generating' : 'Send message'}
+                  aria-label={busy ? 'Stop generating' : 'Send message'}
+                  disabled={!busy && ((!input.trim() && attachments.length === 0) || !cloudReady || !cloudState?.signedIn)}
+                  onClick={() => busy ? void handleCancelMessage() : void sendMessage()}
+                >
+                  {busy ? <Square size={13} fill="currentColor"/> : <Send size={15}/>}
                 </button>
               </div>
             </div>
