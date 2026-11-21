@@ -158,7 +158,7 @@ export function buildAgentWorkflowContext(input: {
         : strategy === "deep" ? 16
           : 12;
 
-  if (!coordinated) {
+  if (strategy === "quick") {
     return { mode: "focused", strategy, riskLevel, maxSteps, domains, plan, systemText: "" };
   }
 
