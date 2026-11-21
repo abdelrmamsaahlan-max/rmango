@@ -159,6 +159,7 @@ export async function POST(request: Request) {
     prompt: latestUserPrompt,
     intelligenceLevel: intelligencePlan.level,
     intent: intelligencePlan.intent,
+    minimumEvidenceBeforeEdits: intelligencePlan.budget.minimumEvidenceBeforeEdits,
   });
   const systemPrompt = [
     SYSTEM_PROMPT,
@@ -1117,6 +1118,7 @@ export async function POST(request: Request) {
   const toolStartTimes = new Map<string, number>();
   const taskStartedAt = Date.now();
   let recordedDebugHypotheses = 0;
+  const debugHypotheses = new Map<number, Record<string, unknown>>();
   let providerFailureRecorded = false;
   let modelFailure: ReturnType<typeof classifyProviderFailure> | null = null;
 
@@ -1148,24 +1150,41 @@ export async function POST(request: Request) {
         supportingEvidence: z.array(z.string().trim().min(3).max(300)).min(1).max(5),
         confidence: z.enum(["low", "medium", "high"]),
         discriminatingTest: z.string().trim().min(8).max(700),
+        hypothesisId: z.number().int().min(1).max(10).optional(),
         outcome: z.enum(["not_tested", "supported", "rejected", "inconclusive"]).default("not_tested"),
         testResult: z.string().trim().max(700).optional(),
       }),
       execute: async (input) => {
-        if (recordedDebugHypotheses >= intelligencePlan.budget.maxHypotheses) {
-          throw new Error("The task's debugging hypothesis budget has been reached. Reuse or update an existing hypothesis instead of adding another.");
+        const isUpdate = input.hypothesisId !== undefined;
+        const hypothesisId = input.hypothesisId ?? (recordedDebugHypotheses + 1);
+        if (isUpdate && !debugHypotheses.has(hypothesisId)) {
+          throw new Error("That hypothesis ID does not exist in this task. Record a new hypothesis or use an ID returned earlier.");
         }
-        recordedDebugHypotheses += 1;
-        await recordAgentEvent("debug_hypothesis", input.hypothesis, {
-          ...input,
+        if (!isUpdate && recordedDebugHypotheses >= intelligencePlan.budget.maxHypotheses) {
+          throw new Error("The task's debugging hypothesis budget has been reached. Update an existing hypothesis instead of adding another.");
+        }
+        if (!isUpdate) recordedDebugHypotheses += 1;
+        const record = {
+          hypothesisId,
+          hypothesis: input.hypothesis,
+          supportingEvidence: input.supportingEvidence,
+          confidence: input.confidence,
           confidenceIsModelEstimate: true,
+          discriminatingTest: input.discriminatingTest,
+          outcome: input.outcome,
+          testResult: input.testResult || null,
           independentlyVerified: false,
-          hypothesisNumber: recordedDebugHypotheses,
+        };
+        debugHypotheses.set(hypothesisId, record);
+        await recordAgentEvent(isUpdate ? "debug_hypothesis_updated" : "debug_hypothesis", input.hypothesis, {
+          ...record,
+          taskLocalOnly: true,
         });
         return {
           recorded: true,
-          hypothesisNumber: recordedDebugHypotheses,
-          warning: "A recorded hypothesis is not independently verified. Only the discriminating test result can change its status.",
+          hypothesisId,
+          updated: isUpdate,
+          warning: "Confidence is an estimate, not proof. These task-local notes are not independent verification or permanent project memory.",
         };
       },
     }),
@@ -1183,6 +1202,7 @@ export async function POST(request: Request) {
       abortSignal: request.signal,
       providerOptions: gatewayOptions,
       onFinish: async ({ text, usage, response: modelResponse }) => {
+        if (modelFailure) return;
         const inputTokens = Number(usage.inputTokens ?? 0);
         const outputTokens = Number(usage.outputTokens ?? 0);
         const actualModelId = modelResponse.modelId || choice.primary.id;
@@ -1259,6 +1279,7 @@ export async function POST(request: Request) {
                 riskLevel: workflow.riskLevel,
                 domains: workflow.domains,
                 plan: workflow.plan,
+                intelligence: intelligencePlan,
               },
               verification: {
                 status: verificationStatus,
