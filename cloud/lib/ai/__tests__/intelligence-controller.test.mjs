@@ -1,0 +1,89 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createIntelligencePlan } from "../intelligence-controller.ts";
+
+const run = (prompt, options = {}) => createIntelligencePlan({
+  prompt,
+  requestedProfile: "auto",
+  ...options,
+});
+
+test("routes simple explanations to instant and the efficient profile", () => {
+  const plan = run("What is a ModuleScript in Roblox?");
+  assert.equal(plan.level, "instant");
+  assert.equal(plan.modelProfile, "fast");
+  assert.equal(plan.budget.maxSteps, 2);
+  assert.equal(plan.budget.useProjectTools, false);
+});
+
+test("routes ordinary one-system coding to focused with a developer-capable model", () => {
+  const plan = run("Add a cooldown to this Roblox RemoteEvent handler.");
+  assert.equal(plan.intent, "implementation");
+  assert.equal(plan.level, "focused");
+  assert.equal(plan.modelProfile, "agent");
+  assert.equal(plan.budget.minimumEvidenceBeforeEdits, 1);
+});
+
+test("routes root-cause debugging to a focused investigation with hypotheses", () => {
+  const plan = run("Debug why my inventory save randomly fails and find the root cause.");
+  assert.equal(plan.intent, "debugging");
+  assert.ok(plan.level === "focused" || plan.level === "advanced");
+  assert.ok(plan.budget.maxHypotheses >= 2);
+});
+
+test("routes broad cross-system architecture to deep engineering", () => {
+  const plan = run("Redesign the entire game architecture across networking, persistence, inventory, UI, and progression; compare options and implement safely.", {
+    hasSelectedProject: true,
+    projectFileCount: 240,
+  });
+  assert.equal(plan.level, "deep");
+  assert.equal(plan.modelProfile, "agent");
+  assert.equal(plan.budget.compareApproaches, true);
+  assert.equal(plan.budget.verificationDepth, "strong");
+  assert.ok(plan.budget.maxProjectFiles > 20);
+});
+
+test("routes current documentation and benchmarking to research mode", () => {
+  const plan = run("Research the latest official Roblox DataStore documentation and benchmark safe persistence options.");
+  assert.equal(plan.level, "research");
+  assert.equal(plan.intent, "research");
+  assert.equal(plan.modelProfile, "think");
+  assert.equal(plan.budget.verificationDepth, "independent");
+});
+
+test("honors explicit model profile and manual intelligence-level overrides", () => {
+  const plan = createIntelligencePlan({
+    prompt: "What is a RemoteEvent?",
+    requestedProfile: "developer",
+    levelSetting: "deep",
+  });
+  assert.equal(plan.modelProfile, "developer");
+  assert.equal(plan.profileWasAutoSelected, false);
+  assert.equal(plan.level, "deep");
+  assert.equal(plan.budget.maxSteps, 14);
+});
+
+test("forces image-compatible profile for image attachments without overriding manual level", () => {
+  const plan = run("Explain this Roblox screenshot.", {
+    hasImage: true,
+    levelSetting: "focused",
+  });
+  assert.equal(plan.modelProfile, "vision");
+  assert.equal(plan.level, "focused");
+});
+
+test("does not grant project or Studio tools to ordinary instant questions", () => {
+  const plan = run("Explain what task.defer does.");
+  assert.equal(plan.budget.useProjectTools, false);
+  assert.equal(plan.budget.useStudioTools, false);
+});
+
+test("increases context and verification budgets monotonically by level", () => {
+  const levels = ["instant", "focused", "advanced", "deep"] as const;
+  const budgets = levels.map(level => run("Explain this system.", { levelSetting: level }).budget);
+  for (let i = 1; i < budgets.length; i++) {
+    assert.ok(budgets[i].maxSteps >= budgets[i - 1].maxSteps);
+    assert.ok(budgets[i].maxProjectFiles >= budgets[i - 1].maxProjectFiles);
+    assert.ok(budgets[i].maxMemoryCharacters >= budgets[i - 1].maxMemoryCharacters);
+  }
+});
