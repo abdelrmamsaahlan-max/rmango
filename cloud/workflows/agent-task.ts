@@ -424,6 +424,8 @@ async function executeTaskWorkflow(
   const tools = createProjectAgentTools(context, studioTools);
   const usedTools = new Set<string>();
   let actualModelId = reservation.modelId;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
 
   const agent = new WorkflowAgent({
     model: reservation.modelId,
@@ -444,16 +446,19 @@ async function executeTaskWorkflow(
     tools,
     temperature: 0.1,
     maxOutputTokens: reservation.maxOutputTokens,
-    experimental_onStart: async ({ modelId }) => {
-      if (typeof modelId === "string") actualModelId = modelId;
+    experimental_onStart: async ({ model }) => {
+      actualModelId = model.modelId || actualModelId;
       await appendTaskEventStep(taskId, ownerId, "model_started", "The cloud model started the implementation agent.", {
         modelId: actualModelId,
         modelProfile: profile,
       });
     },
-    experimental_onStepStart: async ({ stepNumber }) => {
+    experimental_onStepStart: async ({ model, steps }) => {
+      actualModelId = model.modelId || actualModelId;
+      const stepNumber = steps.length;
       await appendTaskEventStep(taskId, ownerId, "model_step_started", "Agent reasoning step " + (stepNumber + 1) + " started.", {
         stepNumber,
+        modelId: actualModelId,
       });
     },
     onToolExecutionStart: async ({ toolCall, stepNumber }) => {
@@ -465,29 +470,34 @@ async function executeTaskWorkflow(
         inputPreview: compactText(toolCall.input, 1_600),
       });
     },
-    onToolExecutionEnd: async ({ toolCall, stepNumber, durationMs, success, output, error }) => {
+    onToolExecutionEnd: async ({ toolCall, durationMs, toolOutput }) => {
+      const successful = toolOutput.type === "tool-result";
+      const output = successful ? toolOutput.output : null;
+      const error = successful ? null : toolOutput.error;
       await appendTaskEventStep(
         taskId,
         ownerId,
-        success ? "tool_completed" : "tool_failed",
-        success ? toolCall.toolName + " completed." : toolCall.toolName + " returned an error.",
+        successful ? "tool_completed" : "tool_failed",
+        successful ? toolCall.toolName + " completed." : toolCall.toolName + " returned an error.",
         {
           toolName: toolCall.toolName,
           toolCallId: toolCall.toolCallId,
-          stepNumber,
           durationMs,
-          successful: success,
+          successful,
           outputPreview: compactText(output, 1_600),
           error: error ? compactText(error, 1_000) : null,
         },
       );
     },
-    onStepEnd: async ({ stepNumber, finishReason, usage }) => {
-      await appendTaskEventStep(taskId, ownerId, "model_step_completed", "Agent reasoning step " + (stepNumber + 1) + " completed.", {
-        stepNumber,
-        finishReason,
-        inputTokens: Number(usage?.inputTokens || 0),
-        outputTokens: Number(usage?.outputTokens || 0),
+    onStepEnd: async ({ usage }) => {
+      const inputTokens = Number(usage?.inputTokens || 0);
+      const outputTokens = Number(usage?.outputTokens || 0);
+      totalInputTokens += inputTokens;
+      totalOutputTokens += outputTokens;
+      await appendTaskEventStep(taskId, ownerId, "model_step_completed", "A model reasoning step completed.", {
+        modelId: actualModelId,
+        inputTokens,
+        outputTokens,
       });
     },
   });
@@ -498,8 +508,8 @@ async function executeTaskWorkflow(
       writable: getWritable<ModelCallStreamPart>(),
       stopWhen: isStepCount(reservation.maxSteps),
     });
-    const inputTokens = Number(response.totalUsage.inputTokens || 0);
-    const outputTokens = Number(response.totalUsage.outputTokens || 0);
+    const inputTokens = totalInputTokens;
+    const outputTokens = totalOutputTokens;
     const accounting = await completeAgentCallStep(
       ownerId,
       profile,
@@ -508,11 +518,12 @@ async function executeTaskWorkflow(
       outputTokens,
       actualModelId,
     );
-    const output = response.text || response.messages
+    const output = response.messages
       .filter(message => message.role === "assistant")
-      .map(message => Array.isArray(message.content)
-        ? message.content.filter(part => part.type === "text").map(part => part.text).join("\n")
-        : "")
+      .map(message => {
+        const parts = Array.isArray(message.content) ? message.content : [];
+        return parts.filter(part => part.type === "text").map(part => part.text).join("\n");
+      })
       .filter(Boolean)
       .join("\n\n");
     await appendTaskEventStep(taskId, ownerId, "agent_response_ready", "The agent finished its current implementation pass.", {
