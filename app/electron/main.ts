@@ -393,6 +393,24 @@ function handleIpc(channel: string, handler: (event: IpcMainInvokeEvent, ...args
   });
 }
 
+function getStudioProcessEnvironment(): Record<string, string> {
+  // The Roblox MCP child only needs Windows process/location variables.
+  // Do not forward unrelated environment values that may contain developer tokens.
+  const allowed = new Set([
+    "path", "localappdata", "appdata", "userprofile", "systemroot", "windir",
+    "temp", "tmp", "homedrive", "homepath", "programdata", "comspec",
+    "pathext", "public", "username", "userdomain",
+  ]);
+  const environment: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value && allowed.has(key.toLowerCase()) && value.length <= 32_768) environment[key] = value;
+  }
+  if (!Object.keys(environment).some(key => key.toLowerCase() === "path")) {
+    throw new Error("The Windows PATH variable is unavailable; Roblox Studio MCP cannot be started safely.");
+  }
+  return environment;
+}
+
 async function connectRoblox() {
   if (mcpClient) {
     const cloudLink = await registerCloudStudioConnector().catch(error => ({
@@ -418,7 +436,7 @@ async function connectRoblox() {
     const transport = new StdioClientTransport({
       command: 'cmd.exe',
       args: ['/d', '/s', '/c', '\"' + mcpBat + '\"'],
-      env: process.env as Record<string, string>,
+      env: getStudioProcessEnvironment(),
     });
     const client = new Client({ name: 'rmango-desktop', version: app.getVersion() }, { capabilities: {} });
     await client.connect(transport);
