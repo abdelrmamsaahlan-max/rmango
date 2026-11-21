@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "4.0.151",
+    "@ai-sdk/openai-compatible": "3.0.94",
     "@supabase/supabase-js": "2.119.2",
     "ai": "7.0.178",
     "next": "16.4.6",
