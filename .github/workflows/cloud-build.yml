@@ -12,6 +12,7 @@ on:
       - main
       - upgrade/project-context-retrieval
       - upgrade/agent-workspace-studio
+      - upgrade/rmango-native-identity-ui
     paths:
       - "cloud/**"
       - ".github/workflows/cloud-build.yml"
@@ -44,7 +45,10 @@ jobs:
           cache-dependency-path: cloud/package.json
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --no-fund
+
+      - name: Audit dependency tree
+        run: npm audit --audit-level=high
 
       - name: Type-check cloud backend
         run: npm run typecheck
