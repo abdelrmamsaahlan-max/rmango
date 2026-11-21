@@ -1085,9 +1085,42 @@ handleIpc('studio:approval-result', (_event, response: { requestId: string; appr
 });
 
 handleIpc('chat:load', async () => {
-  try { return JSON.parse(await fs.readFile(sessionPath(), 'utf8')) as ChatMessage[]; } catch { return []; }
+  try {
+    const filePath = sessionPath();
+    const stored = await fs.readFile(filePath, 'utf8');
+    if (!safeStorage.isEncryptionAvailable()) return [];
+
+    let parsed: unknown;
+    let legacyPlaintext = false;
+    try {
+      parsed = JSON.parse(safeStorage.decryptString(Buffer.from(stored.trim(), 'base64')));
+    } catch {
+      // One-time migration for history files created by older RMango versions.
+      try {
+        parsed = JSON.parse(stored);
+        legacyPlaintext = true;
+      } catch {
+        return [];
+      }
+    }
+    if (!Array.isArray(parsed)) return [];
+
+    if (legacyPlaintext) {
+      const encrypted = safeStorage.encryptString(JSON.stringify(parsed)).toString('base64');
+      const temporaryPath = filePath + '.migrating';
+      await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+      await fs.rename(temporaryPath, filePath);
+    }
+    return parsed.slice(-100) as ChatMessage[];
+  } catch {
+    return [];
+  }
 });
 handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Chat history was not written in plaintext.');
+  }
+  if (!Array.isArray(messages)) throw new Error('Invalid local chat history.');
   await fs.mkdir(userData(), { recursive: true });
   const cleaned = messages.slice(-100).map(message => ({
     ...message,
@@ -1095,8 +1128,12 @@ handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
       ? (message as any).attachments.map(({ id, name, mimeType, kind, size }: any) => ({ id, name, mimeType, kind, size }))
       : undefined,
   }));
-  await fs.writeFile(sessionPath(), JSON.stringify(cleaned, null, 2), 'utf8');
-  return { ok: true };
+  const encrypted = safeStorage.encryptString(JSON.stringify(cleaned)).toString('base64');
+  const filePath = sessionPath();
+  const temporaryPath = filePath + '.tmp';
+  await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(temporaryPath, filePath);
+  return { ok: true, encrypted: true };
 });
 
 handleIpc('cloud:cancel', (_event, requestId: string) => {
