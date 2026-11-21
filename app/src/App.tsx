@@ -2287,11 +2287,26 @@ function App() {
                 {settingsSection === 'privacy' && <>
                   <section className="settings-card">
                     <div className="settings-card-heading">
+                      <div className="settings-card-icon"><ShieldCheck size={17}/></div>
+                      <div><h3>Device encryption</h3><p>Rmango uses the built-in secure key store provided by your operating system.</p></div>
+                    </div>
+                    <div className="account-device-security">
+                      <div className="account-device-security-icon"><ShieldCheck size={15}/></div>
+                      <div>
+                        <strong>{appState?.secureStorageAvailable ? 'Secure storage ready' : 'Secure storage unavailable'}</strong>
+                        <span>{appState?.secureStorageProvider || 'Checking your system key store'}{appState?.secureStorageMessage ? ' · ' + appState.secureStorageMessage : ' · Local account tokens are encrypted with this device key store.'}</span>
+                      </div>
+                      <span className={'account-device-security-status ' + (appState?.secureStorageAvailable ? 'ready' : 'warning')}>{appState?.secureStorageAvailable ? 'READY' : 'CHECK'}</span>
+                    </div>
+                    <p className="settings-card-footnote">Windows uses DPAPI, macOS uses Keychain, and Linux requires Secret Service or KWallet. Rmango will not fall back to plain-text key storage.</p>
+                  </section>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
                       <div className="settings-card-icon"><HardDrive size={17}/></div>
-                      <div><h3>Local chat cache</h3><p>Control whether Rmango keeps a small encrypted message cache on this PC.</p></div>
+                      <div><h3>Local chat cache</h3><p>Control whether Rmango keeps a small encrypted message cache on this device.</p></div>
                     </div>
                     <div className="settings-row">
-                      <div><strong>Save recent messages on this device</strong><small>Stores up to the most recent 100 messages in the Windows app data folder, encrypted using Windows secure storage.</small></div>
+                      <div><strong>Save recent messages on this device</strong><small>Stores up to the most recent 100 messages in the app data folder, encrypted using the operating-system key store.</small></div>
                       <button type="button" role="switch" aria-checked={saveLocalChatHistory} className={'preference-switch ' + (saveLocalChatHistory ? 'on' : '')} onClick={() => void handleLocalHistoryChange(!saveLocalChatHistory)}><i/></button>
                     </div>
                     <div className="settings-privacy-detail">
@@ -2310,7 +2325,7 @@ function App() {
                       <div><h3>Roblox Studio safety</h3><p>Actions that change your Studio project continue to use an approval step.</p></div>
                     </div>
                     <div className="settings-security-line"><CheckCircle2 size={15}/><span>Write and destructive Studio tools require approval in the app before they run.</span></div>
-                    <div className="settings-security-line"><LockKeyhole size={15}/><span>Your cloud session is stored using Windows secure storage, not as a plain-text password.</span></div>
+                    <div className="settings-security-line"><LockKeyhole size={15}/><span>Your cloud session is encrypted with your operating-system key store, not saved as a plain-text password.</span></div>
                     <p className="settings-card-footnote">These safety checks cannot be disabled from Settings.</p>
                   </section>
                 </>}
@@ -2340,8 +2355,8 @@ function App() {
                       <div><span>PLATFORM</span><strong>{appState?.platform || '—'}</strong></div>
                     </div>
                     <div className="settings-row">
-                      <div><strong>Automatic update checks</strong><small>Check for stable releases every five minutes. Updates are downloaded in the background and install only when you choose.</small></div>
-                      <button type="button" role="switch" aria-checked={autoUpdatesEnabled} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
+                      <div><strong>Automatic update checks</strong><small>{appState?.platform === 'win32' ? 'Check for the newest stable release every six hours. Rmango downloads one version once and installs it only when you choose.' : appState?.platform === 'darwin' ? 'macOS releases are installed from signed and notarized DMG downloads. Automatic in-app updates are not enabled for this build.' : appState?.platform === 'linux' ? 'Linux releases are installed from AppImage or DEB packages. Automatic updates remain disabled until signed manifests are configured.' : 'Automatic updates are not configured for this platform.'}</small></div>
+                      <button type="button" role="switch" aria-checked={autoUpdatesEnabled} aria-label="Automatic update checks" disabled={appState?.platform !== 'win32'} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
                     </div>
                     <div className="settings-update-status">
                       <span className={'health-state ' + (updateState?.status === 'error' ? 'blocked' : updateState?.status === 'downloaded' || updateState?.status === 'not-available' ? 'ready' : '')}>{(updateState?.status || 'idle').replace('-', ' ').toUpperCase()}</span>
@@ -2351,7 +2366,7 @@ function App() {
                     </div>
                     {updateState?.releaseNotes && <details className="settings-release-notes"><summary>Release notes</summary><p>{updateState.releaseNotes}</p></details>}
                     <div className="settings-form-actions">
-                      <button type="button" className="settings-secondary-button" onClick={() => void handleCheckUpdates()} disabled={updateState?.status === 'checking' || updateState?.status === 'downloading'}>
+                      <button type="button" className="settings-secondary-button" onClick={() => void handleCheckUpdates()} disabled={appState?.platform !== 'win32' || updateState?.status === 'checking' || updateState?.status === 'downloading'}>
                         {updateState?.status === 'checking' ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>} Check now
                       </button>
                       {updateState?.status === 'downloaded' && <button type="button" className="save-button" onClick={() => void handleInstallUpdate()}><Download size={14}/> Install and restart</button>}
