@@ -11,23 +11,20 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 - The Windows desktop connects over HTTPS and stores only the user's Rmango account session encrypted with Windows secure storage.
 - A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is a tool bridge only; it does not run any AI model.
 
-## Important deployment status
+## Current cloud deployment status
 
-The cloud backend source, migration and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** The desktop currently shows “Cloud not configured” until an administrator provisions the cloud service and sets the public URL.
+- The Next.js cloud backend is deployed at [rmango-cloud.vercel.app](https://rmango-cloud.vercel.app) with Vercel OIDC enabled.
+- The dedicated Supabase project `rmango-cloud` is active in Frankfurt, and migration `202611210001_rmango_cloud.sql` has been applied.
+- Encrypted `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` variables are present in Vercel. The server-only `SUPABASE_SERVICE_ROLE_KEY` is still an administrator setup requirement; do not put it in the desktop app or source control.
+- The GitHub Actions variable `RMANGO_CLOUD_API_URL` still needs to be configured before a cloud-ready Windows installer can be published.
+- The Supabase global AI usage policy is deliberately disabled, with both USD spend caps at zero. No paid inference is authorized or started.
 
-No hosted model request or paid inference has been run from this code. No cloud project or provider spend has been activated by this change.
+## Remaining cloud setup
 
-## Cloud deployment prerequisites
-
-1. Authorize the Rmango Vercel team/project scope.
-2. Create a dedicated Supabase project for Rmango. Do not reuse an unrelated app database.
-3. Apply `cloud/supabase/migrations/202611210001_rmango_cloud.sql`.
-4. Create a Vercel project from this repository with Root Directory set to `cloud`.
-5. Enable Vercel OIDC for the Vercel project.
-6. Add the server-only environment variables described in [cloud/README.md](cloud/README.md).
-7. Explicitly authorize an AI Gateway/provider spending budget in the admin account.
-8. Set the GitHub Actions repository variable `RMANGO_CLOUD_API_URL` to the public HTTPS Vercel URL.
-9. Push/rebuild the desktop installer so the public cloud URL is included in `app/cloud-config.json`.
+1. Add `SUPABASE_SERVICE_ROLE_KEY` as an encrypted server-only Vercel environment variable, then redeploy the cloud backend.
+2. Set the GitHub Actions repository variable `RMANGO_CLOUD_API_URL` to `https://rmango-cloud.vercel.app`.
+3. Build and verify the first cloud-configured Windows installer before replacing the old pre-cloud release.
+4. Keep the database usage policy disabled until the administrator separately approves an AI inference budget.
 
 Cloud inference has a cost. The database usage policy is disabled by default; an administrator must set global daily/monthly USD caps and explicitly enable it before any inference request can start. Per-user request/token quotas and a second Vercel AI Gateway budget provide additional limits.
 
