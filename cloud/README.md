@@ -77,6 +77,23 @@ Set in the Vercel project's server environment only:
 
 No AI provider or AI Gateway API key is supported in the production configuration. Model calls are authenticated by Vercel OIDC.
 
+## Google sign-in and account recovery setup
+
+Google OAuth credentials belong only in the Supabase Auth provider configuration. The desktop receives only the Supabase URL and publishable key from `/api/auth/config`; the server-only secret key is never returned.
+
+1. In Google Cloud Console, create an OAuth client of type **Web application**.
+2. Add the Supabase callback URL to Google's authorized redirect URIs:
+   `https://jqkcrtnbxewyqrdpnqap.supabase.co/auth/v1/callback`.
+3. In Supabase → Authentication → Sign In / Providers, enable Google and save the Google client ID and client secret.
+4. In Supabase → Authentication → URL Configuration → Additional Redirect URLs, add:
+   `http://127.0.0.1:43821/auth/callback`.
+5. Set `RMANGO_PUBLIC_URL=https://rmango-cloud.vercel.app` in the Vercel cloud project's server environment. Add the corresponding recovery destination `https://rmango-cloud.vercel.app/auth/reset-password` to the Supabase redirect allow list.
+6. Configure a working SMTP/email provider in Supabase Auth and send a real password-recovery email to verify the delivery and completion flow.
+
+The desktop opens the system browser, uses Supabase PKCE, and receives the authorization code through a temporary loopback listener bound only to `127.0.0.1`. The callback port is fixed at `43821`; only the expected callback route, local peer, and one-time state are accepted. The PKCE verifier stays in the Electron main process's memory until the transaction completes.
+
+Google login and recovery email delivery still require the dashboard settings above. A successful API build does not prove that Google or SMTP is enabled.
+
 ## GitHub desktop build configuration
 
 The standard public cloud URL is committed in `app/cloud-config.json`. You may set the optional GitHub Actions variable `RMANGO_CLOUD_API_URL` to override it for another deployment. The Windows workflow validates that the URL is HTTPS and never copies database secrets, OIDC tokens or AI-provider credentials into the desktop package.
