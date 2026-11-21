@@ -121,7 +121,9 @@ function supports(model: GatewayModel, capability: string) {
 }
 
 function pickCandidate(models: GatewayModel[], profile: ModelProfile): GatewayModel | undefined {
-  let candidates = models.filter(model => (model.modalities?.input || []).includes("text"));
+  let candidates = models.filter(model =>
+    (model.modalities?.input || []).includes("text") && Number.isFinite(scoreCost(model))
+  );
   if (profile === "vision") {
     candidates = candidates.filter(model => (model.modalities?.input || []).includes("image"));
   } else if (profile === "think") {
