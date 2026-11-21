@@ -308,12 +308,14 @@ async function sendCloudMessage(payload: {
       }
     }
     content += decoder.decode();
+    const returnedProfile = response.headers.get('X-Rmango-Model-Profile') as CloudProfile | null;
+    const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
     return {
       requestId,
       content,
       conversationId: response.headers.get('X-Rmango-Conversation-Id') || payload.conversationId || undefined,
       modelId: response.headers.get('X-Rmango-Model') || undefined,
-      profile: payload.profile,
+      profile: returnedProfile && allowedProfiles.includes(returnedProfile) ? returnedProfile : payload.profile,
       activity: [] as ActivityItem[],
     };
   } catch (error) {
