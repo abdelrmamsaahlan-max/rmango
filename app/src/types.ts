@@ -114,6 +114,13 @@ export type CloudAgentTask = {
     created_at: string;
   }>;
 };
+export type CloudProject = {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+};
 
 export type CloudModelProfile = {
   id: string;
@@ -167,6 +174,10 @@ declare global {
       getCloudModels: () => Promise<CloudModels>;
       getCloudConversations: (projectId?: string) => Promise<CloudConversation[]>;
       getCloudTasks: (projectId?: string) => Promise<CloudAgentTask[]>;
+      getCloudProjects: () => Promise<CloudProject[]>;
+      createCloudProject: (payload: { name: string; description?: string }) => Promise<CloudProject>;
+      updateCloudProject: (payload: { projectId: string; name?: string; description?: string }) => Promise<CloudProject>;
+      deleteCloudProject: (projectId: string) => Promise<{ ok: boolean; deletedProjectId: string; deletedFileCount: number }>;
       loadCloudConversation: (conversationId: string) => Promise<{ conversation: CloudConversation; messages: ChatMessage[] }>;
       createCloudConversation: (payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => Promise<CloudConversation>;
       setCurrentConversationId: (conversationId?: string | null) => Promise<{ ok: boolean }>;
