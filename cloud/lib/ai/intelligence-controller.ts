@@ -138,7 +138,10 @@ function detectIntent(prompt: string, hasSelectedProject = false): IntelligenceI
   }
   if (
     hasSelectedProject &&
-    /\\b(in this project|in my project|in this game|in my game|in this codebase|in the codebase|existing implementation|how is .* implemented|what does .* system do)\\b/i.test(prompt)
+    (
+      /\\b(in this project|in my project|in this game|in my game|in this codebase|in the codebase|existing implementation|how is .* implemented|what does .* system do)\\b/i.test(prompt) ||
+      /\\b(explain|describe|inspect|analy[sz]e|trace|understand|walk me through)\\b/i.test(prompt)
+    )
   ) return "project_navigation";
   return "question";
 }

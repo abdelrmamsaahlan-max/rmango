@@ -16,7 +16,7 @@ import { indexCloudProjectFile } from "@/lib/ai/project-graph-storage";
 import { detectProjectDependencyCycles } from "@/lib/ai/project-graph-analysis";
 import { boundedTraceData, redactTraceValue } from "@/lib/ai/trace";
 import { extractSupportedDocument } from "@/lib/ai/documents";
-import { createIntelligencePlan, type IntelligenceLevelSetting } from "@/lib/ai/intelligence-controller";
+import { createIntelligencePlan, getIntelligenceLevelLabel, type IntelligenceLevelSetting } from "@/lib/ai/intelligence-controller";
 import { classifyProviderFailure, formatProviderFailure } from "@/lib/ai/provider-errors";
 
 export const runtime = "nodejs";
@@ -1350,6 +1350,33 @@ export async function POST(request: Request) {
           catch { closed = true; }
         };
         try {
+          emit({
+            type: "activity",
+            activity: {
+              id: "intelligence-controller",
+              name: "Intelligence controller",
+              detail: getIntelligenceLevelLabel(intelligencePlan.level) + " · " +
+                intelligencePlan.intent.replaceAll("_", " ") + " · " + profile +
+                " profile · up to " + intelligencePlan.budget.maxSteps + " model steps · " +
+                intelligencePlan.budget.maxProjectFiles + " project file entries · " +
+                intelligencePlan.budget.maxMemoryNotes + " memory notes · " +
+                intelligencePlan.budget.verificationDepth + " verification",
+              status: "completed",
+              ok: true,
+            },
+          });
+          if (intelligencePlan.level === "research" && !intelligencePlan.budget.externalSourcesAvailable) {
+            emit({
+              type: "activity",
+              activity: {
+                id: "research-capability",
+                name: "Research availability",
+                detail: "No live external documentation search is configured in this cloud engine; current external sources will not be claimed.",
+                status: "completed",
+                ok: false,
+              },
+            });
+          }
           if (selectedProjectContextSummary) {
             emit({
               type: "activity",

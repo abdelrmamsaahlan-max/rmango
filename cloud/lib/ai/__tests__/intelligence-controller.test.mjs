@@ -116,3 +116,12 @@ test("keeps an explicit planning-only request in planning mode even when it says
   assert.equal(plan.intent, "planning");
   assert.equal(plan.budget.useProjectTools, true);
 });
+
+
+test("uses selected-project tools when the user asks to explain a named existing system", () => {
+  const plan = run("Explain InventoryService and how it handles player items.", {
+    hasSelectedProject: true,
+  });
+  assert.equal(plan.intent, "project_navigation");
+  assert.equal(plan.budget.useProjectTools, true);
+});
