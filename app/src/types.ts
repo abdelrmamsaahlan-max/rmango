@@ -28,6 +28,17 @@ export type ChatMessage = {
   modelProfile?: CloudProfile;
 };
 
+export type CloudProjectChange = {
+  id: string;
+  relative_path: string;
+  file_name: string;
+  change_summary: string;
+  original_sha256: string | null;
+  proposed_sha256: string;
+  status: 'pending' | 'approved' | 'rejected' | 'conflict';
+  created_at: string;
+};
+
 export type ProjectUploadProgress = {
   projectId: string;
   completed: number;
@@ -112,6 +123,9 @@ declare global {
       openProject: () => Promise<{ canceled?: boolean; path?: string; files?: ProjectFile[] }>;
       clearProject: () => Promise<any>;
       uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; skipped: Array<{ name: string; reason: string }> }>;
+      getCloudProjectChanges: (projectId: string) => Promise<{ project: { id: string; name: string }; changes: CloudProjectChange[] }>;
+      reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => Promise<{ ok: boolean; status: string; relativePath?: string }>;
+      downloadCloudProject: (projectId: string) => Promise<{ canceled: boolean; path?: string; sizeBytes?: number }>;
       onProjectUploadProgress: (callback: (event: ProjectUploadProgress) => void) => () => void;
       connectRoblox: () => Promise<any>;
       disconnectRoblox: () => Promise<any>;
