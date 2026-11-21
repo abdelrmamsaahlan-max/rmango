@@ -28,7 +28,14 @@ export async function POST(request: Request) {
     },
   });
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const status = (error as { status?: number }).status;
+    const message = status === 429
+      ? "Too many account attempts. Please wait a little before trying again."
+      : "We could not create your account with those details. Check the information and try again.";
+    return NextResponse.json(
+      { error: message },
+      { status: status === 429 ? 429 : 400, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   return NextResponse.json({
