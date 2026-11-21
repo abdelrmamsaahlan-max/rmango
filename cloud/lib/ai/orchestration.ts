@@ -34,9 +34,9 @@ const EXPLAIN_INTENT = /^(\s*)(what is|what are|how does|how do|why does|why do|
 
 function classifyIntent(prompt: string): AgentTaskIntent {
   if (DEBUG_INTENT.test(prompt)) return "debug";
-  if (AUDIT_INTENT.test(prompt)) return "audit";
+  if (AUDIT_INTENT.test(prompt) && !BUILD_INTENT.test(prompt)) return "audit";
   if (DESIGN_INTENT.test(prompt) && !BUILD_INTENT.test(prompt)) return "design";
-  if (EXPLAIN_INTENT.test(prompt.trim())) return "explain";
+  if (EXPLAIN_INTENT.test(prompt.trim()) && !BUILD_INTENT.test(prompt)) return "explain";
   if (BUILD_INTENT.test(prompt)) return "build";
   return "general";
 }
