@@ -423,3 +423,32 @@ button:disabled{cursor:not-allowed;opacity:.5}
   .profile-select{max-width:140px}
   .cloud-settings-modal{width:min(560px,94vw)}
 }
+
+
+/* Private cloud project sync and review */
+.project-cloud-upload{display:flex;flex-direction:column;gap:7px;margin:8px 4px 12px;padding:9px;border:1px solid #3b5940;border-radius:8px;background:#15291b}
+.project-cloud-upload>button{height:29px;border:1px solid #a58a3a;border-radius:6px;background:#3c4125;color:#f5dc8b;display:flex;align-items:center;justify-content:center;gap:6px;font-size:9px;font-weight:650}
+.project-cloud-upload>button:hover:not(:disabled){background:#4a4b29;border-color:#e7c65b}
+.project-cloud-upload>button:disabled{opacity:.48}
+.project-cloud-upload small{font-size:8px;color:#91a68b;overflow-wrap:anywhere}
+.cloud-project-actions{display:flex;gap:5px;flex-wrap:wrap}
+.cloud-project-actions button{min-height:25px;padding:0 7px;border:1px solid #435d40;border-radius:5px;background:#213826;color:#d6e4c1;display:flex;align-items:center;gap:4px;font-size:8px}
+.cloud-project-actions button:hover{border-color:#c6a346;color:#ffe28a}
+.project-upload-progress{display:flex;flex-direction:column;gap:5px}
+.project-upload-progress>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:5px;color:#9eaf91;font-size:7px}
+.project-upload-progress>div:first-child span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-upload-progress>div:first-child strong{font:7px var(--mono);color:#f0d575;flex:none}
+.project-changes-modal{width:600px;max-height:92vh}
+.project-change-list{display:flex;flex-direction:column;gap:8px;max-height:510px;overflow:auto;padding:2px;scrollbar-width:thin;scrollbar-color:#486447 transparent}
+.project-change-card{border:1px solid #435d40;border-radius:8px;background:#1a3020;padding:10px}
+.project-change-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.project-change-heading>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.project-change-heading strong{font-size:10px;color:#f0ecd8}
+.project-change-heading small{font:8px var(--mono);color:#9eae91;overflow-wrap:anywhere}
+.project-change-card p{font-size:9px;line-height:1.55;color:#c2d0b8;margin:9px 0}
+.project-change-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:7px;color:#879a81}
+.project-change-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:10px;padding-top:9px;border-top:1px solid #34513a}
+.change-status{font:7px var(--mono);letter-spacing:.4px;padding:3px 5px;border:1px solid #526248;border-radius:4px;color:#bdcda8;background:#263424}
+.change-status.pending{border-color:#82692e;color:#f4d77d;background:#3d351d}
+.change-status.approved{border-color:#527c48;color:#c4e9a0;background:#233b22}
+.change-status.rejected,.change-status.conflict{border-color:#845644;color:#f0bda5;background:#3c2821}
