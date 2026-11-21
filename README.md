@@ -97,11 +97,11 @@ Setup: in Roblox Studio open **Assistant → … → Manage MCP Servers**, enabl
 ## Cloud project workflow
 
 1. Open a local Roblox source folder in Rmango. A private guest workspace is created automatically when the cloud is online.
-3. Explicitly choose **Upload project to Cloud**.
-4. Supported text/source files upload into the user's private cloud workspace.
-5. Ask Rmango Agent to inspect files or propose a change.
-6. Review and accept/reject proposed file changes in Rmango.
-7. Download the approved cloud project as a ZIP.
+2. Explicitly choose **Upload project to Cloud**.
+3. Supported text/source files upload into the guest workspace.
+4. Ask Rmango Agent to inspect files or propose a change.
+5. Review and accept/reject proposed file changes in Rmango.
+6. Download the approved cloud project as a ZIP.
 
 Current source-file import is limited to 120 files, 512 KB per file and supported text formats. Binary `.rbxl` / `.rbxm` projects are not parsed by this version.
 
