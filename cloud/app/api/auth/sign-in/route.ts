@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   if (error || !data.session || !data.user) {
     const authCode = (error as { code?: string } | null)?.code;
     const message = authCode === "invalid_credentials"
-      ? "Email or password was not accepted. If this is your first time using Rmango, choose Create account. If you just registered, confirm your email first."
+      ? "Email or password was not accepted. Check the email address and try again. If you already created your account and cannot remember the password, use Forgot password to receive a recovery link."
       : authCode === "email_not_confirmed"
         ? "Confirm your Rmango email address before signing in. Check your inbox and spam folder for the confirmation email."
         : error?.message || "Sign in failed.";

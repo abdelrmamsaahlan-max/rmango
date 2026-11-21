@@ -360,6 +360,13 @@ async function cloudSignIn(email: string, password: string) {
   return { ok: true, user: session.user };
 }
 
+async function cloudRequestPasswordReset(email: string) {
+  return cloudApiRequest<{ ok: boolean; message: string }>('/api/auth/password-reset', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }, false);
+}
+
 async function cloudSignUp(email: string, password: string, displayName?: string) {
   resetCloudAuthRefreshState();
   const payload = await cloudApiRequest<any>('/api/auth/sign-up', {
@@ -1671,6 +1678,10 @@ handleIpc('cloud:sign-in', async (_event, payload: { email: string; password: st
     throw new Error('Enter your Rmango account email and password.');
   }
   return cloudSignIn(payload.email, payload.password);
+});
+handleIpc('cloud:password-reset', async (_event, payload: { email: string }) => {
+  if (!payload || typeof payload.email !== 'string') throw new Error('Enter your Rmango account email.');
+  return cloudRequestPasswordReset(payload.email);
 });
 handleIpc('cloud:sign-up', async (_event, payload: { email: string; password: string; displayName?: string }) => {
   if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
