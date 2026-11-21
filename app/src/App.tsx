@@ -2341,7 +2341,7 @@ function App() {
                       <button type="button" role="switch" aria-checked={desktopNotifications} className={'preference-switch ' + (desktopNotifications ? 'on' : '')} onClick={() => { const value = !desktopNotifications; setDesktopNotifications(value); void savePreferences({ desktopNotifications: value }); }}><i/></button>
                     </div>
                   </section>
-                  <section className="settings-tip"><Info size={16}/><div><strong>Windows notification permissions</strong><p>Windows may also control whether notifications from Rmango are shown. This switch controls Rmango's own notification behavior.</p></div></section>
+                  <section className="settings-tip"><Info size={16}/><div><strong>Windows notification permissions</strong><p>Your operating system may also control whether notifications from Rmango are shown. This switch controls Rmango's own notification behavior.</p></div></section>
                 </>}
 
                 {settingsSection === 'updates' && <>
@@ -2355,7 +2355,7 @@ function App() {
                       <div><span>PLATFORM</span><strong>{appState?.platform || '—'}</strong></div>
                     </div>
                     <div className="settings-row">
-                      <div><strong>Automatic update checks</strong><small>{appState?.platform === 'win32' ? 'Check for the newest stable release every six hours. Rmango downloads one version once and installs it only when you choose.' : appState?.platform === 'darwin' ? 'macOS releases are installed from signed and notarized DMG downloads. Automatic in-app updates are not enabled for this build.' : appState?.platform === 'linux' ? 'Linux releases are installed from AppImage or DEB packages. Automatic updates remain disabled until signed manifests are configured.' : 'Automatic updates are not configured for this platform.'}</small></div>
+                      <div><strong>Automatic update checks</strong><small>{appState?.platform === 'win32' ? 'Check for the newest stable release every six hours. Rmango validates the cached installer and downloads only when its verified update file is missing. Install only when you choose.' : appState?.platform === 'darwin' ? 'macOS releases are installed from signed and notarized DMG downloads. Automatic in-app updates are not enabled for this build.' : appState?.platform === 'linux' ? 'Linux releases are installed from AppImage or DEB packages. Automatic updates remain disabled until signed manifests are configured.' : 'Automatic updates are not configured for this platform.'}</small></div>
                       <button type="button" role="switch" aria-checked={autoUpdatesEnabled} aria-label="Automatic update checks" disabled={appState?.platform !== 'win32'} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
                     </div>
                     <div className="settings-update-status">
@@ -2366,7 +2366,7 @@ function App() {
                     </div>
                     {updateState?.releaseNotes && <details className="settings-release-notes"><summary>Release notes</summary><p>{updateState.releaseNotes}</p></details>}
                     <div className="settings-form-actions">
-                      <button type="button" className="settings-secondary-button" onClick={() => void handleCheckUpdates()} disabled={appState?.platform !== 'win32' || updateState?.status === 'checking' || updateState?.status === 'downloading'}>
+                      <button type="button" className="settings-secondary-button" onClick={() => void handleCheckUpdates()} disabled={appState?.platform !== 'win32' || updateState?.status === 'checking' || updateState?.status === 'downloading' || updateState?.status === 'downloaded'}>
                         {updateState?.status === 'checking' ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>} Check now
                       </button>
                       {updateState?.status === 'downloaded' && <button type="button" className="save-button" onClick={() => void handleInstallUpdate()}><Download size={14}/> Install and restart</button>}
