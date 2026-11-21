@@ -9,6 +9,7 @@ import {
   appendTaskEventStep,
   createProjectAgentTools,
   getActiveStudioToolsStep,
+  getProjectLearningSignalsStep,
 } from "@/workflows/agent-tools";
 import { indexProjectStep } from "@/workflows/project-index";
 
@@ -389,6 +390,7 @@ async function executeTaskWorkflow(
   "use workflow";
   const context = { taskId, ownerId, projectId, conversationId, runToken };
   const studioTools = await getActiveStudioToolsStep(ownerId);
+  const learningSignals = await getProjectLearningSignalsStep(context);
   await appendTaskEventStep(taskId, ownerId, "agent_started", "Starting the durable Roblox engineering agent.", {
     modelProfile: profile,
     studioConnected: studioTools.length > 0,
@@ -404,6 +406,10 @@ async function executeTaskWorkflow(
     "",
     "PROJECT INDEX:",
     "Use get_project_dependency_graph, find_project_symbols and search_project_files to understand how the selected game systems connect. Use list_project_files and read_project_file to inspect the actual source before editing.",
+    "",
+    "PROJECT LEARNING SIGNALS (aggregated historical evidence, not a guarantee):",
+    JSON.stringify(learningSignals),
+    "Use these small-sample trends to adjust test discipline and verification priorities. Do not treat them as proof that an untested change works, and do not describe them as model training.",
     "",
     "LIVE ROBLOX STUDIO:",
     studioTools.length
