@@ -122,7 +122,7 @@ create table if not exists public.agent_tasks (
   project_id uuid references public.projects(id) on delete set null,
   conversation_id uuid references public.conversations(id) on delete set null,
   workflow_run_id text,
-  status text not null default 'queued' check (status in ('queued','running','waiting_approval','completed','failed','cancelled')),
+  status text not null default 'queued' check (status in ('queued','running','paused','waiting_approval','completed','failed','cancelled')),
   task_text text not null,
   result jsonb,
   error text,

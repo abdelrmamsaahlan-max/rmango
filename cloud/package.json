@@ -16,7 +16,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "zod": "^4.1.8",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "workflow": "5.7.0"
   },
   "devDependencies": {
     "@types/node": "22.19.1",
