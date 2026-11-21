@@ -613,14 +613,14 @@ function App() {
   }
 
   useEffect(() => {
-    if (busy || !cloudReady || !cloudState?.signedIn || followupQueue.length === 0) return;
+    if (busy || !cloudState?.configured || !cloudState.serviceReady || !cloudState.signedIn || followupQueue.length === 0) return;
     const next = followupQueueRef.current[0];
     if (!next) return;
     const remaining = followupQueueRef.current.slice(1);
     followupQueueRef.current = remaining;
     setFollowupQueue(remaining);
     void sendMessage(next.content, next.profile, next.attachments, true);
-  }, [busy, cloudReady, cloudState?.signedIn, followupQueue.length]);
+  }, [busy, cloudState?.configured, cloudState?.serviceReady, cloudState?.signedIn, followupQueue.length]);
 
   function removeFollowup(id: string) {
     const remaining = followupQueueRef.current.filter(item => item.id !== id);
