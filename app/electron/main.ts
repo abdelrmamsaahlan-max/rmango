@@ -405,11 +405,11 @@ async function sendCloudMessage(payload: {
         const decoded = decoder.decode(value, { stream: true });
         if (!isEventStream) { emitDelta(decoded); continue; }
         buffer += decoded;
-        let newline = buffer.indexOf('\\n');
+        let newline = buffer.indexOf(String.fromCharCode(10));
         while (newline >= 0) {
           consumeFrame(buffer.slice(0, newline));
           buffer = buffer.slice(newline + 1);
-          newline = buffer.indexOf('\\n');
+          newline = buffer.indexOf(String.fromCharCode(10));
         }
       }
       const finalChunk = decoder.decode();
