@@ -96,6 +96,25 @@ function estimateCostUsd(inputTokens: number, outputTokens: number, inputPerMill
   return (inputTokens * inputPerMillion + outputTokens * outputPerMillion) / 1_000_000;
 }
 
+function activityToolName(toolName: string) {
+  const known: Record<string, string> = {
+    list_my_projects: "List cloud projects",
+    list_project_files: "Inspect project files",
+    read_project_file: "Read project file",
+    propose_project_file_change: "Prepare a file change",
+  };
+  if (known[toolName]) return known[toolName];
+  return toolName.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function activityToolDetail(input: unknown, status: "running" | "completed" | "failed") {
+  const values = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const candidate = [values.relativePath, values.path, values.filePath, values.fileName, values.scriptName, values.instancePath, values.name].find(value => typeof value === "string" && value.trim().length > 0);
+  const target = typeof candidate === "string" ? candidate.replace(/[\r\n\t]/g, " ").slice(0, 140) : "";
+  if (status === "running") return target ? "Working with " + target : "Tool execution started.";
+  if (status === "failed") return target ? "The operation failed for " + target : "The tool returned an error.";
+  return target ? "Completed " + target : "Tool returned successfully.";
+}
 export async function POST(request: Request) {
   const { context, response } = await getAuthErrorResponse(request);
   if (response) return response;
@@ -654,7 +673,58 @@ export async function POST(request: Request) {
       "X-Rmango-Selected-Skills": skills.ids.join(","),
     });
     if (conversationId) responseHeaders.set("X-Rmango-Conversation-Id", conversationId);
-    return result.toTextStreamResponse({ headers: responseHeaders });
+    responseHeaders.set("Content-Type", "application/x-ndjson; charset=utf-8");
+    responseHeaders.set("X-Rmango-Stream-Protocol", "ndjson-v1");
+    const encoder = new TextEncoder();
+    const activityStream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let closed = false;
+        const emit = (event: Record<string, unknown>) => {
+          if (closed) return;
+          try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); }
+          catch { closed = true; }
+        };
+        try {
+          for await (const part of result.fullStream) {
+            if (part.type === "text" && part.text) { emit({ type: "text", text: part.text }); continue; }
+            if (part.type === "start") {
+              emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Started a request through the hosted AI Gateway.", status: "running", ok: false } });
+              continue;
+            }
+            if (part.type === "tool-call") {
+              emit({ type: "activity", activity: { id: part.toolCallId, name: activityToolName(part.toolName), detail: activityToolDetail(part.input, "running"), status: "running", ok: false } });
+              continue;
+            }
+            if (part.type === "tool-result") {
+              const failed = Boolean((part as typeof part & { isError?: boolean }).isError);
+              emit({ type: "activity", activity: { id: part.toolCallId, name: activityToolName(part.toolName), detail: activityToolDetail(part.input, failed ? "failed" : "completed"), status: failed ? "failed" : "completed", ok: !failed } });
+              continue;
+            }
+            if (part.type === "finish") {
+              emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Finished with reason: " + part.finishReason + ".", status: "completed", ok: true } });
+              continue;
+            }
+            if (part.type === "abort") {
+              emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Generation was cancelled.", status: "cancelled", ok: false } });
+              continue;
+            }
+            if (part.type === "error") {
+              const message = part.error instanceof Error ? part.error.message : "The hosted model stream returned an error.";
+              emit({ type: "error", message });
+            }
+          }
+          emit({ type: "done" });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "The hosted model stream failed.";
+          emit({ type: "activity", activity: { id: "model", name: "Model request", detail: message, status: request.signal.aborted ? "cancelled" : "failed", ok: false } });
+          emit({ type: "error", message });
+        } finally {
+          if (!closed) { closed = true; controller.close(); }
+        }
+      },
+      cancel() { closed = true; },
+    });
+    return new Response(activityStream, { status: 200, headers: responseHeaders });
   } catch (error) {
     await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
     return NextResponse.json({
