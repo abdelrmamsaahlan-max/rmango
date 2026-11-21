@@ -106,6 +106,8 @@ function App() {
   const [connecting, setConnecting] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark');
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [diagnosticResult, setDiagnosticResult] = useState('');
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
@@ -158,6 +160,7 @@ function App() {
     Promise.all([window.rmango.getAppState(), window.rmango.getCloudState(), window.rmango.loadMessages()])
       .then(async ([state, cloud, savedMessages]) => {
         setAppState(state);
+        setTheme(state.appearance || 'dark');
         setProjectFiles(state.projectFiles || []);
         setCloudState(cloud);
         if (cloud.currentProjectId) {
@@ -271,6 +274,16 @@ function App() {
       setToast(error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.');
     } finally {
       setAuthBusy(false);
+    }
+  }
+
+  async function handleThemeChange(nextTheme: 'dark' | 'light' | 'system') {
+    setTheme(nextTheme);
+    try {
+      await window.rmango.setAppearance(nextTheme);
+      setToast('Appearance preference saved.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not save appearance preference.');
     }
   }
 
@@ -721,6 +734,7 @@ function App() {
   return (
     <div
       className="app-shell"
+      data-theme={theme}
       onDragOver={event => { event.preventDefault(); setDragActive(true); }}
       onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
       onDrop={handleDrop}
@@ -732,7 +746,7 @@ function App() {
           <span className="brand-version">STUDIO AI</span>
         </div>
         <div className="topbar-divider"/>
-        <div className="workspace-crumb"><Gamepad2 size={15}/><span>Roblox workspace</span><ChevronDown size={13}/></div>
+        <button type="button" className="workspace-crumb" title={appState?.projectPath || "Open a Roblox project folder"} onClick={() => void handleOpenProject()}><FolderOpen size={15}/><span>{appState?.projectPath ? appState.projectPath.split(String.fromCharCode(92)).pop()?.split('/').pop() : "Open project"}</span><ChevronDown size={13}/></button>
         <div className="topbar-spacer"/>
         <button className={'runtime-pill ' + (cloudReady ? 'ready' : '')} onClick={() => setSettingsOpen(true)}>
           <span className="runtime-dot"/>{cloudStatusLabel}
@@ -789,13 +803,14 @@ function App() {
       <div className="workspace-layout">
         <nav className="activity-rail">
           <button className="rail-button active" title="Workspace"><Bot size={18}/></button>
+          <button className={"rail-button " + (leftSidebarOpen ? "active" : "")} title="Project files" onClick={() => setLeftSidebarOpen(value => !value)}><Folder size={18}/></button>
           <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
           <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
           <div className="rail-spacer"/>
           <button className="rail-button" title="Settings" onClick={() => setSettingsOpen(true)}><Settings2 size={18}/></button>
         </nav>
 
-        <aside className="left-sidebar">
+        <aside className={"left-sidebar " + (leftSidebarOpen ? "visible" : "")}>
           <div className="sidebar-heading"><span>WORKSPACE</span><button className="subtle-icon" title="Workspace menu"><MoreHorizontal size={16}/></button></div>
           <div className="project-card">
             <div className="project-icon"><Gamepad2 size={17}/></div>
@@ -993,7 +1008,27 @@ function App() {
         </main>
 
         {rightPanelOpen && <aside className="right-sidebar">
-          <div className="right-heading"><span>CONTROL ROOM</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close inspector"><X size={15}/></button></div>
+          <div className="right-heading"><span>WORKSPACE MAP</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close workspace panel"><X size={15}/></button></div>
+          <div className="workspace-map-shell">
+            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i/> LOCAL SESSION</span></div>
+            <div className="workspace-map">
+              <button type="button" className="map-node project-node" onClick={() => void handleOpenProject()}>
+                <span className="map-node-icon"><FolderOpen size={18}/></span>
+                <span className="map-node-copy"><small>PROJECT</small><strong>{appState?.projectPath ? appState.projectPath.split(String.fromCharCode(92)).pop()?.split('/').pop() : 'No project open'}</strong><em>{projectFiles.length} indexed files · click to open</em></span>
+              </button>
+              <span className={'map-wire ' + (cloudReady ? 'live' : '')}/>
+              <button type="button" className="map-node ai-node" onClick={() => setSettingsOpen(true)}>
+                <span className="map-node-icon"><Sparkles size={18}/></span>
+                <span className="map-node-copy"><small>RMANGO AI</small><strong>{cloudReady ? 'Cloud engine' : 'AI service'}</strong><em>{cloudReady ? (currentProfile?.profileLabel || 'Ready for prompts') : (cloudState?.message || 'Cloud setup required')}</em></span>
+              </button>
+              <span className={'map-wire ' + (studioConnected ? 'live' : '')}/>
+              <button type="button" className={'map-node studio-node ' + (studioConnected ? 'connected' : '')} onClick={() => studioConnected ? void handleDisconnect() : void handleConnect()}>
+                <span className="map-node-icon"><Gamepad2 size={18}/></span>
+                <span className="map-node-copy"><small>ROBLOX STUDIO</small><strong>{studioConnected ? 'Connected' : 'Waiting for Studio'}</strong><em>{studioConnected ? studioTools.length + ' tools discovered' : 'Click to connect MCP'}</em></span>
+              </button>
+            </div>
+            <div className="workspace-map-foot"><span><i className="map-dot project-dot"/> Project context</span><span><i className="map-dot ai-dot"/> Remote reasoning</span><span><i className="map-dot studio-dot"/> Studio tools</span></div>
+          </div>
 
           <section className="inspector-section local-section">
             <div className="section-title">
@@ -1153,12 +1188,22 @@ function App() {
         <div className="settings-modal cloud-settings-modal">
           <div className="modal-header">
             <div>
-              <div className="modal-kicker">RMANGO CLOUD PLATFORM</div>
-              <h2>Cloud AI workspace</h2>
-              <p>Your device is the interface. Model inference runs on Rmango's hosted cloud service.</p>
+              <div className="modal-kicker">PREFERENCES & ACCOUNT</div>
+              <h2>RMango settings</h2>
+              <p>Personalize your workspace and manage your hosted AI account.</p>
             </div>
             <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button>
           </div>
+
+          <section className="appearance-panel">
+            <div className="field-label">APPEARANCE</div>
+            <p className="settings-explainer">Choose how RMango looks. Device follows your Windows appearance preference.</p>
+            <div className="theme-options" role="group" aria-label="Application appearance">
+              <button type="button" className={'theme-option ' + (theme === 'dark' ? 'selected' : '')} onClick={() => void handleThemeChange('dark')}><span className="theme-preview theme-preview-dark"><i/><i/><i/></span><strong>Dark</strong><small>Graphite</small></button>
+              <button type="button" className={'theme-option ' + (theme === 'light' ? 'selected' : '')} onClick={() => void handleThemeChange('light')}><span className="theme-preview theme-preview-light"><i/><i/><i/></span><strong>Light</strong><small>Clean white</small></button>
+              <button type="button" className={'theme-option ' + (theme === 'system' ? 'selected' : '')} onClick={() => void handleThemeChange('system')}><span className="theme-preview theme-preview-system"><i/><i/><i/></span><strong>Device</strong><small>Follow Windows</small></button>
+            </div>
+          </section>
 
           {!cloudState?.configured && <div className="local-setup-panel">
             <div className="local-setup-status"><AlertCircle size={14}/> Cloud backend not configured</div>

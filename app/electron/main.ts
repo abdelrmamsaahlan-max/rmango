@@ -14,7 +14,8 @@ const { autoUpdater } = electronUpdater;
 type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
 type ChatMessage = { role: 'user' | 'assistant'; content: string; createdAt?: string };
 type Attachment = { name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string };
-type SettingsFile = { projectPath?: string };
+type AppearanceTheme = 'dark' | 'light' | 'system';
+type SettingsFile = { projectPath?: string; appearance?: AppearanceTheme };
 type CloudSession = {
   accessToken: string;
   refreshToken: string;
@@ -51,6 +52,7 @@ const approvalResolvers = new Map<string, (approved: boolean) => void>();
 const activeChatRequests = new Map<string, AbortController>();
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
+let lastUpdateCheckAt = 0;
 let appUpdateState: AppUpdateState = {
   status: 'idle',
   currentVersion: app.getVersion(),
@@ -65,7 +67,8 @@ const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
 async function readSettings(): Promise<SettingsFile> {
   try {
     const parsed = JSON.parse(await fs.readFile(settingsPath(), 'utf8')) as Partial<SettingsFile>;
-    return { projectPath: typeof parsed.projectPath === 'string' ? parsed.projectPath : undefined };
+    const appearance = parsed.appearance === 'light' || parsed.appearance === 'system' || parsed.appearance === 'dark' ? parsed.appearance : 'dark';
+    return { projectPath: typeof parsed.projectPath === 'string' ? parsed.projectPath : undefined, appearance };
   } catch {
     return {};
   }
@@ -920,7 +923,25 @@ function formatReleaseNotes(value: unknown): string {
   return '';
 }
 
-async function checkForAppUpdates(): Promise<AppUpdateState> {
+function isNewerStableVersion(candidate: string, current: string): boolean {
+  const parse = (version: string) => {
+    const cleaned = version.trim().replace(/^v/i, '').split('-')[0];
+    if (!/^\d+(?:\.\d+){1,3}$/.test(cleaned)) return null;
+    const parts = cleaned.split('.').map(part => Number(part));
+    return parts.every(Number.isSafeInteger) ? parts : null;
+  };
+  const next = parse(candidate);
+  const installed = parse(current);
+  if (!next || !installed) return false;
+  for (let i = 0; i < Math.max(next.length, installed.length); i += 1) {
+    const a = next[i] ?? 0;
+    const b = installed[i] ?? 0;
+    if (a !== b) return a > b;
+  }
+  return false;
+}
+
+async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
   if (!app.isPackaged || process.platform !== 'win32') {
     broadcastUpdateState({
       status: 'unsupported',
@@ -929,18 +950,41 @@ async function checkForAppUpdates(): Promise<AppUpdateState> {
     return appUpdateState;
   }
 
-  if (updateCheckInFlight) return appUpdateState;
+  if (updateCheckInFlight || appUpdateState.status === 'downloading' || appUpdateState.status === 'downloaded') return appUpdateState;
+  if (!force && Date.now() - lastUpdateCheckAt < 30_000 && appUpdateState.status === 'not-available') return appUpdateState;
+
   updateCheckInFlight = true;
-  broadcastUpdateState({ status: 'checking', error: undefined, message: 'Checking GitHub Releases…' });
+  lastUpdateCheckAt = Date.now();
+  broadcastUpdateState({ status: 'checking', error: undefined, message: 'Checking the latest stable Rmango release…' });
 
   try {
-    await autoUpdater.checkForUpdates();
+    const result = await autoUpdater.checkForUpdates();
+    const latestVersion = result?.updateInfo?.version;
+    if (!result?.isUpdateAvailable || !latestVersion || !isNewerStableVersion(latestVersion, app.getVersion())) {
+      broadcastUpdateState({
+        status: 'not-available',
+        availableVersion: undefined,
+        progress: undefined,
+        error: undefined,
+        message: 'You are already on the latest stable version.',
+      });
+      return appUpdateState;
+    }
+
+    broadcastUpdateState({
+      status: 'downloading',
+      availableVersion: latestVersion,
+      progress: 0,
+      error: undefined,
+      message: 'Downloading the newest stable version ' + latestVersion + '…',
+    });
+    await autoUpdater.downloadUpdate();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     broadcastUpdateState({
       status: 'error',
       error: message,
-      message: 'Could not check GitHub Releases.',
+      message: 'Could not check or download the latest stable release.',
     });
   } finally {
     updateCheckInFlight = false;
@@ -959,9 +1003,10 @@ function initializeAutoUpdates() {
 
   // NSIS + electron-updater is the supported Windows self-update path.
   // Downloads happen in the background; installation always waits for the user's click.
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowPrerelease = false;
+  autoUpdater.allowDowngrade = false;
   autoUpdater.logger = console;
 
   autoUpdater.on('checking-for-update', () => {
@@ -1039,7 +1084,17 @@ handleIpc('app:get-state', async () => {
     projectFiles: files,
     studioConnected: mcpAvailable(),
     studioToolCount: safeToolList().length,
+    appearance: settings.appearance || 'dark',
   };
+});
+
+handleIpc('settings:appearance', async (_event, theme: AppearanceTheme) => {
+  if (theme !== 'dark' && theme !== 'light' && theme !== 'system') {
+    throw new Error('Choose Dark, Light, or Device appearance.');
+  }
+  const settings = await readSettings();
+  await writeSettings({ ...settings, appearance: theme });
+  return { ok: true, appearance: theme };
 });
 
 handleIpc('cloud:state', () => getCloudState());
@@ -1201,7 +1256,7 @@ handleIpc('cloud:send', async (_event, payload: {
 });
 
 handleIpc('updates:get-state', () => appUpdateState);
-handleIpc('updates:check', () => checkForAppUpdates());
+handleIpc('updates:check', () => checkForAppUpdates(true));
 handleIpc('updates:install', async () => {
   if (!app.isPackaged || process.platform !== 'win32') {
     return { ok: false, message: 'Install updates from a packaged Windows build.' };

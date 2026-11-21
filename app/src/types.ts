@@ -57,6 +57,7 @@ export type ProjectFile = {
 export type AppState = {
   appVersion: string;
   platform: string;
+  appearance?: 'dark' | 'light' | 'system';
   projectPath: string;
   projectFiles?: ProjectFile[];
   studioConnected: boolean;
@@ -116,6 +117,7 @@ declare global {
   interface Window {
     rmango: {
       getAppState: () => Promise<AppState>;
+      setAppearance: (theme: 'dark' | 'light' | 'system') => Promise<{ ok: boolean; appearance: 'dark' | 'light' | 'system' }>;
       getCloudState: () => Promise<CloudState>;
       cloudSignIn: (credentials: { email: string; password: string }) => Promise<{ ok: boolean; user: { id: string; email?: string } }>;
       cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => Promise<{ ok: boolean; requiresEmailConfirmation: boolean; user: { id: string; email?: string } }>;

@@ -4,6 +4,7 @@ type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
 
 const api = {
   getAppState: () => ipcRenderer.invoke('app:get-state'),
+  setAppearance: (theme: 'dark' | 'light' | 'system') => ipcRenderer.invoke('settings:appearance', theme),
   getCloudState: () => ipcRenderer.invoke('cloud:state'),
   cloudSignIn: (credentials: { email: string; password: string }) => ipcRenderer.invoke('cloud:sign-in', credentials),
   cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => ipcRenderer.invoke('cloud:sign-up', credentials),
