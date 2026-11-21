@@ -456,7 +456,7 @@ export async function POST(request: Request) {
         task_id: agentTaskId,
         owner_id: user.id,
         event_type: eventType.slice(0, 60),
-        message: message.replace(/[\\r\\n\\t]/g, " ").slice(0, 500),
+        message: message.replace(/[\u0000-\u001F]+/g, " ").slice(0, 500),
         data,
       });
     } catch {
@@ -822,8 +822,10 @@ export async function POST(request: Request) {
           p_estimated_cost_usd: recordedCost,
         });
         if (agentTaskId) {
+          const taskWasCancelled = request.signal.aborted;
           await supabase.from("agent_tasks").update({
-            status: "completed",
+            status: taskWasCancelled ? "cancelled" : "completed",
+            error: taskWasCancelled ? "Cancelled by the user." : null,
             result: {
               modelId: actualModelId,
               profile,
@@ -832,10 +834,11 @@ export async function POST(request: Request) {
             },
             updated_at: new Date().toISOString(),
           }).eq("id", agentTaskId).eq("owner_id", user.id);
-          await recordAgentEvent("completed", "The coordinated task completed its model response.", {
-            modelId: actualModelId,
-            outputCharacters: finalText.length,
-          });
+          await recordAgentEvent(taskWasCancelled ? "cancelled" : "completed",
+            taskWasCancelled ? "The coordinated task was stopped by the user." : "The coordinated task completed its model response.", {
+              modelId: actualModelId,
+              outputCharacters: finalText.length,
+            });
         }
       },
       onError: async () => {
@@ -882,7 +885,7 @@ export async function POST(request: Request) {
               const name = activityToolName(part.toolName);
               const detail = activityToolDetail(part.input, "running");
               emit({ type: "activity", activity: { id: part.toolCallId, name, detail, status: "running", ok: false } });
-              void recordAgentEvent("tool_started", name + ": " + detail, { tool: part.toolName });
+              await recordAgentEvent("tool_started", name + ": " + detail, { tool: part.toolName });
               continue;
             }
             if (part.type === "tool-result") {
@@ -890,7 +893,7 @@ export async function POST(request: Request) {
               const name = activityToolName(part.toolName);
               const detail = activityToolDetail(part.input, failed ? "failed" : "completed");
               emit({ type: "activity", activity: { id: part.toolCallId, name, detail, status: failed ? "failed" : "completed", ok: !failed } });
-              void recordAgentEvent(failed ? "tool_failed" : "tool_completed", name + ": " + detail, { tool: part.toolName });
+              await recordAgentEvent(failed ? "tool_failed" : "tool_completed", name + ": " + detail, { tool: part.toolName });
               continue;
             }
             if (part.type === "tool-error") {
@@ -898,7 +901,7 @@ export async function POST(request: Request) {
               const name = activityToolName(toolError.toolName);
               const detail = activityToolDetail(toolError.input, "failed");
               emit({ type: "activity", activity: { id: toolError.toolCallId, name, detail, status: "failed", ok: false } });
-              void recordAgentEvent("tool_failed", name + ": " + detail, { tool: toolError.toolName });
+              await recordAgentEvent("tool_failed", name + ": " + detail, { tool: toolError.toolName });
               continue;
             }
             if (part.type === "finish") {
