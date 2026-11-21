@@ -1054,6 +1054,7 @@ function App() {
                       'generate_procedural_model','generate_scene','generate_animation','generate_avatar',
                       'auto_setup_avatar','segment_mesh','insert_asset','upload_image','start_stop_play',
                       'character_navigation','user_keyboard_input','user_mouse_input','save_place',
+                      'subagent','open_cloud_invoke','create_skill','edit_skill',
                     ].includes(name);
                     return <div className="tool-item" key={name}><span className={'tool-icon ' + (needsApproval ? 'approve' : '')}><Wrench size={12}/></span><span>{name}</span><span className={'tool-read-tag ' + (needsApproval ? 'approve' : '')}>{needsApproval ? 'ASK' : 'READ'}</span></div>;
                   })
