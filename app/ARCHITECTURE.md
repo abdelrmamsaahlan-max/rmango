@@ -91,7 +91,7 @@ Vite handles React/CSS HMR. Nodemon rebuilds Electron main/preload source and re
 
 - Cloud/Vercel project and dedicated Supabase database still need provisioning.
 - No live guest-auth/inference/usage/quota/Studio-connector/ZIP end-to-end tests.
-- Independent specialist-agent delegation and conflict resolution across separate role-specific agents.
+- Formal conflict-resolution records, independent parallel agent runs and sibling-agent cancellation/cost dashboards. The Lead can request up to three distinct read-only specialist reviews (Luau, gameplay, UI/UX, world, asset/animation, QA, performance, security and a constrained research analyst); each review gets owner-scoped source/index/memory context and an individual metered call. Specialists cannot mutate files or use Studio.
 - Admin model policy and cost dashboard.
 - PDF/DOCX parsing, embeddings/vector RAG and parser-backed semantic dependency analysis beyond the existing bounded Luau source index.
 - Binary Roblox project file parsing.
