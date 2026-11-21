@@ -267,6 +267,216 @@ async function cancelAgentCallStep(ownerId: string, requestId: string) {
   await admin.rpc("cancel_ai_request", { p_user_id: ownerId, p_request_id: requestId });
 }
 
+async function delegateSpecialistStep(
+  context: ProjectAgentContext,
+  profile: ModelProfile,
+  taskText: string,
+  plan: string,
+  indexSummary: ProjectIndexSummary,
+  role: SpecialistRole,
+  objective: string,
+  relatedPaths: string[],
+) {
+  "use step";
+  await assertCurrentTaskStep(context);
+
+  const admin = createAdminClient();
+  const { data: previousRequests, error: historyError } = await admin.from("agent_events")
+    .select("data")
+    .eq("task_id", context.taskId)
+    .eq("owner_id", context.ownerId)
+    .eq("event_type", "specialist_requested")
+    .filter("data->>runToken", "eq", context.runToken)
+    .limit(MAX_SPECIALIST_DELEGATIONS_PER_TASK + 1);
+  if (historyError) throw new Error("Could not verify the specialist delegation budget.");
+
+  const previouslyUsedRoles = (previousRequests || [])
+    .map(event => {
+      const data = event.data as Record<string, unknown> | null;
+      return data?.role;
+    })
+    .filter((value): value is SpecialistRole =>
+      typeof value === "string" && (SPECIALIST_ROLES as readonly string[]).includes(value)
+    );
+  const denial = getSpecialistDelegationError(role, previouslyUsedRoles);
+  const specialist = getSpecialistDefinition(role);
+  if (denial) {
+    return { status: "blocked", role, title: specialist.title, reason: denial };
+  }
+
+  const selectedPaths = Array.from(new Set(
+    (Array.isArray(relatedPaths) ? relatedPaths : [])
+      .filter(value => typeof value === "string")
+      .map(value => value.trim())
+      .filter(Boolean),
+  )).slice(0, 3);
+
+  await appendTaskEventStep(
+    context.taskId,
+    context.ownerId,
+    "specialist_requested",
+    "Lead Architect requested a read-only " + specialist.title + " review.",
+    {
+      runToken: context.runToken,
+      role,
+      title: specialist.title,
+      objectivePreview: objective.slice(0, 240),
+      relatedPaths: selectedPaths,
+    },
+  );
+
+  const fileEvidence = await Promise.all(selectedPaths.map(async relativePath => {
+    try {
+      const file = await readProjectFileStep(context, relativePath);
+      return {
+        relativePath: file.relativePath,
+        sha256: file.sha256,
+        content: file.content.slice(0, 7_000),
+        truncated: file.truncated || file.content.length > 7_000,
+      };
+    } catch (error) {
+      return {
+        relativePath,
+        unavailable: error instanceof Error ? error.message.slice(0, 300) : "File could not be read.",
+      };
+    }
+  }));
+
+  const [dependencyGraph, memories] = await Promise.all([
+    getProjectDependencyGraphStep(context, selectedPaths[0]),
+    listProjectMemoriesStep(context),
+  ]);
+
+  const evidence = {
+    projectIndex: indexSummary,
+    sourceFiles: fileEvidence,
+    dependencies: dependencyGraph.indexedDependencies.slice(0, 45),
+    symbols: dependencyGraph.indexedSymbols.slice(0, 45),
+    indexNote: dependencyGraph.note,
+    projectMemories: memories.slice(0, 8).map(memory => ({
+      type: memory.memory_type,
+      title: memory.title,
+      content: String(memory.content).slice(0, 500),
+      sourceRef: memory.source_ref,
+    })),
+  };
+
+  const prompt = [
+    "PROJECT TASK:",
+    taskText.slice(0, 4_000),
+    "",
+    "LEAD ARCHITECT PLAN (verify it against the supplied source evidence):",
+    plan.slice(0, 9_000),
+    "",
+    "YOUR ASSIGNED SPECIALIST OBJECTIVE:",
+    objective,
+    "",
+    "SHARED PROJECT CONTEXT:",
+    JSON.stringify(evidence).slice(0, 25_000),
+    "",
+    "REPORT FORMAT:",
+    "1. Findings supported by the supplied evidence.",
+    "2. Recommended changes or design decisions.",
+    "3. Relevant source paths and dependencies.",
+    "4. Risks, assumptions, conflicts or missing evidence.",
+    "5. Specific verification steps for the Lead Architect.",
+    "Keep the report concise and implementation-oriented. Do not provide private chain-of-thought.",
+  ].join("\n");
+
+  let reservation: AgentReservation;
+  try {
+    reservation = await reserveAgentCallStep(context.ownerId, profile, prompt, {
+      maxSteps: 1,
+      maxOutputTokens: 1_200,
+      minEstimatedInputTokens: 1_500,
+      maxEstimatedInputTokens: 9_000,
+      inputSafetyMultiplier: 1.5,
+    });
+  } catch (error) {
+    const reason = error instanceof Error
+      ? error.message.slice(0, 500)
+      : "The specialist's usage reservation was not authorized.";
+    await appendTaskEventStep(
+      context.taskId,
+      context.ownerId,
+      "specialist_blocked",
+      specialist.title + " review could not start because its usage reservation was blocked.",
+      { runToken: context.runToken, role, reason },
+    );
+    return { status: "blocked", role, title: specialist.title, reason };
+  }
+
+  await appendTaskEventStep(
+    context.taskId,
+    context.ownerId,
+    "specialist_started",
+    specialist.title + " started a bounded, read-only project review.",
+    {
+      runToken: context.runToken,
+      role,
+      title: specialist.title,
+      sourcePaths: selectedPaths,
+      maxOutputTokens: reservation.maxOutputTokens,
+    },
+  );
+
+  try {
+    const result = await generateText({
+      model: gateway(reservation.modelId),
+      system: specialist.systemPrompt,
+      prompt,
+      maxOutputTokens: reservation.maxOutputTokens,
+      temperature: 0.15,
+    });
+    const inputTokens = Number(result.usage.inputTokens || 0);
+    const outputTokens = Number(result.usage.outputTokens || 0);
+    const actualModelId = result.response.modelId || reservation.modelId;
+    const accounting = await completeAgentCallStep(
+      context.ownerId,
+      profile,
+      reservation,
+      inputTokens,
+      outputTokens,
+      actualModelId,
+    );
+    const report = result.text.slice(0, 9_000);
+    await appendTaskEventStep(
+      context.taskId,
+      context.ownerId,
+      "specialist_completed",
+      specialist.title + " returned its review to the Lead Architect.",
+      {
+        runToken: context.runToken,
+        role,
+        title: specialist.title,
+        inputTokens,
+        outputTokens,
+        costUsd: accounting.cost,
+        reportPreview: report.slice(0, 1_800),
+      },
+    );
+    return {
+      status: "completed",
+      role,
+      title: specialist.title,
+      report,
+      sourcePaths: selectedPaths,
+      usage: { inputTokens, outputTokens },
+    };
+  } catch (error) {
+    await cancelAgentCallStep(context.ownerId, reservation.requestId).catch(() => undefined);
+    const reason = error instanceof Error ? error.message.slice(0, 700) : "The specialist review failed.";
+    await appendTaskEventStep(
+      context.taskId,
+      context.ownerId,
+      "specialist_failed",
+      specialist.title + " could not complete its review.",
+      { runToken: context.runToken, role, title: specialist.title, reason },
+    );
+    return { status: "failed", role, title: specialist.title, reason };
+  }
+}
+
 async function planTaskStep(
   taskId: string,
   ownerId: string,
