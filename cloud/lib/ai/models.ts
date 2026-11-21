@@ -148,8 +148,8 @@ function pickCandidate(models: GatewayModel[], profile: ModelProfile): GatewayMo
   return candidates[0];
 }
 
-export async function resolveProfile(profile: ModelProfile) {
-  const catalog = await getGatewayCatalog();
+export async function resolveProfile(profile: ModelProfile, requestOidcToken?: string | null) {
+  const catalog = await getGatewayCatalog(requestOidcToken);
   const modelMap = new Map(catalog.map(model => [model.id, model]));
   const configured = optionalEnv(PROFILE_ENV[profile]);
   const primary = configured ? modelMap.get(configured) : pickCandidate(catalog, profile);
@@ -191,9 +191,18 @@ export async function resolveProfile(profile: ModelProfile) {
     ? configuredFallbacks
     : [automaticFallback?.id].filter((value): value is string => Boolean(value));
 
+  const pricingByModel = Object.fromEntries(
+    [primary, ...fallbacks.map(id => modelMap.get(id)).filter((model): model is GatewayModel => Boolean(model))]
+      .map(model => [model.id, {
+        inputUsdPerMillionTokens: pricePerMillion(model.pricing?.input),
+        outputUsdPerMillionTokens: pricePerMillion(model.pricing?.output),
+      }]),
+  );
+
   return {
     primary: normalise(primary, profile),
     fallbackIds: fallbacks,
+    pricingByModel,
   };
 }
 
