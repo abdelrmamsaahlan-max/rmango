@@ -77,7 +77,7 @@ export async function extractSupportedDocument(
       }
       return { kind: "pdf", text: result.text, pages: document.numPages, truncated: result.truncated };
     } finally {
-      await document.destroy();
+      await loadingTask.destroy();
     }
   }
 
