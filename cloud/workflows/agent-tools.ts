@@ -11,7 +11,7 @@ type StudioToolInfo = {
   inputSchema?: Record<string, unknown>;
 };
 
-type ProjectAgentContext = {
+export type ProjectAgentContext = {
   taskId: string;
   ownerId: string;
   projectId: string;
@@ -44,7 +44,7 @@ function summarizeValue(value: unknown, max = 1_200): string {
   return serialized.length > max ? serialized.slice(0, max) + "… [truncated]" : serialized;
 }
 
-async function assertCurrentTaskStep(context: ProjectAgentContext, allowApprovalWait = false) {
+export async function assertCurrentTaskStep(context: ProjectAgentContext, allowApprovalWait = false) {
   "use step";
   const admin = createAdminClient();
   const { data, error } = await admin.from("agent_tasks")
@@ -94,7 +94,7 @@ async function listProjectFilesStep(context: ProjectAgentContext, search?: strin
   return data || [];
 }
 
-async function readProjectFileStep(context: ProjectAgentContext, relativePath: string) {
+export async function readProjectFileStep(context: ProjectAgentContext, relativePath: string) {
   "use step";
   await assertCurrentTaskStep(context, true);
   const safePath = safeRelativePath(relativePath);
@@ -175,7 +175,7 @@ async function searchProjectFilesStep(context: ProjectAgentContext, search: stri
   };
 }
 
-async function getProjectDependencyGraphStep(context: ProjectAgentContext, relativePath?: string) {
+export async function getProjectDependencyGraphStep(context: ProjectAgentContext, relativePath?: string) {
   "use step";
   await assertCurrentTaskStep(context, true);
   const admin = createAdminClient();
@@ -222,7 +222,7 @@ async function findProjectSymbolsStep(context: ProjectAgentContext, search: stri
   return data || [];
 }
 
-async function listProjectMemoriesStep(context: ProjectAgentContext, search?: string) {
+export async function listProjectMemoriesStep(context: ProjectAgentContext, search?: string) {
   "use step";
   await assertCurrentTaskStep(context, true);
   const admin = createAdminClient();
