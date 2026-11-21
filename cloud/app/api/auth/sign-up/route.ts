@@ -22,7 +22,10 @@ export async function POST(request: Request) {
   const { data, error } = await supabase.auth.signUp({
     email: payload.email,
     password: payload.password,
-    options: { data: { name: payload.displayName || payload.email.split("@")[0] } },
+    options: {
+      data: { name: payload.displayName || payload.email.split("@")[0] },
+      emailRedirectTo: new URL("/auth/confirmed", request.url).toString(),
+    },
   });
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
@@ -36,5 +39,8 @@ export async function POST(request: Request) {
       expiresAt: data.session.expires_at,
     } : null,
     requiresEmailConfirmation: !data.session,
-  }, { status: 201 });
+  }, {
+    status: 201,
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
 }
