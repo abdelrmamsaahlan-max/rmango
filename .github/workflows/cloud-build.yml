@@ -47,6 +47,9 @@ jobs:
       - name: Type-check cloud backend
         run: npm run typecheck
 
+      - name: Run deterministic AI workflow tests
+        run: npm run test:ai
+
       - name: Build cloud backend
         run: npm run build
 

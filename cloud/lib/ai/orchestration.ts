@@ -143,8 +143,9 @@ export function buildAgentWorkflowContext(input: {
   let strategy: AgentStrategy = "quick";
   if (planningOnly) strategy = "planning";
   else if (isDebugRequest) strategy = "debug";
-  else if (input.profile === "agent" || (isBuildRequest && (domains.length >= 2 || isLargeRequest))) strategy = "agent";
+  else if (input.profile === "agent") strategy = "agent";
   else if (deepRequest && (isBuildRequest || input.profile === "think")) strategy = "deep";
+  else if (isBuildRequest && (domains.length >= 2 || isLargeRequest)) strategy = "agent";
 
   const coordinated = strategy !== "quick";
   const riskLevel: AgentRiskLevel = HIGH_RISK.test(prompt)
