@@ -713,12 +713,19 @@ function App() {
               />
               <div className="composer-footer">
                 <div className="composer-left">
+                  <select className="profile-select" value={cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Cloud AI profile" disabled={!cloudState?.signedIn || busy}>
+                    <option value="fast">Rmango Fast</option>
+                    <option value="developer">Rmango Developer</option>
+                    <option value="think">Rmango Think</option>
+                    <option value="vision">Rmango Vision</option>
+                    <option value="agent">Rmango Agent</option>
+                  </select>
                   <button className="attach-button" title="Attach images or files" onClick={() => openFilePicker(false)}><Paperclip size={14}/> Attach</button>
                   <button className="attach-button attach-image" title="Attach photo" onClick={() => openFilePicker(true)}><ImageIcon size={14}/> Photo</button>
                   <input ref={fileInputRef} className="hidden-file-input" type="file" multiple onChange={handleFileChange}/>
                   <span className="composer-hint">Enter to send · Shift + Enter for new line</span>
                 </div>
-                <button className="send-button" disabled={(!input.trim() && attachments.length === 0) || busy} onClick={() => void sendMessage()}>
+                <button className="send-button" disabled={(!input.trim() && attachments.length === 0) || busy || !cloudReady || !cloudState?.signedIn} onClick={() => void sendMessage()}>
                   {busy ? <LoaderCircle size={16} className="spin"/> : <Send size={15}/>}
                 </button>
               </div>
@@ -847,56 +854,97 @@ function App() {
       </div>}
 
       {settingsOpen && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
-        <form className="settings-modal" onSubmit={handleSaveSettings}>
+        <div className="settings-modal cloud-settings-modal">
           <div className="modal-header">
-            <div><div className="modal-kicker">RMANGO CONFIGURATION</div><h2>Make Rmango yours</h2><p>Local AI is the default. Cloud providers are optional.</p></div>
+            <div>
+              <div className="modal-kicker">RMANGO CLOUD PLATFORM</div>
+              <h2>Cloud AI workspace</h2>
+              <p>Your device is the interface. Model inference runs on Rmango's hosted cloud service.</p>
+            </div>
             <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button>
           </div>
-          <label className="field-label">AI ENGINE</label>
-          <div className="provider-options three">
-            <button type="button" className={'provider-option ' + (provider === 'ollama' ? 'selected' : '')} onClick={() => { setProvider('ollama'); if (model.startsWith('claude-') || model.startsWith('gpt-')) setModel('qwen3.5:4b'); }}>
-              <span className="provider-symbol local-symbol"><Cpu size={15}/></span><span><strong>Local AI</strong><small>No API key</small></span>{provider === 'ollama' && <CheckCircle2 size={15}/>}
-            </button>
-            <button type="button" className={'provider-option ' + (provider === 'anthropic' ? 'selected' : '')} onClick={() => { setProvider('anthropic'); if (!model.startsWith('claude-')) setModel('claude-sonnet'); }}>
-              <span className="provider-symbol anthropic-symbol">A</span><span><strong>Anthropic</strong><small>Optional cloud</small></span>{provider === 'anthropic' && <CheckCircle2 size={15}/>}
-            </button>
-            <button type="button" className={'provider-option ' + (provider === 'openai' ? 'selected' : '')} onClick={() => { setProvider('openai'); if (!model.startsWith('gpt-')) setModel('gpt-4.1'); }}>
-              <span className="provider-symbol openai-symbol">◉</span><span><strong>OpenAI</strong><small>Optional cloud</small></span>{provider === 'openai' && <CheckCircle2 size={15}/>}
-            </button>
-          </div>
 
-          <label className="field-label" htmlFor="model-id">MODEL</label>
-          <input id="model-id" className="settings-input" list="rmango-model-options" value={model} onChange={event => setModel(event.target.value)} placeholder={provider === 'ollama' ? 'qwen3.5:4b' : provider === 'anthropic' ? 'claude-sonnet' : 'gpt-4.1'} required/>
-          <datalist id="rmango-model-options">
-            {provider === 'ollama'
-              ? <><option value="qwen3.5:4b"/><option value="qwen3.5:2b"/><option value="qwen3.5:9b"/></>
-              : provider === 'anthropic'
-                ? <><option value="claude-sonnet"/><option value="claude-opus"/></>
-                : <><option value="gpt-4.1"/><option value="gpt-4.1-mini"/></>}
-          </datalist>
+          {!cloudState?.configured && <div className="local-setup-panel">
+            <div className="local-setup-status"><AlertCircle size={14}/> Cloud backend not configured</div>
+            <p>The desktop build is waiting for the Rmango Cloud URL and server-side services. No Ollama installation or AI provider key is required on this computer.</p>
+          </div>}
 
-          {provider === 'ollama' ? <>
-            <div className="local-setup-panel">
-              <div className={'local-setup-status ' + (localAi?.running ? 'on' : '')}><span className="status-dot"/>{localAi?.running ? 'Ollama is running on this PC' : 'Ollama runtime not detected'}</div>
-              <p>Install Ollama for Windows once. Rmango then connects to it on your PC; the model weights are downloaded one time and can run locally.</p>
-              <div className="local-setup-actions">
-                <button type="button" className="cancel-button" onClick={() => void window.rmango.openExternal('https://ollama.com/download/windows')}><Download size={13}/> Get Ollama</button>
-                <button type="button" className="cancel-button" onClick={() => void refreshLocalAi()} disabled={checkingLocalAi}>{checkingLocalAi ? <LoaderCircle size={13} className="spin"/> : <RefreshCw size={13}/>} Check</button>
-              </div>
-              {localAi?.running && <div className="model-download-row">
-                <div><strong>{localAi.modelInstalled ? 'Model is installed' : 'Model download needed'}</strong><small>{localAi.models.length ? localAi.models.slice(0, 3).join(', ') : model}</small></div>
-                {!localAi.modelInstalled && <button type="button" className="save-button" disabled={pullingModel} onClick={() => void handlePullModel()}>{pullingModel ? <LoaderCircle size={13} className="spin"/> : <Download size={13}/>} Download model</button>}
-              </div>}
+          {cloudState?.configured && !cloudState.signedIn && <>
+            <div className="field-label">RMANGO ACCOUNT</div>
+            <div className="provider-options">
+              <button type="button" className={'provider-option ' + (authMode === 'sign-in' ? 'selected' : '')} onClick={() => setAuthMode('sign-in')}>
+                <span className="provider-symbol local-symbol"><LockKeyhole size={15}/></span><span><strong>Sign in</strong><small>Existing account</small></span>
+              </button>
+              <button type="button" className={'provider-option ' + (authMode === 'sign-up' ? 'selected' : '')} onClick={() => setAuthMode('sign-up')}>
+                <span className="provider-symbol local-symbol"><Plus size={15}/></span><span><strong>Create account</strong><small>New Rmango account</small></span>
+              </button>
             </div>
-            <div className="secure-note"><ShieldCheck size={13}/><span>Local AI requests go to 127.0.0.1 on your own computer. No provider API key and no Rmango-hosted AI server.</span></div>
-          </> : <>
-            <label className="field-label" htmlFor="api-key">OPTIONAL PROVIDER API KEY {(settings?.configuredProviders?.includes(provider) || (settings?.keyConfigured && settings.provider === provider)) && <span className="configured-label"><Check size={10}/> KEY SAVED</span>}</label>
-            <input id="api-key" className="settings-input" type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={(settings?.configuredProviders?.includes(provider) || (settings?.keyConfigured && settings.provider === provider)) ? 'Saved securely · enter a new key to replace' : 'Paste provider API key'} autoComplete="off"/>
-            <div className="secure-note"><LockKeyhole size={13}/><span>{settings?.secureStorageAvailable ? 'Stored using Windows secure storage. Requests go directly to your selected provider.' : 'Secure OS storage is unavailable. A newly entered key is kept only for this app session.'}</span></div>
+            <form onSubmit={handleAuth}>
+              {authMode === 'sign-up' && <>
+                <label className="field-label" htmlFor="rmango-display-name">DISPLAY NAME</label>
+                <input id="rmango-display-name" className="settings-input" value={authDisplayName} onChange={event => setAuthDisplayName(event.target.value)} placeholder="Your name" maxLength={60}/>
+              </>}
+              <label className="field-label" htmlFor="rmango-email">EMAIL</label>
+              <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => setAuthEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
+              <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
+              <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
+              <div className="secure-note"><LockKeyhole size={13}/><span>These are your Rmango account credentials, not an AI provider API key. AI provider credentials stay on the cloud server.</span></div>
+              <div className="modal-footer">
+                <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
+                <button type="submit" className="save-button" disabled={authBusy || !authEmail.trim() || !authPassword}>
+                  {authBusy ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={14}/>}
+                  {authMode === 'sign-in' ? 'Sign in' : 'Create account'}
+                </button>
+              </div>
+            </form>
           </>}
-          <div className="modal-footer"><button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button><button type="submit" className="save-button" disabled={savingSettings || !model.trim()}>{savingSettings ? <LoaderCircle size={14} className="spin"/> : <Check size={14}/>} Save settings</button></div>
-          <div className="provider-footnote">Local model speed and quality depend on your PC and the model size. It is not the same as a frontier hosted model.</div>
-        </form>
+
+          {cloudState?.signedIn && <>
+            <div className="account-card">
+              <div className="account-avatar"><MangoMark size={27}/></div>
+              <div className="account-copy"><strong>{cloudState.email || 'Rmango account'}</strong><span>{cloudState.serviceReady ? 'Cloud services online' : 'Account connected · backend setup required'}</span></div>
+              <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
+            </div>
+
+            <div className="field-label">CLOUD MODEL PROFILES</div>
+            <p className="settings-explainer">Choose a managed profile. Rmango routes requests to a compatible hosted model and uses fallbacks when configured.</p>
+            {!cloudModels?.profiles.length
+              ? <div className="tools-empty"><Cpu size={18}/><span>Cloud model catalogue unavailable. The administrator must configure Vercel AI Gateway.</span></div>
+              : <div className="cloud-model-list">
+                {cloudModels.profiles.map((profile: CloudModelProfile) =>
+                  <button type="button" className={'cloud-model-card ' + (cloudProfile === profile.profile ? 'selected' : '')} key={profile.profile} onClick={() => setCloudProfile(profile.profile)}>
+                    <span className="cloud-model-check">{cloudProfile === profile.profile ? <CheckCircle2 size={17}/> : <span/>}</span>
+                    <span className="cloud-model-copy">
+                      <strong>{profile.profileLabel}</strong>
+                      <small>{profile.name}</small>
+                      <span>{profile.description || 'Hosted model profile selected by the Rmango administrator.'}</span>
+                      <span className="cloud-capabilities">
+                        {profile.contextWindow ? <i>{profile.contextWindow.toLocaleString()} context</i> : null}
+                        {profile.capabilities.includes('reasoning') ? <i>Reasoning</i> : null}
+                        {profile.capabilities.includes('vision') || profile.inputModalities.includes('image') ? <i>Vision</i> : null}
+                        {profile.capabilities.includes('tool-use') ? <i>Tools</i> : null}
+                      </span>
+                      <span className="cloud-pricing">
+                        {profile.inputUsdPerMillionTokens !== null
+                          ? 'Input $' + profile.inputUsdPerMillionTokens.toFixed(3) + '/M'
+                          : 'Input pricing unavailable'}
+                        {' · '}
+                        {profile.outputUsdPerMillionTokens !== null
+                          ? 'Output $' + profile.outputUsdPerMillionTokens.toFixed(3) + '/M'
+                          : 'Output pricing unavailable'}
+                      </span>
+                    </span>
+                  </button>
+                )}
+              </div>}
+            <div className="secure-note"><ShieldCheck size={13}/><span>Profile labels are Rmango routing presets, not separate models trained by Rmango. Capability and price details come from the live Gateway catalogue. No benchmark scores are fabricated.</span></div>
+          </>}
+
+          <div className="modal-footer">
+            <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
+            {cloudState?.signedIn && <button type="button" className="save-button" onClick={() => void refreshCloudState()}><RefreshCw size={13}/> Refresh cloud status</button>}
+          </div>
+        </div>
       </div>}
 
       {toast && <div className="toast"><CheckCircle2 size={15}/>{toast}</div>}
