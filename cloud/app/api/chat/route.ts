@@ -60,6 +60,18 @@ function extension(name: string) {
   return index >= 0 ? name.slice(index).toLowerCase() : "";
 }
 
+function safeProjectRelativePath(value: string) {
+  const normalized = value.replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  const invalidWindowsName = (segment: string) =>
+    /[<>:"|?*\\u0000-\\u001f\\u007f]/.test(segment) ||
+    /[. ]$/.test(segment) ||
+    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\..*)?$/i.test(segment);
+  if (normalized.startsWith("/") || normalized.includes("\\0") ||
+      segments.some(segment => !segment || segment === "." || segment === ".." || invalidWindowsName(segment))) return null;
+  return normalized;
+}
+
 function estimateTokens(text: string) {
   return Math.max(1, Math.ceil(text.length / 4));
 }
@@ -327,11 +339,8 @@ export async function POST(request: Request) {
         summary: z.string().trim().min(1).max(1000),
       }),
       execute: async ({ projectId, relativePath, content, summary }) => {
-        const normalized = relativePath.replace(/\\\\/g, "/");
-        const segments = normalized.split("/");
-        if (normalized.startsWith("/") || normalized.includes("\\0") || segments.some(segment => !segment || segment === "." || segment === "..")) {
-          throw new Error("The proposed file path is not safe.");
-        }
+        const normalized = safeProjectRelativePath(relativePath);
+        if (!normalized) throw new Error("The proposed file path is not safe.");
         const fileName = segments[segments.length - 1];
         if (!textExtensions.has(extension(fileName))) {
           throw new Error("Only supported source and text files can be proposed in this version.");
