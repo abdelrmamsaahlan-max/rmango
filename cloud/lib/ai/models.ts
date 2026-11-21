@@ -88,10 +88,10 @@ function normalise(model: GatewayModel, profile: ModelProfile): ModelChoice {
 
 let cachedCatalog: { until: number; models: GatewayModel[] } | undefined;
 
-export async function getGatewayCatalog(): Promise<GatewayModel[]> {
+export async function getGatewayCatalog(requestOidcToken?: string | null): Promise<GatewayModel[]> {
   if (cachedCatalog && cachedCatalog.until > Date.now()) return cachedCatalog.models;
 
-  const token = process.env.VERCEL_OIDC_TOKEN;
+  const token = requestOidcToken || process.env.VERCEL_OIDC_TOKEN;
   if (!token) {
     throw new Error("Vercel AI Gateway authentication is not available in this deployment. Configure Vercel OIDC for the cloud project.");
   }
@@ -197,8 +197,8 @@ export async function resolveProfile(profile: ModelProfile) {
   };
 }
 
-export async function getModelProfiles() {
-  const catalog = await getGatewayCatalog();
+export async function getModelProfiles(requestOidcToken?: string | null) {
+  const catalog = await getGatewayCatalog(requestOidcToken);
   const profiles = (["fast", "developer", "think", "vision", "agent"] as ModelProfile[])
     .map(profile => {
       const configured = optionalEnv(PROFILE_ENV[profile]);
