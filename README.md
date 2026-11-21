@@ -116,4 +116,4 @@ Source-file import is limited to supported text formats and bounded file sizes. 
 - `cloud/app/api/chat/route.ts`: streaming chat, project context, usage reservation and tools.
 - `cloud/wrangler.jsonc`: Cloudflare deployment and AI binding.
 - `cloud/supabase/migrations/`: owner-scoped account, project, storage and usage schema.
-- `.github/workflows/cloud-build.yml`: type-check and Cloudflare-targeted build.
+- `.github/workflows/cloud-build.yml`: cloud/desktop typechecks and builds, plus Wrangler dry-run validation of the Cloudflare Worker package; deployment remains manual-only.
