@@ -190,7 +190,9 @@ export async function POST(request: Request) {
     conversationId = createdConversation.id;
   }
 
-  const estimateInputTokens = Math.ceil(estimateTokens(JSON.stringify(messages)) * 1.25);
+  const estimatedText = JSON.stringify(body.messages) + "\\n" + textAttachmentSections.join("\\n");
+  const imageTokenReserve = attachmentParts.length * 20_000;
+  const estimateInputTokens = Math.ceil(estimateTokens(estimatedText) * 1.25) + imageTokenReserve;
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
   const estimatedCost = estimateCostUsd(
     estimateInputTokens,
