@@ -100,7 +100,7 @@ export function AgentWorkspace({
   const listInFlight = useRef(false);
   const detailInFlight = useRef(false);
 
-  const selectedTask = detail?.task || tasks.find(task => task.id === selectedId) || null;
+  const selectedTask = (detail?.task.id === selectedId ? detail.task : null) || tasks.find(task => task.id === selectedId) || null;
   const taskResult = (selectedTask?.result || {}) as Record<string, any>;
   const verification = taskResult.verification as Record<string, any> | undefined;
   const events = useMemo(() => {
@@ -400,13 +400,13 @@ export function AgentWorkspace({
                   <section className="agent-verification-card">
                     <div className="agent-section-heading">
                       <span><ShieldCheck size={14} /> VERIFICATION</span>
-                      <span className="agent-not-verified">RUNTIME NOT VERIFIED</span>
+                      <span className={verification?.runtimeVerified ? "agent-verified" : "agent-not-verified"}>{verification?.runtimeVerified ? "STUDIO VERIFIED" : "RUNTIME NOT VERIFIED"}</span>
                     </div>
                     {verification ? (
                       <>
                         <div className="agent-verification-metrics">
-                          <div><strong>{verification.playtestAttempted ? "Attempted" : "Not run"}</strong><span>Studio playtest</span></div>
-                          <div><strong>{verification.consoleInspected ? "Inspected" : "Not inspected"}</strong><span>Studio console</span></div>
+                          <div><strong>{verification.playtestPassed === true ? "Passed" : verification.playtestPassed === false ? "Failed" : verification.playtestAttempted ? "Attempted" : "Not run"}</strong><span>Studio playtest</span></div>
+                          <div><strong>{verification.consoleClean === true ? "Clean" : verification.consoleClean === false ? "Errors found" : verification.consoleInspected ? "Inspected" : "Not inspected"}</strong><span>Studio console</span></div>
                           <div><strong>{verification.proposals?.length || 0}</strong><span>File proposals</span></div>
                           <div><strong>{verification.studioEvidence?.length || 0}</strong><span>Studio results</span></div>
                         </div>
