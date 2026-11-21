@@ -17,6 +17,7 @@ const api = {
   getAgentTask: (taskId: string) => ipcRenderer.invoke('agent:tasks:get', taskId),
   createAgentTask: (payload: { projectId: string; conversationId?: string; taskText: string; profile: CloudProfile }) => ipcRenderer.invoke('agent:tasks:create', payload),
   controlAgentTask: (payload: { taskId: string; action: 'pause' | 'resume' | 'cancel' | 'retry' }) => ipcRenderer.invoke('agent:tasks:control', payload),
+  submitAgentFeedback: (payload: { taskId: string; helpful: boolean }) => ipcRenderer.invoke('agent:tasks:feedback', payload),
   getCloudProjectIndex: (projectId: string) => ipcRenderer.invoke('project:index:get', projectId),
   startCloudProjectIndex: (projectId: string) => ipcRenderer.invoke('project:index:start', projectId),
   reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => ipcRenderer.invoke('project:review-change', payload),
