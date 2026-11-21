@@ -42,10 +42,12 @@ const DESIGN_INTENT = /\b(brainstorm|concept|game design|design a|plan a|ideas f
 const EXPLAIN_INTENT = /^(\s*)(what is|what are|how does|how do|why does|why do|explain|teach me|help me understand)\b/i;
 
 function classifyIntent(prompt: string): AgentTaskIntent {
+  // A direct "what/how/why" question should not become a debugging task just
+  // because it contains words such as "error", "bug" or "crash".
+  if (EXPLAIN_INTENT.test(prompt.trim()) && !BUILD_INTENT.test(prompt)) return "explain";
   if (DEBUG_INTENT.test(prompt)) return "debug";
   if (AUDIT_INTENT.test(prompt) && !BUILD_INTENT.test(prompt)) return "audit";
   if (DESIGN_INTENT.test(prompt) && !BUILD_INTENT.test(prompt)) return "design";
-  if (EXPLAIN_INTENT.test(prompt.trim()) && !BUILD_INTENT.test(prompt)) return "explain";
   if (BUILD_INTENT.test(prompt)) return "build";
   return "general";
 }
@@ -88,7 +90,7 @@ function matchesPositiveAction(pattern: RegExp, text: string): boolean {
 
 function assessRisk(prompt: string, intent: AgentTaskIntent): AgentTaskRisk {
   const destructive = /\b(delete|wipe|purge|destroy|remove all|clear all|reset all|replace all|drop table|erase)\b/i;
-  const sensitive = /\b(publish|release|deploy|migrate|production data|datastore migration|payment|purchase grants|permissions|credentials|secrets)\b/i;
+  const sensitive = /\b(publish|release|deploy)\b|\b(migrate|rewrite|reset|modify|alter|change|rotate|revoke|grant|update)\b.{0,48}\b(production data|datastore|payment|purchase grants|permissions|credentials|secrets)\b|\b(production data|datastore|payment|purchase grants|permissions|credentials|secrets)\b.{0,48}\b(migrate|rewrite|reset|modify|alter|change|rotate|revoke|grant|update)\b/i;
   if (matchesPositiveAction(destructive, prompt)) return "destructive";
   if (matchesPositiveAction(sensitive, prompt)) return "sensitive";
   if (intent === "build" || intent === "debug") return "reversible";
