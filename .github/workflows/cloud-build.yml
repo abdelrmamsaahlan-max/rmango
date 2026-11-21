@@ -49,3 +49,28 @@ jobs:
 
       - name: Build cloud backend
         run: npm run build
+
+  desktop:
+    name: Type-check and build RMango desktop client
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check renderer and Electron
+        run: npm run typecheck
+
+      - name: Build desktop renderer and Electron process
+        run: npm run build
