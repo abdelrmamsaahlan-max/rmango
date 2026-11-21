@@ -415,6 +415,10 @@ const APPROVAL_REQUIRED_STUDIO_TOOLS = new Set([
   'character_navigation', 'user_keyboard_input', 'user_mouse_input', 'save_place',
 ]);
 
+function mcpAvailable(): boolean {
+  return Boolean(mcpClient && mcpTransport);
+}
+
 function safeToolList() {
   return connectedTools.filter(tool =>
     READ_ONLY_STUDIO_TOOLS.has(tool.name) || APPROVAL_REQUIRED_STUDIO_TOOLS.has(tool.name)
