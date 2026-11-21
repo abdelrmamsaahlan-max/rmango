@@ -39,5 +39,7 @@ export async function POST(request: Request) {
       refreshToken: data.session.refresh_token,
       expiresAt: data.session.expires_at,
     },
+  }, {
+    headers: { "Cache-Control": "no-store, max-age=0" },
   });
 }
