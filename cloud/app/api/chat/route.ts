@@ -16,6 +16,8 @@ import { indexCloudProjectFile } from "@/lib/ai/project-graph-storage";
 import { detectProjectDependencyCycles } from "@/lib/ai/project-graph-analysis";
 import { boundedTraceData, redactTraceValue } from "@/lib/ai/trace";
 import { extractSupportedDocument } from "@/lib/ai/documents";
+import { createIntelligencePlan, type IntelligenceLevelSetting } from "@/lib/ai/intelligence-controller";
+import { classifyProviderFailure, formatProviderFailure } from "@/lib/ai/provider-errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -51,7 +53,8 @@ type IncomingAttachment = {
 };
 
 const requestSchema = z.object({
-  profile: z.enum(["fast", "developer", "think", "vision", "agent"]).default("developer"),
+  profile: z.enum(["auto", "fast", "developer", "think", "vision", "agent"]).default("auto"),
+  intelligenceLevel: z.enum(["auto", "instant", "focused", "advanced", "deep", "research"]).default("auto"),
   messages: z.array(z.object({
     role: z.enum(["user", "assistant"]),
     content: z.string().max(100_000),
@@ -138,11 +141,38 @@ export async function POST(request: Request) {
   const latestUserPrompt = body.messages.filter(message => message.role === "user").at(-1)?.content || "";
   const hasImageAttachment = (body.attachments || []).some(attachment => attachment.kind === "image");
   const hasDocumentAttachment = (body.attachments || []).some(attachment => [".pdf", ".docx"].includes(extension(attachment.name)));
-  // Images need a vision-capable route even when the user last used another profile.
-  const profile: ModelProfile = hasImageAttachment ? "vision" : body.profile as ModelProfile;
+  const intelligencePlan = createIntelligencePlan({
+    prompt: latestUserPrompt,
+    requestedProfile: body.profile,
+    levelSetting: body.intelligenceLevel as IntelligenceLevelSetting,
+    hasImage: hasImageAttachment,
+    hasDocument: hasDocumentAttachment,
+    hasSelectedProject: Boolean(body.projectId),
+    conversationMessageCount: body.messages.length,
+  });
+  // Images always require a vision-compatible route. Other requests use either
+  // the user's explicit profile override or the controller's task-aware choice.
+  const profile: ModelProfile = hasImageAttachment ? "vision" : intelligencePlan.modelProfile;
   const skills = buildSkillContext(latestUserPrompt, { hasImage: hasImageAttachment, hasDocument: hasDocumentAttachment });
-  const workflow = buildAgentWorkflowContext({ profile, prompt: latestUserPrompt });
-  const systemPrompt = [SYSTEM_PROMPT, skills.systemText, workflow.systemText].filter(Boolean).join("\n\n");
+  const workflow = buildAgentWorkflowContext({
+    profile,
+    prompt: latestUserPrompt,
+    intelligenceLevel: intelligencePlan.level,
+    intent: intelligencePlan.intent,
+  });
+  const systemPrompt = [
+    SYSTEM_PROMPT,
+    "RMANGO INTELLIGENCE CONTROLLER DECISION (routing metadata, not a correctness claim): " +
+      JSON.stringify({
+        intent: intelligencePlan.intent,
+        level: intelligencePlan.level,
+        modelProfile: profile,
+        reasons: intelligencePlan.reasons,
+        budgets: intelligencePlan.budget,
+      }),
+    skills.systemText,
+    workflow.systemText,
+  ].filter(Boolean).join("\n\n");
   let choice;
   try {
     // Match /api/models: use the short-lived OIDC token supplied to this
@@ -167,7 +197,7 @@ export async function POST(request: Request) {
     : configuredMaxOutputTokens;
   const maxOutputTokens = Math.max(
     256,
-    Math.min(configuredMaxOutputTokens, providerOutputLimit, contextOutputLimit),
+    Math.min(configuredMaxOutputTokens, providerOutputLimit, contextOutputLimit, intelligencePlan.budget.maxOutputTokens),
   );
 
   let messages = body.messages.slice(-24).map(message => ({
@@ -324,10 +354,23 @@ export async function POST(request: Request) {
     fileCount: number;
     memoryCount: number;
     manifestTruncated: boolean;
+    retrieval: {
+      method: string;
+      fileCandidates: number;
+      fileMatches: number;
+      dependencyExpandedFiles: number;
+      memoryCandidates: number;
+      memoryMatches: number;
+      graphAvailable: boolean;
+    };
   } | null = null;
   if (selectedProjectId) {
     try {
-      const selectedProjectContext = await loadSelectedProjectContext(supabase, user.id, selectedProjectId, latestUserPrompt);
+      const selectedProjectContext = await loadSelectedProjectContext(supabase, user.id, selectedProjectId, latestUserPrompt, {
+        maxFiles: intelligencePlan.budget.maxProjectFiles,
+        maxMemories: intelligencePlan.budget.maxMemoryNotes,
+        maxMemoryCharacters: intelligencePlan.budget.maxMemoryCharacters,
+      });
       if (!selectedProjectContext) {
         return NextResponse.json({ error: "The selected cloud project is no longer available to this account." }, { status: 404 });
       }
@@ -336,6 +379,7 @@ export async function POST(request: Request) {
         fileCount: selectedProjectContext.files.length,
         memoryCount: selectedProjectContext.memories.length,
         manifestTruncated: selectedProjectContext.manifestTruncated,
+        retrieval: selectedProjectContext.retrieval,
       };
       // Keep the manifest at user-message trust level; project-controlled strings
       // must never be concatenated into the system instruction channel.
@@ -506,6 +550,7 @@ export async function POST(request: Request) {
             riskLevel: workflow.riskLevel,
             domains: workflow.domains,
             plan: workflow.plan,
+            intelligence: intelligencePlan,
           },
           verification: { status: "pending" },
         },
@@ -556,6 +601,7 @@ export async function POST(request: Request) {
     }
     await recordAgentEvent("started", "Started a coordinated Roblox development task.", {
       profile,
+      intelligence: intelligencePlan,
       strategy: workflow.strategy,
       riskLevel: workflow.riskLevel,
       domains: workflow.domains,
@@ -1048,13 +1094,19 @@ export async function POST(request: Request) {
 
   // Planning-only requests may inspect the project and Studio, but cannot write
   // project memory, create proposals or queue mutating Studio commands.
-  const activeProjectTools = workflow.strategy === "planning"
-    ? Object.fromEntries(Object.entries(projectTools).filter(([name]) =>
-        name !== "save_project_memory" && name !== "propose_project_file_change"))
-    : projectTools;
-  const activeStudioTools = workflow.strategy === "planning"
-    ? Object.fromEntries(Object.entries(studioTools).filter(([name]) => STUDIO_READ_ONLY_TOOLS.has(name)))
-    : studioTools;
+  const activeProjectTools = intelligencePlan.budget.useProjectTools
+    ? workflow.strategy === "planning"
+      ? Object.fromEntries(Object.entries(projectTools).filter(([name]) =>
+          name !== "save_project_memory" && name !== "propose_project_file_change"))
+      : projectTools
+    : intelligencePlan.intent === "project_navigation" && !selectedProjectId
+      ? Object.fromEntries(Object.entries(projectTools).filter(([name]) => name === "list_my_projects"))
+      : {};
+  const activeStudioTools = intelligencePlan.budget.useStudioTools
+    ? workflow.strategy === "planning"
+      ? Object.fromEntries(Object.entries(studioTools).filter(([name]) => STUDIO_READ_ONLY_TOOLS.has(name)))
+      : studioTools
+    : {};
 
   const requestMessages = messages;
   const gatewayOptions = choice.fallbackIds.length
@@ -1064,14 +1116,68 @@ export async function POST(request: Request) {
   const toolTraceStats = { calls: 0, successes: 0, failures: 0, testLikeResults: 0 };
   const toolStartTimes = new Map<string, number>();
   const taskStartedAt = Date.now();
+  let recordedDebugHypotheses = 0;
+  let providerFailureRecorded = false;
+  let modelFailure: ReturnType<typeof classifyProviderFailure> | null = null;
+
+  const recordProviderFailure = async (error: unknown) => {
+    modelFailure = classifyProviderFailure(error);
+    if (providerFailureRecorded) return modelFailure;
+    providerFailureRecorded = true;
+    await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
+    if (agentTaskId) {
+      await supabase.from("agent_tasks").update({
+        status: request.signal.aborted ? "cancelled" : "failed",
+        error: modelFailure.message,
+        updated_at: new Date().toISOString(),
+      }).eq("id", agentTaskId).eq("owner_id", user.id);
+      await recordAgentEvent("provider_failure", modelFailure.title, {
+        code: modelFailure.code,
+        retryable: modelFailure.retryable,
+        accountActionRequired: modelFailure.accountActionRequired,
+      });
+    }
+    return modelFailure;
+  };
+
+  const debugHypothesisTools = workflow.strategy === "debug" && agentTaskId ? {
+    record_debug_hypothesis: tool({
+      description: "Record one evidence-based debugging hypothesis and the test that could distinguish it from alternatives. Use only observed code, logs, or tool results as supporting evidence. Update the same hypothesis after a test; never mark a hypothesis confirmed from confidence alone. These notes stay in this task's history and are not permanent project memory.",
+      inputSchema: z.object({
+        hypothesis: z.string().trim().min(8).max(700),
+        supportingEvidence: z.array(z.string().trim().min(3).max(300)).min(1).max(5),
+        confidence: z.enum(["low", "medium", "high"]),
+        discriminatingTest: z.string().trim().min(8).max(700),
+        outcome: z.enum(["not_tested", "supported", "rejected", "inconclusive"]).default("not_tested"),
+        testResult: z.string().trim().max(700).optional(),
+      }),
+      execute: async (input) => {
+        if (recordedDebugHypotheses >= intelligencePlan.budget.maxHypotheses) {
+          throw new Error("The task's debugging hypothesis budget has been reached. Reuse or update an existing hypothesis instead of adding another.");
+        }
+        recordedDebugHypotheses += 1;
+        await recordAgentEvent("debug_hypothesis", input.hypothesis, {
+          ...input,
+          confidenceIsModelEstimate: true,
+          independentlyVerified: false,
+          hypothesisNumber: recordedDebugHypotheses,
+        });
+        return {
+          recorded: true,
+          hypothesisNumber: recordedDebugHypotheses,
+          warning: "A recorded hypothesis is not independently verified. Only the discriminating test result can change its status.",
+        };
+      },
+    }),
+  } : {};
 
   try {
     const result = streamText({
       model: gateway(choice.primary.id),
       system: systemPrompt,
       messages: requestMessages,
-      tools: { ...activeProjectTools, ...activeStudioTools },
-      stopWhen: stepCountIs(workflow.maxSteps),
+      tools: { ...activeProjectTools, ...activeStudioTools, ...debugHypothesisTools },
+      stopWhen: stepCountIs(Math.min(workflow.maxSteps, intelligencePlan.budget.maxSteps)),
       maxOutputTokens: enforcedMaxOutputTokens,
       temperature: 0.2,
       abortSignal: request.signal,
@@ -1186,17 +1292,20 @@ export async function POST(request: Request) {
           });
         }
       },
-      onError: async () => {
-        await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
-        if (agentTaskId) {
-          await supabase.from("agent_tasks").update({
-            status: request.signal.aborted ? "cancelled" : "failed",
-            error: request.signal.aborted ? "Cancelled by the user." : "The model request failed.",
-            updated_at: new Date().toISOString(),
-          }).eq("id", agentTaskId).eq("owner_id", user.id);
-          await recordAgentEvent(request.signal.aborted ? "cancelled" : "failed",
-            request.signal.aborted ? "The user stopped the task." : "The model request failed.");
+      onError: async ({ error }) => {
+        if (request.signal.aborted) {
+          await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
+          if (agentTaskId) {
+            await supabase.from("agent_tasks").update({
+              status: "cancelled",
+              error: "Cancelled by the user.",
+              updated_at: new Date().toISOString(),
+            }).eq("id", agentTaskId).eq("owner_id", user.id);
+            await recordAgentEvent("cancelled", "The user stopped the task.");
+          }
+          return;
         }
+        await recordProviderFailure(error);
       },
     });
 
@@ -1228,7 +1337,11 @@ export async function POST(request: Request) {
                 name: "Project context",
                 detail: "Loaded " + selectedProjectContextSummary.fileCount + " relevant file entries and " +
                   selectedProjectContextSummary.memoryCount + " memory notes" +
-                  (selectedProjectContextSummary.manifestTruncated ? "; manifest is partial, use project search for more." : "."),
+                  (selectedProjectContextSummary.manifestTruncated ? "; manifest is partial, use project search for more." : ".") +
+                  " Retrieval: " + selectedProjectContextSummary.retrieval.method +
+                  ", " + selectedProjectContextSummary.retrieval.fileMatches + "/" +
+                  selectedProjectContextSummary.retrieval.fileCandidates + " file matches, " +
+                  selectedProjectContextSummary.retrieval.dependencyExpandedFiles + " graph neighbours.",
                 status: "completed",
                 ok: true,
               },
@@ -1327,11 +1440,22 @@ export async function POST(request: Request) {
               continue;
             }
             if (part.type === "error") {
-              const message = part.error instanceof Error ? part.error.message : "The hosted model stream returned an error.";
-              emit({ type: "error", message });
+              const failure = await recordProviderFailure(part.error);
+              emit({
+                type: "error",
+                code: failure.code,
+                title: failure.title,
+                message: formatProviderFailure(failure),
+                retryable: failure.retryable,
+                accountActionRequired: failure.accountActionRequired,
+              });
+              break;
             }
           }
-          if (agentTaskId) {
+          if (modelFailure) {
+            // The stream failure handler already marked the task failed and
+            // cancelled the usage reservation. Do not emit a successful done event.
+          } else if (agentTaskId) {
             const gateStatus = workflow.strategy === "planning"
               ? "not_applicable"
               : toolTraceStats.failures > 0
@@ -1354,11 +1478,23 @@ export async function POST(request: Request) {
               },
             );
           }
-          emit({ type: "done" });
+          if (!modelFailure) emit({ type: "done" });
         } catch (error) {
-          const message = error instanceof Error ? error.message : "The hosted model stream failed.";
-          emit({ type: "activity", activity: { id: "model", name: "Model request", detail: message, status: request.signal.aborted ? "cancelled" : "failed", ok: false } });
-          emit({ type: "error", message });
+          const failure = request.signal.aborted
+            ? null
+            : await recordProviderFailure(error);
+          const message = failure
+            ? formatProviderFailure(failure)
+            : "The request was cancelled.";
+          emit({ type: "activity", activity: { id: "model", name: "Model request", detail: message.slice(0, 450), status: request.signal.aborted ? "cancelled" : "failed", ok: false } });
+          emit({
+            type: "error",
+            code: failure?.code || "request_cancelled",
+            title: failure?.title || "Request cancelled",
+            message,
+            retryable: failure?.retryable || false,
+            accountActionRequired: failure?.accountActionRequired || false,
+          });
         } finally {
           if (!closed) { closed = true; controller.close(); }
         }
@@ -1367,21 +1503,27 @@ export async function POST(request: Request) {
     });
     return new Response(activityStream, { status: 200, headers: responseHeaders });
   } catch (error) {
+    const failure = classifyProviderFailure(error);
     await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
     if (agentTaskId) {
-      const failedMessage = error instanceof Error ? error.message : "The cloud model request failed.";
       await supabase.from("agent_tasks").update({
         status: request.signal.aborted ? "cancelled" : "failed",
-        error: failedMessage.slice(0, 1_000),
+        error: request.signal.aborted ? "Cancelled by the user." : failure.message,
         updated_at: new Date().toISOString(),
       }).eq("id", agentTaskId).eq("owner_id", user.id);
       await recordAgentEvent(
-        request.signal.aborted ? "cancelled" : "failed",
-        request.signal.aborted ? "The user stopped the task." : "The model request could not be started: " + failedMessage,
+        request.signal.aborted ? "cancelled" : "provider_failure",
+        request.signal.aborted ? "The user stopped the task." : failure.title,
+        { code: failure.code, retryable: failure.retryable },
       );
     }
     return NextResponse.json({
-      error: error instanceof Error ? error.message : "The cloud model request failed.",
-    }, { status: 502 });
+      error: request.signal.aborted ? "The request was cancelled." : failure.message,
+      title: request.signal.aborted ? "Request cancelled" : failure.title,
+      code: request.signal.aborted ? "request_cancelled" : failure.code,
+      nextStep: request.signal.aborted ? "Send a new request when you are ready." : failure.nextStep,
+      retryable: request.signal.aborted ? false : failure.retryable,
+      accountActionRequired: request.signal.aborted ? false : failure.accountActionRequired,
+    }, { status: request.signal.aborted ? 499 : 502 });
   }
 }
