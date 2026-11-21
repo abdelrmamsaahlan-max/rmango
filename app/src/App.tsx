@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
-  AgentActivity, CloudConversation, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
+  AgentActivity, CloudAgentTask, CloudConversation, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
@@ -89,6 +89,7 @@ function App() {
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
+  const [cloudTasks, setCloudTasks] = useState<CloudAgentTask[]>([]);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [chatReady, setChatReady] = useState(false);
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
@@ -203,8 +204,14 @@ function App() {
         if (state.studioConnected) void refreshMcpState();
         if (cloud.signedIn && cloud.serviceReady) {
           try {
-            setCloudModels(await window.rmango.getCloudModels());
-            setCloudConversations(await window.rmango.getCloudConversations());
+            const [models, conversations, tasks] = await Promise.all([
+              window.rmango.getCloudModels(),
+              window.rmango.getCloudConversations(),
+              window.rmango.getCloudTasks(),
+            ]);
+            setCloudModels(models);
+            setCloudConversations(conversations);
+            setCloudTasks(tasks);
             if (cloud.currentConversationId) {
               const restored = await window.rmango.loadCloudConversation(cloud.currentConversationId);
               if (!restoredMessages.length) restoredMessages = restored.messages || [];
@@ -281,16 +288,19 @@ function App() {
     if (state.signedIn && state.serviceReady) {
       setConversationId(state.currentConversationId || undefined);
       try {
-        const [models, conversations] = await Promise.all([
+        const [models, conversations, tasks] = await Promise.all([
           window.rmango.getCloudModels(),
           window.rmango.getCloudConversations(),
+          window.rmango.getCloudTasks(),
         ]);
         setCloudModels(models);
         setCloudConversations(conversations);
+        setCloudTasks(tasks);
       } catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models or conversations.'); }
     } else {
       setCloudModels(null);
       setCloudConversations([]);
+      setCloudTasks([]);
     }
     return state;
   }
@@ -411,6 +421,7 @@ function App() {
       setCloudState(await window.rmango.getCloudState());
       setCloudModels(null);
       setCloudConversations([]);
+      setCloudTasks([]);
       setConversationId(undefined);
       if (appState?.studioConnected) await refreshMcpState();
       setToast('Signed out of Rmango Cloud.');
@@ -718,6 +729,9 @@ function App() {
         void window.rmango.setCurrentConversationId(result.conversationId).catch(() => undefined);
         void window.rmango.getCloudConversations(cloudProjectId)
           .then(setCloudConversations)
+          .catch(() => undefined);
+        void window.rmango.getCloudTasks(cloudProjectId)
+          .then(setCloudTasks)
           .catch(() => undefined);
       }
       if (result.activity?.length) setActivities(current => [...current.filter(item => item.requestId !== requestId), ...result.activity.map(item => ({ ...item, requestId }))].slice(-80));
@@ -1286,6 +1300,31 @@ function App() {
             <div className="section-title"><span>DIAGNOSTIC OUTPUT</span><button className="subtle-icon" onClick={() => setDiagnosticResult('')}><X size={13}/></button></div>
             <pre>{diagnosticResult}</pre>
           </section>}
+          <section className="inspector-section task-history-section">
+            <div className="section-title">
+              <span>DEVELOPMENT TASKS</span>
+              <button className="subtle-icon" title="Refresh task history" onClick={() => void window.rmango.getCloudTasks(cloudProjectId).then(setCloudTasks).catch(error => setToast(error instanceof Error ? error.message : 'Could not refresh task history.'))}><RefreshCw size={13}/></button>
+            </div>
+            {cloudTasks.length
+              ? cloudTasks.slice(0, 4).map(task =>
+                  <div className="task-history-item" key={task.id}>
+                    <div className="task-history-top">
+                      <span className={'task-status-dot ' + task.status}/>
+                      <strong>{task.status.replace('_', ' ')}</strong>
+                      <time>{displayTime(task.created_at)}</time>
+                    </div>
+                    <p>{task.task_text}</p>
+                    {task.error && <span className="task-history-error">{task.error}</span>}
+                    {task.events.length > 0 && <details className="task-events">
+                      <summary>{task.events.length} recorded operations</summary>
+                      <div>{task.events.slice(-5).map(event =>
+                        <span key={event.id}><i/> {event.message}</span>
+                      )}</div>
+                    </details>}
+                  </div>
+                )
+              : <div className="activity-empty"><Layers3 size={15}/><span>Coordinated agent tasks will be saved here.</span></div>}
+          </section>
           <section className="inspector-section activity-section">
             <div className="section-title"><span>RECENT ACTIVITY</span><button className="subtle-icon" onClick={() => setActivities([])} title="Clear activity"><RefreshCw size={13}/></button></div>
             {activities.length
