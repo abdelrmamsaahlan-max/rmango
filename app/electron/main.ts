@@ -19,7 +19,7 @@ type CloudSession = {
   accessToken: string;
   refreshToken: string;
   expiresAt?: number;
-  user: { id: string; email?: string };
+  user: { id: string; email?: string; isAnonymous?: boolean };
   studioConnectorId?: string;
   studioConnectorSecret?: string;
   currentProjectId?: string;
@@ -174,7 +174,13 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
     accessToken: payload.session.accessToken,
     refreshToken: payload.session.refreshToken,
     expiresAt: payload.session.expiresAt,
-    user: payload.user,
+    user: {
+      id: payload.user.id,
+      email: payload.user.email || session.user.email,
+      isAnonymous: typeof payload.user.is_anonymous === 'boolean'
+        ? payload.user.is_anonymous
+        : session.user.isAnonymous,
+    },
   };
   await writeCloudSession(next);
   return next;
@@ -182,7 +188,7 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
 
 async function getValidCloudSession(): Promise<CloudSession> {
   let session = await readCloudSession();
-  if (!session) throw new Error('Sign in to your Rmango account to use cloud AI.');
+  if (!session) throw new Error('The Rmango guest workspace is not ready. Check your connection and retry.');
   if (session.expiresAt && session.expiresAt * 1000 < Date.now() + 90_000) {
     session = await refreshCloudSession(session);
   }
@@ -260,7 +266,152 @@ async function cloudSignOut() {
   return { ok: true };
 }
 
+async function createGuestSession(): Promise<CloudSession> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Rmango cannot safely save its guest session on this device.');
+  }
+
+  const config = await cloudApiRequest<{ supabaseUrl?: string; publishableKey?: string }>(
+    '/api/public/config',
+    {},
+    false,
+  );
+  if (typeof config.supabaseUrl !== 'string' || typeof config.publishableKey !== 'string' || !config.publishableKey) {
+    throw new Error('The Rmango server did not return valid public guest-access settings.');
+  }
+
+  let supabaseUrl: URL;
+  try {
+    supabaseUrl = new URL(config.supabaseUrl);
+  } catch {
+    throw new Error('The Rmango server returned an invalid Supabase URL.');
+  }
+  if (
+    supabaseUrl.protocol !== 'https:' ||
+    supabaseUrl.username ||
+    supabaseUrl.password ||
+    supabaseUrl.search ||
+    supabaseUrl.hash ||
+    supabaseUrl.hostname === 'localhost' ||
+    supabaseUrl.hostname.endsWith('.localhost')
+  ) {
+    throw new Error('The Rmango guest service must use a public HTTPS Supabase endpoint.');
+  }
+
+  // Create the anonymous identity from the desktop so Supabase can apply its
+  // normal per-client-IP abuse and rate limits. The publishable key is public;
+  // no service-role or model-provider secret is ever sent to this app.
+  const response = await fetch(supabaseUrl.origin + '/auth/v1/signup', {
+    method: 'POST',
+    headers: {
+      apikey: config.publishableKey,
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({ data: { name: 'Rmango Guest', app: 'rmango-desktop' } }),
+    signal: AbortSignal.timeout(25_000),
+  });
+  const raw = await response.text();
+  let payload: any = {};
+  try { payload = raw ? JSON.parse(raw) : {}; }
+  catch { payload = { message: raw.slice(0, 400) }; }
+
+  if (!response.ok) {
+    const detail = payload.msg || payload.message || payload.error_description || payload.error;
+    if (response.status === 429) {
+      throw new Error('Rmango guest sign-ins are temporarily rate-limited. Please try again later.');
+    }
+    throw new Error(typeof detail === 'string' ? detail.slice(0, 400) : 'Could not create your Rmango guest workspace.');
+  }
+  if (!payload.access_token || !payload.refresh_token || !payload.user?.id) {
+    throw new Error('Supabase did not return a complete guest session. Enable Anonymous Sign-Ins for the Rmango service.');
+  }
+  if (payload.user.is_anonymous !== true) {
+    throw new Error('The Rmango service did not create an anonymous account. Check its Auth configuration.');
+  }
+
+  const expiresAt = typeof payload.expires_at === 'number'
+    ? payload.expires_at
+    : Math.floor(Date.now() / 1000) + (Number(payload.expires_in) || 3600);
+  const session: CloudSession = {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token,
+    expiresAt,
+    user: { id: payload.user.id, isAnonymous: true },
+  };
+  await writeCloudSession(session);
+  return session;
+}
+
 async function getCloudState() {
+  const apiBaseUrl = await getCloudApiBaseUrl();
+  let session = await readCloudSession();
+  if (!apiBaseUrl) {
+    return {
+      configured: false,
+      signedIn: Boolean(session),
+      isGuest: session?.user.isAnonymous === true,
+      email: session?.user.email,
+      message: 'The managed Rmango AI service is not connected to this build yet.',
+    };
+  }
+
+  let serviceReady = false;
+  let healthError: string | undefined;
+  let sessionError: string | undefined;
+  try {
+    const health = await cloudApiRequest<any>('/api/health', {}, false);
+    serviceReady = health.status === 'ready';
+    if (!serviceReady) healthError = 'The Rmango AI service is not ready yet. The service operator must finish its one-time setup.';
+  } catch (error) {
+    healthError = error instanceof Error ? error.message : 'The Rmango AI service is temporarily unavailable.';
+  }
+
+  if (serviceReady) {
+    if (!session) {
+      try {
+        session = await createGuestSession();
+      } catch (error) {
+        sessionError = error instanceof Error ? error.message : 'Rmango could not start a guest workspace.';
+      }
+    } else {
+      try {
+        session = await getValidCloudSession();
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'The saved Rmango session is unavailable.';
+        // A revoked/expired anonymous identity cannot be recovered. Create a
+        // new guest identity only for an explicit invalid-refresh response;
+        // preserve the existing identity during temporary network failures.
+        if (
+          session.user.isAnonymous &&
+          /(invalid|expired|revoked|not found|refresh token)/i.test(detail)
+        ) {
+          await clearCloudSession();
+          session = null;
+          try {
+            session = await createGuestSession();
+          } catch (guestError) {
+            sessionError = guestError instanceof Error ? guestError.message : detail;
+          }
+        } else {
+          sessionError = detail;
+          session = null;
+        }
+      }
+    }
+  }
+
+  return {
+    configured: true,
+    serviceReady,
+    signedIn: Boolean(session),
+    isGuest: session?.user.isAnonymous === true,
+    email: session?.user.email,
+    apiHost: new URL(apiBaseUrl).host,
+    message: sessionError || healthError,
+    currentProjectId: session?.currentProjectId,
+  };
+}
   const apiBaseUrl = await getCloudApiBaseUrl();
   const session = await readCloudSession();
   if (!apiBaseUrl) {
@@ -317,7 +468,7 @@ async function sendCloudMessage(payload: {
     const raw = await response.text();
     let message = raw;
     try { const parsed = JSON.parse(raw); message = parsed.error || parsed.message || raw; } catch { /* text error */ }
-    if (response.status === 401) throw new Error('Your Rmango cloud session expired. Sign in again.');
+    if (response.status === 401) throw new Error('Your Rmango guest session expired. Reopen Rmango to start a fresh workspace.');
     if (response.status === 429) throw new Error(message || 'Your Rmango cloud usage limit has been reached.');
     throw new Error(message || ('Rmango Cloud returned HTTP ' + response.status + '.'));
   }
@@ -569,7 +720,7 @@ async function callStudioTool(name: string, args: Record<string, unknown>) {
 async function registerCloudStudioConnector() {
   if (!mcpClient) return { linked: false, message: "Roblox Studio is not connected." };
   const session = await readCloudSession();
-  if (!session) return { linked: false, message: "Sign in to Rmango Cloud to link the Studio connector." };
+  if (!session) return { linked: false, message: "Start the Rmango guest workspace before linking the Studio connector." };
   const tools = safeToolList().map(tool => ({
     name: tool.name,
     description: tool.description || "",
