@@ -5,7 +5,7 @@ import { createAuthClient } from "@/lib/supabase";
 export const runtime = "nodejs";
 
 const schema = z.object({
-  email: z.string().trim().email().max(254),
+  email: z.string().trim().toLowerCase().email().max(254),
   password: z.string().min(10).max(128),
   displayName: z.string().trim().min(1).max(60).optional(),
 });

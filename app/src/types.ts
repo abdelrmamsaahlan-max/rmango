@@ -93,6 +93,33 @@ export type CloudState = {
   currentConversationId?: string;
 };
 
+export type CloudUsage = {
+  role: 'user' | 'admin';
+  plan: 'free' | 'builder' | 'creator' | 'admin';
+  planLabel: string;
+  unlimitedAccount: boolean;
+  usage: {
+    dailyRequests: number;
+    monthlyRequests: number;
+    dailyTokens: number;
+    monthlyTokens: number;
+  };
+  limits: {
+    dailyRequests: number | null;
+    monthlyRequests: number | null;
+    dailyTokens: number | null;
+    monthlyTokens: number | null;
+    maxOutputTokens: number;
+  };
+  remaining: {
+    dailyRequests: number | null;
+    monthlyRequests: number | null;
+    dailyTokens: number | null;
+    monthlyTokens: number | null;
+  };
+  globalSpendGuard: boolean;
+};
+
 export type CloudConversation = {
   id: string;
   project_id: string | null;
@@ -174,6 +201,7 @@ declare global {
       setAppearance: (theme: 'dark' | 'light' | 'system') => Promise<{ ok: boolean; appearance: 'dark' | 'light' | 'system' }>;
       updateSettings: (patch: Partial<AppPreferences>) => Promise<{ ok: boolean; settings: AppPreferences }>;
       getCloudState: () => Promise<CloudState>;
+      getCloudUsage: () => Promise<CloudUsage>;
       cloudSignIn: (credentials: { email: string; password: string }) => Promise<{ ok: boolean; user: { id: string; email?: string } }>;
       cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => Promise<{ ok: boolean; requiresEmailConfirmation: boolean; user: { id: string; email?: string } }>;
       cloudSignOut: () => Promise<{ ok: boolean }>;

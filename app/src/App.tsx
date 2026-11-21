@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
-  AgentActivity, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
+  AgentActivity, CloudProfile, CloudState, CloudUsage, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
@@ -87,6 +87,7 @@ function App() {
   const [appState, setAppState] = useState<AppState | null>(null);
   const [cloudState, setCloudState] = useState<CloudState | null>(null);
   const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
+  const [cloudUsage, setCloudUsage] = useState<CloudUsage | null>(null);
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
@@ -202,6 +203,11 @@ function App() {
         setAutoUpdatesEnabled(state.autoUpdatesEnabled !== false);
         setProjectFiles(state.projectFiles || []);
         setCloudState(cloud);
+        if (cloud.signedIn) {
+          void window.rmango.getCloudUsage().then(setCloudUsage).catch(() => setCloudUsage(null));
+        } else {
+          setCloudUsage(null);
+        }
         setConversationId(cloud.currentConversationId || undefined);
         if (cloud.currentProjectId) {
           setCloudProjectId(cloud.currentProjectId);
@@ -317,6 +323,11 @@ function App() {
   async function refreshCloudState() {
     const state = await window.rmango.getCloudState();
     setCloudState(state);
+    if (state.signedIn) {
+      void window.rmango.getCloudUsage().then(setCloudUsage).catch(() => setCloudUsage(null));
+    } else {
+      setCloudUsage(null);
+    }
     if (state.signedIn && state.serviceReady) {
       setConversationId(state.currentConversationId || undefined);
       const [modelsResult, conversationsResult, tasksResult, projectsResult] = await Promise.allSettled([
@@ -596,6 +607,7 @@ function App() {
       await window.rmango.cloudSignOut();
       setCloudState(await window.rmango.getCloudState());
       setCloudModels(null);
+      setCloudUsage(null);
       setCloudConversations([]);
       setCloudTasks([]);
       setCloudProjects([]);
@@ -993,6 +1005,7 @@ function App() {
       if (activeRequestIdRef.current === requestId) activeRequestIdRef.current = null;
       if (cancelledRequestIdRef.current === requestId) cancelledRequestIdRef.current = null;
       setBusy(false);
+      void window.rmango.getCloudUsage().then(setCloudUsage).catch(() => undefined);
       composerRef.current?.focus();
     }
   }
@@ -1812,6 +1825,47 @@ function App() {
               </div>
               <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
             </div>
+
+            <section className="account-usage-card">
+              <div className="account-usage-heading">
+                <div>
+                  <div className="field-label">ACCOUNT PLAN</div>
+                  <strong>{cloudUsage?.planLabel || 'Plan information unavailable'}</strong>
+                </div>
+                <span className={'account-plan-pill ' + (cloudUsage?.unlimitedAccount ? 'admin' : '')}>
+                  {cloudUsage?.unlimitedAccount ? 'ADMIN' : cloudUsage ? 'ACTIVE PLAN' : 'LOADING'}
+                </span>
+              </div>
+              {cloudUsage ? <>
+                <div className="account-usage-grid">
+                  <div>
+                    <small>REQUESTS TODAY</small>
+                    <strong>{cloudUsage.usage.dailyRequests.toLocaleString()}</strong>
+                    <span>{cloudUsage.unlimitedAccount ? 'No personal limit' : 'of ' + cloudUsage.limits.dailyRequests!.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <small>REQUESTS THIS MONTH</small>
+                    <strong>{cloudUsage.usage.monthlyRequests.toLocaleString()}</strong>
+                    <span>{cloudUsage.unlimitedAccount ? 'No personal limit' : 'of ' + cloudUsage.limits.monthlyRequests!.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <small>TOKENS TODAY</small>
+                    <strong>{cloudUsage.usage.dailyTokens.toLocaleString()}</strong>
+                    <span>{cloudUsage.unlimitedAccount ? 'No personal limit' : 'of ' + cloudUsage.limits.dailyTokens!.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <small>TOKENS THIS MONTH</small>
+                    <strong>{cloudUsage.usage.monthlyTokens.toLocaleString()}</strong>
+                    <span>{cloudUsage.unlimitedAccount ? 'No personal limit' : 'of ' + cloudUsage.limits.monthlyTokens!.toLocaleString()}</span>
+                  </div>
+                </div>
+                <p className="account-usage-note">
+                  {cloudUsage.unlimitedAccount
+                    ? 'Administrator access has no personal daily or monthly request/token quota. The global service spend guard still applies.'
+                    : 'Usage resets daily and monthly. The service also enforces a global spend safety limit.'}
+                </p>
+              </> : <p className="account-usage-note">Usage details could not be loaded. Refresh the account state to try again.</p>}
+            </section>
 
             <div className="field-label">CLOUD MODEL PROFILES</div>
             <p className="settings-explainer">Choose a managed profile. Rmango routes requests to a compatible hosted model and uses fallbacks when configured.</p>

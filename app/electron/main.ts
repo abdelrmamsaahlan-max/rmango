@@ -469,6 +469,10 @@ async function getCloudModels() {
   return cloudApiRequest<any>('/api/models', {}, true);
 }
 
+async function getCloudUsage() {
+  return cloudApiRequest<any>('/api/usage', {}, true);
+}
+
 async function listCloudConversations(projectId?: string): Promise<CloudConversation[]> {
   const query = projectId ? '?projectId=' + encodeURIComponent(projectId) : '';
   const result = await cloudApiRequest<{ conversations: CloudConversation[] }>('/api/conversations' + query, {}, true);
@@ -1661,6 +1665,7 @@ handleIpc('settings:appearance', async (_event, theme: AppearanceTheme) => {
 });
 
 handleIpc('cloud:state', () => getCloudState());
+handleIpc('cloud:usage', () => getCloudUsage());
 handleIpc('cloud:sign-in', async (_event, payload: { email: string; password: string }) => {
   if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
     throw new Error('Enter your Rmango account email and password.');

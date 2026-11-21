@@ -682,3 +682,93 @@ body { min-width: 0; min-height: 0; background: var(--bg); }
   .attach-button { height: 29px; }
   .composer-disclaimer { font-size: 8px; line-height: 1.45; text-align: left; }
 }
+
+
+/* Account plan and token usage */
+.account-usage-card {
+  margin: 17px 0 20px;
+  padding: 14px;
+  border: 1px solid #36464d;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #1c2930, #17232b);
+}
+.account-usage-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+.account-usage-heading > div { display: flex; flex-direction: column; gap: 5px; }
+.account-usage-heading .field-label { margin: 0; }
+.account-usage-heading strong { color: #f2eee0; font-size: 15px; letter-spacing: -.2px; }
+.account-plan-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 25px;
+  padding: 0 9px;
+  border: 1px solid #47574e;
+  border-radius: 999px;
+  background: #25342e;
+  color: #cde4ca;
+  font: 8px var(--mono);
+  letter-spacing: .55px;
+}
+.account-plan-pill.admin {
+  border-color: #8b7140;
+  background: #3a3020;
+  color: #ffe0a0;
+}
+.account-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.account-usage-grid > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #34434a;
+  border-radius: 9px;
+  background: rgba(12, 20, 27, .42);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.account-usage-grid small {
+  color: #9aabb1;
+  font: 8px var(--mono);
+  letter-spacing: .5px;
+}
+.account-usage-grid strong {
+  color: #edf1ec;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.account-usage-grid span { color: #a3b2b4; font-size: 9px; line-height: 1.4; }
+.account-usage-note {
+  margin: 11px 2px 0;
+  color: #a9b7b7;
+  font-size: 9px;
+  line-height: 1.6;
+}
+.app-shell[data-theme="light"] .account-usage-card {
+  background: #f5f8f8;
+  border-color: #dce4e6;
+}
+.app-shell[data-theme="light"] .account-usage-heading strong,
+.app-shell[data-theme="light"] .account-usage-grid strong { color: #26343b; }
+.app-shell[data-theme="light"] .account-usage-grid > div {
+  background: #fff;
+  border-color: #dfe6e8;
+}
+.app-shell[data-theme="light"] .account-usage-grid small { color: #78878e; }
+.app-shell[data-theme="light"] .account-usage-grid span,
+.app-shell[data-theme="light"] .account-usage-note { color: #718087; }
+.app-shell[data-theme="light"] .account-plan-pill {
+  background: #eef6ee; border-color: #d2e4d0; color: #386447;
+}
+.app-shell[data-theme="light"] .account-plan-pill.admin {
+  background: #fff5df; border-color: #ead7ab; color: #76561e;
+}

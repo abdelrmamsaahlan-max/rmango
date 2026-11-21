@@ -5,7 +5,7 @@ import { createAuthClient } from "@/lib/supabase";
 export const runtime = "nodejs";
 
 const schema = z.object({
-  email: z.string().trim().email().max(254),
+  email: z.string().trim().toLowerCase().email().max(254),
   password: z.string().min(1).max(128),
 });
 
@@ -18,9 +18,18 @@ export async function POST(request: Request) {
   }
 
   const supabase = createAuthClient();
-  const { data, error } = await supabase.auth.signInWithPassword(payload);
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: payload.email.toLowerCase(),
+    password: payload.password,
+  });
   if (error || !data.session || !data.user) {
-    return NextResponse.json({ error: error?.message || "Sign in failed." }, { status: 401 });
+    const authCode = (error as { code?: string } | null)?.code;
+    const message = authCode === "invalid_credentials"
+      ? "Email or password was not accepted. If this is your first time using Rmango, choose Create account. If you just registered, confirm your email first."
+      : authCode === "email_not_confirmed"
+        ? "Confirm your Rmango email address before signing in. Check your inbox and spam folder for the confirmation email."
+        : error?.message || "Sign in failed.";
+    return NextResponse.json({ error: message }, { status: 401 });
   }
 
   return NextResponse.json({
