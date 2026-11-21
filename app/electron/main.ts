@@ -76,6 +76,18 @@ const settingsPath = () => path.join(userData(), 'settings.json');
 const sessionPath = () => path.join(userData(), 'session.json');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
 
+let cloudAuthGeneration = 0;
+let cloudRefreshFlight: {
+  refreshToken: string;
+  generation: number;
+  promise: Promise<CloudSession>;
+} | null = null;
+
+function resetCloudAuthRefreshState() {
+  cloudAuthGeneration += 1;
+  cloudRefreshFlight = null;
+}
+
 const DEFAULT_SETTINGS: SettingsFile = {
   appearance: 'dark',
   density: 'comfortable',
@@ -169,27 +181,73 @@ async function clearCloudSession() {
 }
 
 async function refreshCloudSession(session: CloudSession): Promise<CloudSession> {
-  const baseUrl = await getCloudApiBaseUrl();
-  if (!baseUrl) throw new Error('The Rmango cloud backend is not configured in this build.');
-  const response = await fetch(baseUrl + '/api/auth/refresh', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ refreshToken: session.refreshToken }),
-    signal: AbortSignal.timeout(20_000),
-  });
-  const payload = await response.json() as any;
-  if (!response.ok || !payload.session || !payload.user) {
-    throw new Error(payload.error || 'Your Rmango cloud session expired. Please sign in again.');
+  const generation = cloudAuthGeneration;
+  const currentFlight = cloudRefreshFlight;
+  if (currentFlight && currentFlight.refreshToken === session.refreshToken && currentFlight.generation === generation) {
+    return currentFlight.promise;
   }
-  const next: CloudSession = {
-    ...session,
-    accessToken: payload.session.accessToken,
-    refreshToken: payload.session.refreshToken,
-    expiresAt: payload.session.expiresAt,
-    user: payload.user,
-  };
-  await writeCloudSession(next);
-  return next;
+
+  const promise = (async () => {
+    const baseUrl = await getCloudApiBaseUrl();
+    if (!baseUrl) throw new Error('The Rmango cloud backend is not configured in this build.');
+
+    const response = await fetch(baseUrl + '/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken: session.refreshToken }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const raw = await response.text();
+    let payload: any = {};
+    try { payload = raw ? JSON.parse(raw) : {}; }
+    catch { payload = { error: raw.slice(0, 500) }; }
+
+    if (!response.ok || !payload.session || !payload.user) {
+      if (response.status === 401 && generation === cloudAuthGeneration) {
+        const stored = await readCloudSession();
+        if (stored?.refreshToken === session.refreshToken && stored.user.id === session.user.id) {
+          await clearCloudSession();
+          cloudAuthGeneration += 1;
+          cloudRefreshFlight = null;
+        }
+      }
+      throw new Error(payload.error || 'Your Rmango cloud session expired. Please sign in again.');
+    }
+
+    if (generation !== cloudAuthGeneration) {
+      throw new Error('Your Rmango account changed while the session was being refreshed. Please retry.');
+    }
+    if (payload.user.id !== session.user.id) {
+      throw new Error('The refreshed account did not match the saved Rmango account. Sign in again.');
+    }
+
+    const stored = await readCloudSession();
+    if (stored && stored.user.id !== session.user.id) {
+      throw new Error('A different Rmango account is now active. The older session was not restored.');
+    }
+    // Another caller may have already persisted the rotated token. Never overwrite it
+    // with an older response from the same account.
+    if (stored && stored.refreshToken !== session.refreshToken) return stored;
+
+    const next: CloudSession = {
+      ...session,
+      accessToken: payload.session.accessToken,
+      refreshToken: payload.session.refreshToken,
+      expiresAt: payload.session.expiresAt,
+      user: payload.user,
+    };
+    await writeCloudSession(next);
+    return next;
+  })();
+
+  const flight = { refreshToken: session.refreshToken, generation, promise };
+  cloudRefreshFlight = flight;
+  try {
+    return await promise;
+  } catch (error) {
+    if (cloudRefreshFlight === flight) cloudRefreshFlight = null;
+    throw error;
+  }
 }
 
 async function getValidCloudSession(): Promise<CloudSession> {
@@ -230,6 +288,7 @@ async function cloudApiRequest<T = any>(route: string, init: RequestInit = {}, a
 }
 
 async function cloudSignIn(email: string, password: string) {
+  resetCloudAuthRefreshState();
   const payload = await cloudApiRequest<any>('/api/auth/sign-in', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
@@ -246,6 +305,7 @@ async function cloudSignIn(email: string, password: string) {
 }
 
 async function cloudSignUp(email: string, password: string, displayName?: string) {
+  resetCloudAuthRefreshState();
   const payload = await cloudApiRequest<any>('/api/auth/sign-up', {
     method: 'POST',
     body: JSON.stringify({ email, password, displayName }),
@@ -263,6 +323,7 @@ async function cloudSignUp(email: string, password: string, displayName?: string
 }
 
 async function cloudSignOut() {
+  resetCloudAuthRefreshState();
   const session = await readCloudSession();
   if (session?.studioConnectorId) await disconnectCloudStudioConnector().catch(() => undefined);
   if (session) {
@@ -276,8 +337,14 @@ async function getCloudState() {
   const apiBaseUrl = await getCloudApiBaseUrl();
   const session = await readCloudSession();
   if (!apiBaseUrl) {
-    return { configured: false, signedIn: Boolean(session), email: session?.user.email, message: 'Cloud backend URL has not been configured in this build.' };
+    return {
+      configured: false,
+      signedIn: false,
+      accountVerified: false,
+      message: 'Cloud backend URL has not been configured in this build.',
+    };
   }
+
   let serviceReady = false;
   let healthError: string | undefined;
   try {
@@ -292,19 +359,49 @@ async function getCloudState() {
   } catch (error) {
     healthError = error instanceof Error ? error.message : 'Cloud backend is unavailable.';
   }
-  let signedIn = Boolean(session);
-  let email = session?.user.email;
+
+  let signedIn = false;
+  let accountVerified = false;
+  let email: string | undefined;
+  let displayName: string | undefined;
+  let emailVerified: boolean | undefined;
   if (session) {
-    try { await getValidCloudSession(); } catch { signedIn = false; email = undefined; }
+    try {
+      const account = await cloudApiRequest<any>('/api/auth/me', {}, true);
+      if (!account.user || account.user.id !== session.user.id) {
+        throw new Error('The active Rmango account did not match the saved session.');
+      }
+      signedIn = true;
+      accountVerified = true;
+      email = typeof account.user.email === 'string' ? account.user.email : session.user.email;
+      displayName = typeof account.user.displayName === 'string' ? account.user.displayName : undefined;
+      emailVerified = account.user.emailVerified === true;
+    } catch (error) {
+      const stillSaved = await readCloudSession();
+      signedIn = Boolean(stillSaved);
+      email = stillSaved?.user.email;
+      if (!signedIn && !healthError) {
+        healthError = 'Your saved Rmango session is no longer valid. Sign in again.';
+      } else if (signedIn && !healthError) {
+        healthError = error instanceof Error
+          ? 'Account verification is temporarily unavailable: ' + error.message
+          : 'Account verification is temporarily unavailable.';
+      }
+    }
   }
+
+  const latestSession = await readCloudSession();
   return {
     configured: true,
     serviceReady,
     signedIn,
+    accountVerified,
     email,
+    displayName,
+    emailVerified,
     apiHost: new URL(apiBaseUrl).host,
     message: healthError,
-    currentProjectId: session?.currentProjectId,
+    currentProjectId: latestSession?.currentProjectId,
   };
 }
 
