@@ -17,6 +17,7 @@ const api = {
   createCloudProject: (payload: { name: string; description?: string }) => ipcRenderer.invoke('cloud:projects:create', payload),
   updateCloudProject: (payload: { projectId: string; name?: string; description?: string }) => ipcRenderer.invoke('cloud:projects:update', payload),
   deleteCloudProject: (projectId: string) => ipcRenderer.invoke('cloud:projects:delete', projectId),
+  setCurrentCloudProjectId: (projectId?: string | null) => ipcRenderer.invoke('cloud:project:set-active', projectId),
   loadCloudConversation: (conversationId: string) => ipcRenderer.invoke('cloud:conversations:load', conversationId),
   createCloudConversation: (payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => ipcRenderer.invoke('cloud:conversations:create', payload),
   setCurrentConversationId: (conversationId?: string | null) => ipcRenderer.invoke('cloud:conversation:set-active', conversationId),
