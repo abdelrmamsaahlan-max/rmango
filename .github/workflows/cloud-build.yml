@@ -47,8 +47,8 @@ jobs:
       - name: Type-check cloud backend
         run: npm run typecheck
 
-      - name: Build and adapt cloud backend for Cloudflare Workers
-        run: npm run cf-build
+      - name: Build and validate Cloudflare Worker package (no deployment)
+        run: npm run cf-check
 
   desktop:
     name: Type-check and build RMango desktop client
