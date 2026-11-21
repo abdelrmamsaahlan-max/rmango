@@ -323,16 +323,22 @@ async function cloudApiRequest<T = any>(route: string, init: RequestInit = {}, a
 }
 
 async function cloudSignIn(email: string, password: string) {
+  const previousSession = await readCloudSession();
   resetCloudAuthRefreshState();
   const payload = await cloudApiRequest<any>('/api/auth/sign-in', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   }, false);
+  const sameAccount = Boolean(previousSession && previousSession.user.id === payload.user.id);
   const session: CloudSession = {
     accessToken: payload.session.accessToken,
     refreshToken: payload.session.refreshToken,
     expiresAt: payload.session.expiresAt,
     user: payload.user,
+    ...(sameAccount ? {
+      currentProjectId: previousSession?.currentProjectId,
+      currentConversationId: previousSession?.currentConversationId,
+    } : {}),
   };
   await writeCloudSession(session);
   if (mcpClient) await registerCloudStudioConnector();
