@@ -8,10 +8,10 @@ import {
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
-  CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
+  AgentActivity, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
-type ActivityItem = { name: string; detail: string; ok: boolean };
+type ActivityItem = AgentActivity;
 type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
 type PendingFollowup = { id: string; content: string; profile: CloudProfile; attachments: PendingAttachment[]; queuedAt: string };
 
@@ -159,6 +159,18 @@ function App() {
       pendingDeltasRef.current.set(requestId, (pendingDeltasRef.current.get(requestId) || '') + delta);
       if (deltaFrameRef.current === null) deltaFrameRef.current = window.requestAnimationFrame(flushDeltas);
     });
+    const unsubscribeActivities = window.rmango.onCloudChatActivity(({ requestId, activity }) => {
+      if (completedRequestsRef.current.has(requestId)) return;
+      setActivities(current => {
+        const incoming = { ...activity, requestId };
+        const key = incoming.id || incoming.name;
+        const existingIndex = current.findIndex(item => item.requestId === requestId && (item.id || item.name) === key);
+        if (existingIndex < 0) return [...current, incoming].slice(-80);
+        const next = [...current];
+        next[existingIndex] = incoming;
+        return next;
+      });
+    });
     const unsubscribeProjectUpload = window.rmango.onProjectUploadProgress(progress => {
       setProjectUploadProgress(progress);
     });
@@ -199,6 +211,7 @@ function App() {
       deltaFrameRef.current = null;
       pendingDeltasRef.current.clear();
       unsubscribeDeltas();
+      unsubscribeActivities();
       unsubscribeProjectUpload();
     };
   }, []);
@@ -622,7 +635,7 @@ function App() {
       completedRequestsRef.current.add(requestId);
       pendingDeltasRef.current.delete(requestId);
       if (result.conversationId) setConversationId(result.conversationId);
-      setActivities(result.activity || []);
+      if (result.activity?.length) setActivities(current => [...current.filter(item => item.requestId !== requestId), ...result.activity.map(item => ({ ...item, requestId }))].slice(-80));
       setMessages(current => current.map(message =>
         message.id === requestId ? { ...message, content: result.content, modelProfile: result.profile } : message
       ));
@@ -631,6 +644,15 @@ function App() {
       const trailingDelta = pendingDeltasRef.current.get(requestId) || '';
       pendingDeltasRef.current.delete(requestId);
       const wasCancelled = cancelledRequestIdRef.current === requestId;
+      const failureMessage = error instanceof Error ? error.message : 'The Rmango cloud request failed.';
+      setActivities(current => [...current, {
+        id: 'request-result',
+        requestId,
+        name: wasCancelled ? 'Generation stopped' : 'Request failed',
+        detail: wasCancelled ? 'Stopped by the user.' : failureMessage,
+        ok: false,
+        status: wasCancelled ? 'cancelled' as const : 'failed' as const,
+      }].slice(-80));
       if (wasCancelled) {
         setMessages(current => current.map(item => {
           if (item.id !== requestId) return item;
@@ -1157,7 +1179,9 @@ function App() {
             {activities.length
               ? activities.slice(-7).reverse().map((item, index) =>
                   <div className="activity-item" key={item.name + '-' + index}>
-                    <span className={'activity-check ' + (item.ok ? 'ok' : 'bad')}>{item.ok ? <Check size={11}/> : <AlertCircle size={11}/>}</span>
+                    <span className={'activity-check ' + (item.status === 'running' ? 'running' : item.ok ? 'ok' : 'bad')}>
+                      {item.status === 'running' ? <LoaderCircle size={11} className="spin"/> : item.ok ? <Check size={11}/> : <AlertCircle size={11}/>}
+                    </span>
                     <div><strong>{item.name}</strong><span>{item.detail}</span></div>
                   </div>
                 )

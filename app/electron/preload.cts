@@ -44,6 +44,11 @@ const api = {
     ipcRenderer.on('cloud:chat-delta', listener);
     return () => ipcRenderer.removeListener('cloud:chat-delta', listener);
   },
+  onCloudChatActivity: (callback: (event: { requestId: string; activity: { id: string; name: string; detail: string; ok: boolean; status?: 'running' | 'completed' | 'failed' | 'cancelled' } }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { requestId: string; activity: { id: string; name: string; detail: string; ok: boolean; status?: 'running' | 'completed' | 'failed' | 'cancelled' } }) => callback(payload);
+    ipcRenderer.on('cloud:chat-activity', listener);
+    return () => ipcRenderer.removeListener('cloud:chat-activity', listener);
+  },
   onToolApproval: (callback: (request: any) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, request: any) => callback(request);
     ipcRenderer.on('studio:approval-request', listener);

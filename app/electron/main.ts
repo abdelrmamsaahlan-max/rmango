@@ -37,7 +37,7 @@ type CloudSession = {
 };
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
 type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
-type ActivityItem = { name: string; detail: string; ok: boolean };
+type ActivityItem = { id?: string; name: string; detail: string; ok: boolean; status?: 'running' | 'completed' | 'failed' | 'cancelled' };
 type AppUpdateState = {
   status: 'idle' | 'unsupported' | 'checking' | 'downloading' | 'downloaded' | 'not-available' | 'error';
   currentVersion: string;
@@ -354,19 +354,75 @@ async function sendCloudMessage(payload: {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    const isEventStream = response.headers.get('X-Rmango-Stream-Protocol') === 'ndjson-v1';
     let content = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const delta = decoder.decode(value, { stream: true });
-      if (delta) {
-        content += delta;
-        for (const window of BrowserWindow.getAllWindows()) {
-          if (!window.isDestroyed()) window.webContents.send('cloud:chat-delta', { requestId, delta });
+    let buffer = '';
+    const activityById = new Map<string, ActivityItem>();
+
+    const emitDelta = (delta: string) => {
+      if (!delta) return;
+      content += delta;
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send('cloud:chat-delta', { requestId, delta });
+      }
+    };
+
+    const emitActivity = (value: any) => {
+      if (!value || typeof value !== 'object' || typeof value.id !== 'string' || typeof value.name !== 'string' || typeof value.detail !== 'string') return;
+      const statuses = ['running', 'completed', 'failed', 'cancelled'] as const;
+      const status = statuses.includes(value.status) ? value.status : (value.ok === false ? 'failed' : 'completed');
+      const item: ActivityItem = {
+        id: value.id.slice(0, 180),
+        name: value.name.slice(0, 120),
+        detail: value.detail.slice(0, 500),
+        status,
+        ok: status === 'completed',
+      };
+      activityById.set(item.id!, item);
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send('cloud:chat-activity', { requestId, activity: item });
+      }
+    };
+
+    const consumeFrame = (line: string) => {
+      if (!line.trim()) return;
+      let event: any;
+      try { event = JSON.parse(line); }
+      catch { throw new Error('The cloud AI stream contained an invalid event. Update RMango and try again.'); }
+      if (event.type === 'text' && typeof event.text === 'string') {
+        emitDelta(event.text);
+      } else if (event.type === 'activity') {
+        emitActivity(event.activity);
+      } else if (event.type === 'error') {
+        throw new Error(typeof event.message === 'string' ? event.message : 'The cloud AI stream failed.');
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const decoded = decoder.decode(value, { stream: true });
+        if (!isEventStream) { emitDelta(decoded); continue; }
+        buffer += decoded;
+        let newline = buffer.indexOf(String.fromCharCode(10));
+        while (newline >= 0) {
+          consumeFrame(buffer.slice(0, newline));
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf(String.fromCharCode(10));
         }
       }
+      const finalChunk = decoder.decode();
+      if (isEventStream) {
+        buffer += finalChunk;
+        if (buffer.trim()) consumeFrame(buffer);
+      } else {
+        emitDelta(finalChunk);
+      }
+    } catch (error) {
+      void reader.cancel().catch(() => undefined);
+      throw error;
     }
-    content += decoder.decode();
     const preferences = await readSettings();
     if (preferences.desktopNotifications && Notification.isSupported() && (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused() || mainWindow.isMinimized())) {
       new Notification({ title: 'Rmango response ready', body: 'Your Roblox development response has finished.' }).show();
@@ -379,7 +435,7 @@ async function sendCloudMessage(payload: {
       conversationId: response.headers.get('X-Rmango-Conversation-Id') || payload.conversationId || undefined,
       modelId: response.headers.get('X-Rmango-Model') || undefined,
       profile: returnedProfile && allowedProfiles.includes(returnedProfile) ? returnedProfile : payload.profile,
-      activity: [] as ActivityItem[],
+      activity: Array.from(activityById.values()),
     };
   } catch (error) {
     if (controller.signal.aborted) {
