@@ -208,6 +208,7 @@ async function cloudSignUp(email: string, password: string, displayName?: string
 
 async function cloudSignOut() {
   const session = await readCloudSession();
+  if (session?.studioConnectorId) await disconnectCloudStudioConnector().catch(() => undefined);
   if (session) {
     try { await cloudApiRequest('/api/auth/sign-out', { method: 'POST', body: '{}' }); } catch { /* Always clear local session. */ }
   }
@@ -248,11 +249,12 @@ async function sendCloudMessage(payload: {
   profile: CloudProfile;
   projectId?: string;
   conversationId?: string;
+  requestId?: string;
 }) {
   const session = await getValidCloudSession();
   const baseUrl = await getCloudApiBaseUrl();
   if (!baseUrl) throw new Error('The Rmango cloud backend is not configured.');
-  const requestId = randomUUID();
+  const requestId = payload.requestId || randomUUID();
   const response = await fetch(baseUrl + '/api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer ' + session.accessToken },
@@ -320,7 +322,13 @@ function createWindow() {
 }
 
 async function connectRoblox() {
-  if (mcpClient) return { ok: true, connected: true, toolCount: connectedTools.length };
+  if (mcpClient) {
+    const cloudLink = await registerCloudStudioConnector().catch(error => ({
+      linked: false,
+      message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
+    }));
+    return { ok: true, connected: true, toolCount: connectedTools.length, cloudLinked: cloudLink.linked, cloudMessage: cloudLink.message };
+  }
   if (process.platform !== 'win32') {
     return { ok: false, connected: false, error: 'The bundled Roblox Studio MCP connection is configured for Windows.' };
   }
@@ -347,12 +355,18 @@ async function connectRoblox() {
     mcpTransport = transport;
     connectedTools = result.tools as McpTool[];
     selectedStudioId = await discoverStudioId().catch(() => undefined);
+    const cloudLink = await registerCloudStudioConnector().catch(error => ({
+      linked: false,
+      message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
+    }));
     return {
       ok: true,
       connected: true,
       toolCount: connectedTools.length,
       tools: connectedTools.map(tool => tool.name),
       studioId: selectedStudioId,
+      cloudLinked: cloudLink.linked,
+      cloudMessage: cloudLink.message,
     };
   } catch (error) {
     mcpClient = null;
@@ -364,6 +378,7 @@ async function connectRoblox() {
 }
 
 async function disconnectRoblox() {
+  await disconnectCloudStudioConnector().catch(() => undefined);
   for (const [requestId, resolve] of approvalResolvers) {
     resolve(false);
     approvalResolvers.delete(requestId);
@@ -805,58 +820,21 @@ ipcMain.handle('app:get-state', async () => {
   };
 });
 
-ipcMain.handle('settings:get', async () => {
-  const settings = await readSettings();
-  const configuredProviders = (['anthropic', 'openai'] as const).filter(provider =>
-    Boolean(settings.encryptedApiKeys?.[provider] || (settings.provider === provider && settings.encryptedApiKey) || volatileApiKeys[provider])
-  );
-  const provider = settings.provider || 'ollama';
-  return {
-    provider,
-    model: settings.model || DEFAULT_LOCAL_MODEL,
-    keyConfigured: provider === 'ollama' || configuredProviders.includes(provider),
-    configuredProviders,
-    secureStorageAvailable: safeStorage.isEncryptionAvailable(),
-  };
-});
-
-ipcMain.handle('settings:save', async (_event, incoming: { provider: Provider; model: string; apiKey?: string }) => {
-  if (!['ollama', 'anthropic', 'openai'].includes(incoming.provider)) throw new Error('Unsupported AI provider.');
-  const previous = await readSettings();
-  const encryptedApiKeys: Partial<Record<'anthropic' | 'openai', string>> = { ...(previous.encryptedApiKeys || {}) };
-  if (previous.encryptedApiKey && previous.provider !== 'ollama' && !encryptedApiKeys[previous.provider]) {
-    encryptedApiKeys[previous.provider] = previous.encryptedApiKey;
+ipcMain.handle('cloud:state', () => getCloudState());
+ipcMain.handle('cloud:sign-in', async (_event, payload: { email: string; password: string }) => {
+  if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
+    throw new Error('Enter your Rmango account email and password.');
   }
-  const model = incoming.model.trim() || (incoming.provider === 'ollama' ? DEFAULT_LOCAL_MODEL : incoming.provider === 'anthropic' ? 'claude-sonnet' : 'gpt-4.1');
-  const settings: SettingsFile = { ...previous, provider: incoming.provider, model, encryptedApiKeys };
-  delete settings.encryptedApiKey;
-  let keySaved = incoming.provider === 'ollama' || Boolean(encryptedApiKeys[incoming.provider as 'anthropic' | 'openai']);
-  let persistent = true;
-  if (incoming.provider !== 'ollama' && incoming.apiKey?.trim()) {
-    const provider = incoming.provider;
-    if (safeStorage.isEncryptionAvailable()) {
-      encryptedApiKeys[provider] = safeStorage.encryptString(incoming.apiKey.trim()).toString('base64');
-      delete volatileApiKeys[provider];
-      keySaved = true;
-    } else {
-      volatileApiKeys[provider] = incoming.apiKey.trim();
-      persistent = false;
-      keySaved = true;
-    }
-  }
-  await writeSettings(settings);
-  return {
-    ok: true,
-    keySaved,
-    persistent,
-    message: incoming.provider === 'ollama'
-      ? 'Local model settings saved. No provider API key is used.'
-      : persistent ? 'Optional cloud provider settings saved securely.' : 'Settings saved; the new provider key remains available only until Rmango closes.',
-  };
+  return cloudSignIn(payload.email, payload.password);
 });
-
-ipcMain.handle('local-ai:state', async (_event, model?: string) => getLocalAiState(model));
-ipcMain.handle('local-ai:pull', async (_event, model: string) => pullLocalModel(model));
+ipcMain.handle('cloud:sign-up', async (_event, payload: { email: string; password: string; displayName?: string }) => {
+  if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
+    throw new Error('Enter an email and password to create a Rmango account.');
+  }
+  return cloudSignUp(payload.email, payload.password, payload.displayName);
+});
+ipcMain.handle('cloud:sign-out', () => cloudSignOut());
+ipcMain.handle('cloud:models', () => getCloudModels());
 
 ipcMain.handle('project:open', async () => {
   const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
@@ -875,12 +853,16 @@ ipcMain.handle('project:clear', async () => {
 
 ipcMain.handle('mcp:connect', () => connectRoblox());
 ipcMain.handle('mcp:disconnect', () => disconnectRoblox());
-ipcMain.handle('mcp:state', () => ({
-  connected: mcpAvailable(),
-  toolCount: safeToolList().length,
-  tools: safeToolList().map(tool => tool.name),
-  studioId: selectedStudioId || null,
-}));
+ipcMain.handle('mcp:state', async () => {
+  const session = await readCloudSession();
+  return {
+    connected: mcpAvailable(),
+    cloudLinked: Boolean(session?.studioConnectorId && session.studioConnectorSecret),
+    toolCount: safeToolList().length,
+    tools: safeToolList().map(tool => tool.name),
+    studioId: selectedStudioId || null,
+  };
+});
 ipcMain.handle('mcp:list-tools', () => ({
   all: connectedTools.map(tool => ({ name: tool.name, description: tool.description || '' })),
   readOnly: safeToolList().filter(tool => READ_ONLY_STUDIO_TOOLS.has(tool.name)).map(tool => tool.name),
@@ -912,32 +894,34 @@ ipcMain.handle('chat:save', async (_event, messages: ChatMessage[]) => {
   return { ok: true };
 });
 
-ipcMain.handle('chat:send', async (_event, payload: { messages: ChatMessage[]; attachments?: Attachment[]; mode: string }) => {
-  const settings = await readSettings();
-  const model = settings.model || DEFAULT_LOCAL_MODEL;
-  const messages = (payload.messages || []).slice(-24).map(message => ({ role: message.role, content: message.content }));
-  const attachments = (payload.attachments || []).slice(0, 8);
-  const activity: ActivityItem[] = [];
-  let result = '';
-  if (settings.provider === 'ollama') {
-    const state = await getLocalAiState(model);
-    if (!state.running) throw new Error('Ollama is not running. Install Ollama for Windows, open it once, then click Check local model in Rmango.');
-    if (!state.modelInstalled) throw new Error('The local model ' + model + ' is not downloaded yet. Use Download model in Rmango Settings.');
-    result = await callOllama(messages, model, activity, settings.projectPath, attachments);
-  } else {
-    const provider = settings.provider;
-    const apiKey = await getApiKey(provider);
-    if (!apiKey) throw new Error('Add an optional ' + provider + ' API key in Settings, or switch back to Local AI.');
-    if (attachments.some(attachment => attachment.kind === 'image')) {
-      throw new Error('Image understanding is currently available with the Local AI (Ollama) provider. Switch to Local AI to analyse photos.');
-    }
-    const fileContext = makeAttachmentContext(attachments).fileContext;
-    if (fileContext && messages.length) messages[messages.length - 1].content += '\n\n' + fileContext;
-    result = provider === 'openai'
-      ? await callOpenAI(messages, apiKey, model, activity, settings.projectPath)
-      : await callAnthropic(messages, apiKey, model, activity, settings.projectPath);
+ipcMain.handle('cloud:send', async (_event, payload: {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  attachments?: Attachment[];
+  profile: CloudProfile;
+  projectId?: string;
+  conversationId?: string;
+  requestId?: string;
+}) => {
+  const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
+  if (!payload || !Array.isArray(payload.messages) || !allowedProfiles.includes(payload.profile)) {
+    throw new Error('The cloud request is invalid.');
   }
-  return { content: result, activity };
+  if (payload.messages.length < 1 || payload.messages.length > 30) {
+    throw new Error('A conversation request must contain 1–30 messages.');
+  }
+  const messages = payload.messages.slice(-30).map(message => ({
+    role: message.role,
+    content: String(message.content || '').slice(0, 100_000),
+  }));
+  const attachments = (payload.attachments || []).slice(0, 8);
+  return sendCloudMessage({
+    messages,
+    attachments,
+    profile: payload.profile,
+    projectId: payload.projectId,
+    conversationId: payload.conversationId,
+    requestId: payload.requestId,
+  });
 });
 
 ipcMain.handle('updates:get-state', () => appUpdateState);
