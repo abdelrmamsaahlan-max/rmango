@@ -4,6 +4,7 @@ export type AppPreferences = {
   appearance: 'dark' | 'light' | 'system';
   density: 'comfortable' | 'compact';
   animationsEnabled: boolean;
+  reducedMotion: boolean;
   fontSize: 'small' | 'medium' | 'large';
   sendOnEnter: boolean;
   desktopNotifications: boolean;
