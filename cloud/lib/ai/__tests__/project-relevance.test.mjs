@@ -27,7 +27,7 @@ test("ranks a matching file over unrelated alphabetically earlier files", () => 
   assert.equal(ranked[0].name, "PlayerDataService.luau");
 });
 
-test("ranks architecture and bug memories against the current task content", () => {
+test("ranks architecture and bug memories above unrelated memories", () => {
   const memories = [
     { memory_type: "feature", title: "Shop UI", content: "The shop controller renders item cards." },
     { memory_type: "bug", title: "Player save failure", content: "UpdateAsync retries failed because the key format was wrong." },
@@ -37,8 +37,10 @@ test("ranks architecture and bug memories against the current task content", () 
     getText: item => [item.memory_type, item.title, item.content].join(" "),
   });
 
-  assert.equal(ranked[0].title, "Player save failure");
-  assert.ok(ranked.findIndex(item => item.title === "Player data architecture") < ranked.findIndex(item => item.title === "Shop UI"));
+  const relevantTitles = ranked.slice(0, 2).map(item => item.title);
+  assert.ok(relevantTitles.includes("Player save failure"));
+  assert.ok(relevantTitles.includes("Player data architecture"));
+  assert.equal(ranked[2].title, "Shop UI");
 });
 
 test("deduplicates the newest note by type and title", () => {

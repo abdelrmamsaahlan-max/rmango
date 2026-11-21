@@ -539,8 +539,9 @@ export async function POST(request: Request) {
       inputSchema: z.object({
         projectId: z.string().uuid(),
         memoryType: z.enum(["concept", "architecture", "decision", "bug", "feature", "task", "note"]).optional(),
+        search: z.string().trim().min(2).max(120).optional(),
       }),
-      execute: async ({ projectId, memoryType }) => {
+      execute: async ({ projectId, memoryType, search }) => {
         const { data: project, error: projectError } = await supabase
           .from("projects").select("id").eq("id", projectId).eq("owner_id", user.id).maybeSingle();
         if (projectError || !project) throw new Error("That cloud project was not found.");
