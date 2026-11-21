@@ -28,6 +28,7 @@ const api = {
   loadMessages: () => ipcRenderer.invoke('chat:load'),
   saveMessages: (messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt: string }>) =>
     ipcRenderer.invoke('chat:save', messages),
+  cancelMessage: (requestId: string) => ipcRenderer.invoke('cloud:cancel', requestId),
   sendMessage: (payload: {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     attachments?: Array<{ name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string }>;
