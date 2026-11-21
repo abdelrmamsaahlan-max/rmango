@@ -11,6 +11,7 @@ on:
       - upgrade/project-context-retrieval
       - upgrade/agent-workspace-studio
       - upgrade/rmango-native-identity-ui
+      - upgrade/security-continuous-learning-updater
     paths:
       - "app/**"
       - ".github/workflows/windows-installer.yml"
