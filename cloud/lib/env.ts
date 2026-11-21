@@ -21,8 +21,7 @@ export function publicApiStatus() {
   const serverKeyConfigured = Boolean(getSupabaseServerKey());
 
   return {
-    deployment: process.env.VERCEL_ENV || "self-hosted",
-    providerConfigured: Boolean(optionalEnv("SYNAP_API_KEY")),
+    deployment: "cloudflare-workers",
     supabaseUrlConfigured,
     publishableKeyConfigured,
     serverKeyConfigured,
