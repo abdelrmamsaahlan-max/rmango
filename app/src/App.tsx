@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type {
   AIProvider, AppState, AttachmentPayload, ChatAttachment, ChatMessage,
-  LocalAiState, ProjectFile, Settings, StudioApprovalRequest
+  LocalAiState, ProjectFile, Settings, StudioApprovalRequest, UpdateState
 } from './types';
 
 type ActivityItem = { name: string; detail: string; ok: boolean };
@@ -98,9 +98,16 @@ function App() {
   const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const unsubscribe = window.rmango.onUpdateStatus(state => setUpdateState(state));
+    void window.rmango.getUpdateState().then(setUpdateState).catch(() => undefined);
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     Promise.all([window.rmango.getAppState(), window.rmango.getSettings(), window.rmango.loadMessages()])
@@ -175,6 +182,29 @@ function App() {
       setToast(error instanceof Error ? error.message : 'Could not download the local model.');
     } finally {
       setPullingModel(false);
+    }
+  }
+
+  async function handleCheckUpdates() {
+    try {
+      const state = await window.rmango.checkForUpdates();
+      setUpdateState(state);
+      if (state.status === 'not-available') setToast('Rmango is already up to date.');
+      else if (state.status === 'unsupported') setToast(state.message || 'Updates are available in the installed Windows app.');
+      else if (state.status === 'error') setToast(state.error || 'Could not check for updates.');
+      else if (state.status === 'checking') setToast('Checking GitHub Releases…');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not check for updates.');
+    }
+  }
+
+  async function handleInstallUpdate() {
+    try {
+      const result = await window.rmango.installUpdate();
+      if (!result.ok) setToast(result.message || 'The update is not ready to install.');
+      else setToast(result.message || 'Restarting to install the update…');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not install the update.');
     }
   }
 
@@ -427,9 +457,47 @@ function App() {
           <span className="status-dot"/>{studioConnected ? 'Studio connected' : 'Studio offline'}
         </div>
         <button className="icon-button top-icon" title="Roblox MCP help" onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}><CircleHelp size={17}/></button>
+        <button
+          className="top-update-button"
+          onClick={() => updateState?.status === 'downloaded' ? void handleInstallUpdate() : void handleCheckUpdates()}
+          title="Check GitHub Releases for a newer Rmango version"
+          disabled={updateState?.status === 'checking' || updateState?.status === 'downloading'}
+        >
+          {updateState?.status === 'checking' || updateState?.status === 'downloading'
+            ? <LoaderCircle size={13} className="spin"/>
+            : updateState?.status === 'downloaded' ? <Download size={13}/> : <RefreshCw size={13}/>}
+          {updateState?.status === 'downloaded' ? 'Install update' : 'Check updates'}
+        </button>
         <button className="top-settings" onClick={() => setSettingsOpen(true)}><Settings2 size={15}/> Settings</button>
         <div className="avatar"><MangoMark size={25}/></div>
       </header>
+
+      {updateState && ['checking', 'downloading', 'downloaded', 'error'].includes(updateState.status) && (
+        <div className={'update-banner ' + updateState.status}>
+          <div className="update-banner-icon">
+            {updateState.status === 'error' ? <AlertCircle size={16}/> : updateState.status === 'downloaded' ? <CheckCircle2 size={16}/> : <Download size={16}/>}
+          </div>
+          <div className="update-banner-copy">
+            <strong>
+              {updateState.status === 'checking' && 'Checking for Rmango updates'}
+              {updateState.status === 'downloading' && 'A new Rmango version is downloading'}
+              {updateState.status === 'downloaded' && 'Update ready to install'}
+              {updateState.status === 'error' && 'Could not update Rmango'}
+            </strong>
+            <span>
+              {updateState.status === 'checking' && 'Looking for a newer version on GitHub Releases…'}
+              {updateState.status === 'downloading' && (updateState.message || 'Downloading update in the background…')}
+              {updateState.status === 'downloaded' && ('Version ' + (updateState.availableVersion || '') + ' is ready. Restart when you are ready.')}
+              {updateState.status === 'error' && (updateState.error || updateState.message || 'Check your internet connection and try again.')}
+            </span>
+            {updateState.status === 'downloading' && (
+              <div className="update-progress-track"><div className="update-progress-fill" style={{ width: Math.max(0, Math.min(100, updateState.progress || 0)) + '%' }}/></div>
+            )}
+          </div>
+          {updateState.status === 'downloaded' && <button className="update-install-button" onClick={() => void handleInstallUpdate()}>Restart &amp; install <ArrowRight size={13}/></button>}
+          {updateState.status === 'error' && <button className="update-retry-button" onClick={() => void handleCheckUpdates()}>Retry</button>}
+        </div>
+      )}
 
       <div className="workspace-layout">
         <nav className="activity-rail">
