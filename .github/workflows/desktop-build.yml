@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - upgrade/project-context-retrieval
+      - upgrade/agent-workspace-studio
     paths:
       - "app/**"
       - ".github/workflows/desktop-build.yml"
