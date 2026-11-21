@@ -14,15 +14,6 @@ on:
       - "cloud/**"
       - ".github/workflows/cloud-build.yml"
   workflow_dispatch:
-    inputs:
-      confirm_deploy:
-        description: "Set to yes only when you intend to deploy rmango-cloud"
-        required: true
-        type: choice
-        options:
-          - "no"
-          - "yes"
-        default: "no"
 
 permissions:
   contents: read
@@ -87,7 +78,7 @@ jobs:
   deploy:
     name: Manually deploy RMango to Cloudflare Workers
     needs: cloud
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_deploy == 'yes' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     defaults:
