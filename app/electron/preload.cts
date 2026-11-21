@@ -12,6 +12,9 @@ const api = {
   openProject: () => ipcRenderer.invoke('project:open'),
   clearProject: () => ipcRenderer.invoke('project:clear'),
   uploadCloudProject: () => ipcRenderer.invoke('project:upload-cloud'),
+  getCloudProjectChanges: (projectId: string) => ipcRenderer.invoke('project:changes', projectId),
+  reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => ipcRenderer.invoke('project:review-change', payload),
+  downloadCloudProject: (projectId: string) => ipcRenderer.invoke('project:download-cloud', projectId),
   onProjectUploadProgress: (callback: (event: any) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: any) => callback(payload);
     ipcRenderer.on('project:upload-progress', listener);
