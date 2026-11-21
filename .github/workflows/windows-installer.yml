@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Optional version tag (example: v0.3.0). Leave blank for an automatic build version."
+        description: "Optional stable version tag (example: v0.3.0). Leave blank for a CI-only build."
         required: false
         default: ""
         type: string
