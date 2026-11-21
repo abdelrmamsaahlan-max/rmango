@@ -205,10 +205,10 @@ function App() {
           try {
             setCloudModels(await window.rmango.getCloudModels());
             setCloudConversations(await window.rmango.getCloudConversations());
-            if (!restoredMessages.length && cloud.currentConversationId) {
+            if (cloud.currentConversationId) {
               const restored = await window.rmango.loadCloudConversation(cloud.currentConversationId);
-              restoredMessages = restored.messages || [];
-              if (restored.conversation.project_id) setCloudProjectId(restored.conversation.project_id);
+              if (!restoredMessages.length) restoredMessages = restored.messages || [];
+              setCloudProjectId(restored.conversation.project_id || undefined);
             }
           } catch (error) {
             setToast(error instanceof Error ? error.message : 'Could not restore cloud chat history.');
@@ -410,6 +410,8 @@ function App() {
       await window.rmango.cloudSignOut();
       setCloudState(await window.rmango.getCloudState());
       setCloudModels(null);
+      setCloudConversations([]);
+      setConversationId(undefined);
       if (appState?.studioConnected) await refreshMcpState();
       setToast('Signed out of Rmango Cloud.');
     } catch (error) {
