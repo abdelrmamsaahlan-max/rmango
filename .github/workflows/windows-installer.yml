@@ -55,6 +55,19 @@ jobs:
 
           Write-Host "Source archive verified and extracted."
 
+      - name: Generate a valid 256x256 Windows app icon
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/generate-icon.ps1")) {
+            throw "Missing build/generate-icon.ps1."
+          }
+          Copy-Item -LiteralPath "build/generate-icon.ps1" -Destination "app-src/build/generate-icon.ps1" -Force
+          & "app-src/build/generate-icon.ps1"
+          if (-not (Test-Path "app-src/build/icon.ico")) {
+            throw "The Windows icon generator did not create app-src/build/icon.ico."
+          }
+          Write-Host "Windows icon generated successfully."
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
