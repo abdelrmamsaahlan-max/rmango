@@ -55,7 +55,7 @@ jobs:
             Write-Host "Using verified fallback source archive."
           }
 
-          foreach ($required in @("package.json", "electron/main.ts", "electron/preload.cts", "src/App.tsx", "src/styles.css", "build/generate-icon.ps1")) {
+          foreach ($required in @("package.json", "electron/main.ts", "electron/preload.cts", "src/App.tsx", "src/styles.css", "build/generate-icon.ps1", "cloud-config.json")) {
             if (-not (Test-Path (Join-Path "app-src" $required))) {
               throw "Application source is missing required file: $required"
             }
@@ -69,6 +69,26 @@ jobs:
             throw "The mango icon generator did not create app-src/build/icon.ico."
           }
           Write-Host "Windows mango icon generated successfully."
+
+      - name: Configure public Rmango Cloud API URL
+        shell: pwsh
+        env:
+          RMANGO_CLOUD_API_URL: ${{ vars.RMANGO_CLOUD_API_URL }}
+        run: |
+          $configPath = "app-src/cloud-config.json"
+          $apiUrl = ($env:RMANGO_CLOUD_API_URL ?? "").Trim().TrimEnd("/")
+          if ($apiUrl) {
+            $parsed = [Uri]::new($apiUrl)
+            if ($parsed.Scheme -ne "https" -or -not $parsed.IsAbsoluteUri) {
+              throw "RMANGO_CLOUD_API_URL must be an absolute HTTPS URL."
+            }
+          }
+          @{ apiBaseUrl = $apiUrl } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
+          if ($apiUrl) {
+            Write-Host "Configured Rmango Cloud endpoint: $($parsed.Host)"
+          } else {
+            Write-Warning "RMANGO_CLOUD_API_URL repository variable is empty. The installer will display Cloud not configured until a new build is made."
+          }
 
       - name: Import optional Windows code-signing certificate
         shell: pwsh
