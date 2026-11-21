@@ -160,3 +160,8 @@ This document is an audit/plan, not a declaration that every planned system is c
 - Document parsing has bounded code paths and compile coverage, but no corpus-based PDF/DOCX fixture tests, malformed-file fuzzing or scanned-PDF OCR has been implemented.
 - The follow-up queue has not yet received a UI automation test for rapid consecutive sends, app shutdown while queued, user sign-out mid-queue or failure/retry behavior.
 - No paid inference or model capability benchmark was run. Paid usage policy remains disabled.
+
+
+### Attachment context continuity
+
+Extracted PDF/DOCX text is retained with the owner-scoped conversation message in a bounded `attachment_context` field (maximum 24,000 characters per turn). Later turns retrieve excerpts from at most the previous six user messages, capped at 36,000 characters combined, and place them in the untrusted user-context channel. The original document and image binaries are not stored in chat JSON. The retrieval text is included in the usage reservation estimate. Images remain available to the model on the turn in which they are uploaded; users must reattach an image to refer to its visual details in a later turn.
