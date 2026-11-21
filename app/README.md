@@ -21,7 +21,7 @@ No hosted model request or paid inference has been run from this code. No cloud 
 
 1. Authorize the Rmango Vercel team/project scope.
 2. Create a dedicated Supabase project for Rmango. Do not reuse an unrelated app database.
-3. Apply `cloud/supabase/migrations/202611210001_rmango_cloud.sql`.
+3. Apply migrations in order: `202611210001_rmango_cloud.sql`, `202611220001_rmango_agent_workspace.sql`, then `202611230001_rmango_learning_loop.sql`.
 4. Create a Vercel project from this repository with Root Directory set to `cloud`.
 5. Enable Vercel OIDC for the Vercel project.
 6. Add the server-only environment variables described in [cloud/README.md](cloud/README.md).
@@ -37,15 +37,15 @@ Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) 
 
 The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
 
-Installed Windows builds check GitHub Releases after startup and every four hours. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+Installed Windows builds check GitHub Releases after startup, every five minutes while running, and when Windows resumes from sleep. Updates download in the background and installation still requires the user's click. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
 
 ## Automatic updates
 
 Every push to `main` builds and verifies a versioned Windows NSIS installer artifact. It publishes the EXE and `latest.yml` to a public GitHub Release **only when** the GitHub repository variable `RMANGO_CLOUD_API_URL` is set to the deployed Rmango Cloud HTTPS URL. Without that URL, the installer is retained as a CI artifact and no public release is published.
 
-The last pre-cloud desktop release is local-AI based and cannot run the new cloud-only client. After the backend is deployed and `RMANGO_CLOUD_API_URL` is configured, install the first cloud-enabled release manually once; later releases can be installed from inside Rmango. Current published build and signing state should be checked on the Releases page.
+Public Windows releases are blocked unless the deployed HTTPS `RMANGO_CLOUD_API_URL` and a valid Authenticode signing certificate are configured. Set GitHub Actions secrets `RMANGO_SIGNING_PFX_BASE64`, `RMANGO_SIGNING_PFX_PASSWORD`, and repository variable `RMANGO_SIGNING_PUBLISHER_NAME` to the exact certificate subject. The pipeline verifies both the installer and packaged `Rmango.exe`, and configures signature verification for auto-updates. Pull-request installers are unsigned test artifacts, not public releases. SmartScreen reputation may still need time to build after a signed release; never disable Defender or bypass warnings to run an unsigned build.
 
-## Developer hot reload
+## Continuous improvement (not instant model retraining)\n\nRMango reuses project-scoped verified memories, records compact playtest/console verification metrics for completed tasks, and accepts optional helpful/not-helpful ratings. These update future project context and evaluation, not the hosted foundation model's weights. Raw conversations and source files are not copied into the evaluation signals.\n\n## Windows security\n\nThe desktop enables Electron sandboxing, context isolation, trusted-renderer IPC checks, a restrictive Content Security Policy, blocked popups/webviews and permissions, HTTPS-only cloud endpoints, and OS-encrypted account/session and chat-history storage. Public releases require a verified Authenticode signature.\n\n## Developer hot reload
 
 From `app/`:
 
