@@ -360,6 +360,9 @@ async function cloudSignIn(email: string, password: string) {
     body: JSON.stringify({ email, password }),
   }, false);
   const sameAccount = Boolean(previousSession && previousSession.user.id === payload.user.id);
+  if (previousSession && !sameAccount && previousSession.studioConnectorId) {
+    await disconnectCloudStudioConnector().catch(() => undefined);
+  }
   const session: CloudSession = {
     accessToken: payload.session.accessToken,
     refreshToken: payload.session.refreshToken,
@@ -373,7 +376,7 @@ async function cloudSignIn(email: string, password: string) {
   await writeCloudSession(session);
   if (mcpClient) {
     await discoverStudioInstances().catch(() => []);
-    if (selectedStudioId) await registerCloudStudioConnector();
+    if (selectedStudioId) await registerCloudStudioConnector().catch(() => undefined);
   }
   return { ok: true, user: session.user };
 }
@@ -455,6 +458,9 @@ async function cloudSignInWithGoogle() {
     resolveCompletion = resolve;
     rejectCompletion = reject;
   });
+  // The OAuth callback can fail before the code reaches the await below.
+  // Attach a handler immediately so an early failure is never an unhandled rejection.
+  void completion.catch(() => undefined);
 
   const cleanup = () => {
     if (timeout) clearTimeout(timeout);
@@ -540,6 +546,8 @@ async function cloudSignInWithGoogle() {
       }
 
       callbackPage(response, 200, 'You’re signed in', 'Google authentication was successful.');
+      mainWindow?.show();
+      mainWindow?.focus();
       succeed(session.user);
     })().catch(error => {
       callbackPage(response, 500, 'Sign-in could not be completed', 'Rmango could not verify this Google sign-in. Return to the app and try again.');
@@ -549,9 +557,13 @@ async function cloudSignInWithGoogle() {
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => {
+      const onError = (error: NodeJS.ErrnoException) => {
         server.off('listening', onListening);
-        reject(error);
+        if (error.code === 'EADDRINUSE') {
+          reject(new Error('The local Google sign-in callback port is already in use. Close another Rmango instance and retry.'));
+        } else {
+          reject(error);
+        }
       };
       const onListening = () => {
         server.off('error', onError);
@@ -1835,7 +1847,8 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { void disconnectRoblox(); });
+app.on('before-quit', () => {
+  pendingGoogleOAuth?.cancel(); void disconnectRoblox(); });
 
 handleIpc('app:get-state', async () => {
   const settings = await readSettings();
