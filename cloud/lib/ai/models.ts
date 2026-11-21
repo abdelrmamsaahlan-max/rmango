@@ -143,12 +143,12 @@ function modelCapabilityScore(model: GatewayModel, profile: ModelProfile): numbe
 
   if (profile === "fast") {
     if (has("fast") || has("low-latency")) score += 6;
-    if (/\\b(fast|speed|instant|flash|haiku)\\b/.test(text)) score += 1.5;
+    if (/\b(fast|speed|instant|flash|haiku)\b/.test(text)) score += 1.5;
     score -= costPenalty * 1.7;
   } else if (profile === "developer") {
     if (has("tool-use")) score += 6;
     if (has("reasoning")) score += 1.5;
-    if (/\\b(code|coder|coding|developer|programming)\\b/.test(text)) score += 4;
+    if (/\b(code|coder|coding|developer|programming)\b/.test(text)) score += 4;
     score -= costPenalty * 0.45;
   } else if (profile === "think") {
     if (has("reasoning")) score += 8;
