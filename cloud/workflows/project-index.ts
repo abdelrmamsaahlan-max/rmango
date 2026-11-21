@@ -8,7 +8,7 @@ function extension(path: string) {
   return index < 0 ? "" : path.slice(index).toLowerCase();
 }
 
-export async function indexProjectStep(projectId: string, ownerId: string, taskId?: string) {
+export async function indexProjectStep(projectId: string, ownerId: string, taskId?: string, force = false) {
   "use step";
   const admin = createAdminClient();
   const { data: run, error: runError } = await admin.from("project_index_runs").insert({
@@ -36,7 +36,9 @@ export async function indexProjectStep(projectId: string, ownerId: string, taskI
     const allFiles = files || [];
     const projectPaths = allFiles.map(file => file.relative_path);
     const pathToId = new Map(allFiles.map(file => [file.relative_path.replace(/\\/g, "/"), file.id]));
-    const pending = allFiles.filter(file => (file.index_version || 0) < PROJECT_INDEX_VERSION);
+    const pending = force
+      ? allFiles
+      : allFiles.filter(file => (file.index_version || 0) < PROJECT_INDEX_VERSION);
 
     for (let offset = 0; offset < pending.length; offset += 8) {
       const batch = pending.slice(offset, offset + 8);
@@ -156,7 +158,7 @@ export async function indexProjectStep(projectId: string, ownerId: string, taskI
   }
 }
 
-export async function runProjectIndexWorkflow(projectId: string, ownerId: string) {
+export async function runProjectIndexWorkflow(projectId: string, ownerId: string, force = true) {
   "use workflow";
-  return indexProjectStep(projectId, ownerId);
+  return indexProjectStep(projectId, ownerId, undefined, force);
 }
