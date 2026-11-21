@@ -7,6 +7,9 @@ import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import electronUpdater from 'electron-updater';
+
+const { autoUpdater } = electronUpdater;
 
 type Provider = 'ollama' | 'anthropic' | 'openai';
 type ChatMessage = { role: 'user' | 'assistant'; content: string; createdAt?: string };
@@ -21,6 +24,15 @@ type SettingsFile = {
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
 type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
 type ActivityItem = { name: string; detail: string; ok: boolean };
+type AppUpdateState = {
+  status: 'idle' | 'unsupported' | 'checking' | 'downloading' | 'downloaded' | 'not-available' | 'error';
+  currentVersion: string;
+  availableVersion?: string;
+  progress?: number;
+  message?: string;
+  error?: string;
+  releaseNotes?: string;
+};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OLLAMA_BASE = 'http://127.0.0.1:11434';
@@ -34,6 +46,13 @@ let connectedTools: McpTool[] = [];
 let selectedStudioId: string | undefined;
 const volatileApiKeys: Partial<Record<'anthropic' | 'openai', string>> = {};
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+let updateCheckInFlight = false;
+let appUpdateState: AppUpdateState = {
+  status: 'idle',
+  currentVersion: app.getVersion(),
+  message: 'Updates are checked automatically.',
+};
 
 const userData = () => app.getPath('userData');
 const settingsPath = () => path.join(userData(), 'settings.json');
@@ -663,8 +682,140 @@ async function callOpenAI(messages: ChatMessage[], apiKey: string, model: string
   return 'I reached the eight-step tool-call limit. The results are in the activity panel; ask me to continue.';
 }
 
+function broadcastUpdateState(next: Partial<AppUpdateState>) {
+  appUpdateState = {
+    ...appUpdateState,
+    ...next,
+    currentVersion: app.getVersion(),
+  };
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send('updates:status', appUpdateState);
+  }
+}
+
+function formatReleaseNotes(value: unknown): string {
+  if (typeof value === 'string') return value.slice(0, 4_000);
+  if (Array.isArray(value)) {
+    return value
+      .map(item => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const entry = item as Record<string, unknown>;
+          return String(entry.note || entry.version || '');
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 4_000);
+  }
+  return '';
+}
+
+async function checkForAppUpdates(): Promise<AppUpdateState> {
+  if (!app.isPackaged || process.platform !== 'win32') {
+    broadcastUpdateState({
+      status: 'unsupported',
+      message: 'GitHub updates are available in the installed Windows app.',
+    });
+    return appUpdateState;
+  }
+
+  if (updateCheckInFlight) return appUpdateState;
+  updateCheckInFlight = true;
+  broadcastUpdateState({ status: 'checking', error: undefined, message: 'Checking GitHub Releases…' });
+
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    broadcastUpdateState({
+      status: 'error',
+      error: message,
+      message: 'Could not check GitHub Releases.',
+    });
+  } finally {
+    updateCheckInFlight = false;
+  }
+  return appUpdateState;
+}
+
+function initializeAutoUpdates() {
+  if (!app.isPackaged || process.platform !== 'win32') {
+    broadcastUpdateState({
+      status: 'unsupported',
+      message: 'Updates are checked by the installed Windows version of Rmango.',
+    });
+    return;
+  }
+
+  // NSIS + electron-updater is the supported Windows self-update path.
+  // Downloads happen in the background; installation always waits for the user's click.
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.allowPrerelease = false;
+  autoUpdater.logger = console;
+
+  autoUpdater.on('checking-for-update', () => {
+    broadcastUpdateState({ status: 'checking', message: 'Checking GitHub Releases…' });
+  });
+
+  autoUpdater.on('update-available', info => {
+    broadcastUpdateState({
+      status: 'downloading',
+      availableVersion: info.version,
+      progress: 0,
+      message: 'Version ' + info.version + ' is available. Downloading in the background…',
+      error: undefined,
+    });
+  });
+
+  autoUpdater.on('download-progress', progress => {
+    broadcastUpdateState({
+      status: 'downloading',
+      progress: Math.max(0, Math.min(100, progress.percent)),
+      message: 'Downloading update… ' + Math.round(progress.percent) + '%',
+    });
+  });
+
+  autoUpdater.on('update-downloaded', info => {
+    broadcastUpdateState({
+      status: 'downloaded',
+      availableVersion: info.version,
+      progress: 100,
+      releaseNotes: formatReleaseNotes(info.releaseNotes),
+      message: 'Version ' + info.version + ' is ready to install.',
+    });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    broadcastUpdateState({
+      status: 'not-available',
+      availableVersion: undefined,
+      progress: undefined,
+      error: undefined,
+      message: 'You are using the latest version.',
+    });
+  });
+
+  autoUpdater.on('error', error => {
+    broadcastUpdateState({
+      status: 'error',
+      error: error.message,
+      message: 'The update check or download failed.',
+    });
+  });
+
+  // Check once shortly after launch and then every four hours.
+  const startupTimer = setTimeout(() => { void checkForAppUpdates(); }, 8_000);
+  startupTimer.unref();
+  const updateTimer = setInterval(() => { void checkForAppUpdates(); }, UPDATE_CHECK_INTERVAL_MS);
+  updateTimer.unref();
+}
+
 app.whenReady().then(() => {
   createWindow();
+  initializeAutoUpdates();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
@@ -816,6 +967,19 @@ ipcMain.handle('chat:send', async (_event, payload: { messages: ChatMessage[]; a
       : await callAnthropic(messages, apiKey, model, activity, settings.projectPath);
   }
   return { content: result, activity };
+});
+
+ipcMain.handle('updates:get-state', () => appUpdateState);
+ipcMain.handle('updates:check', () => checkForAppUpdates());
+ipcMain.handle('updates:install', async () => {
+  if (!app.isPackaged || process.platform !== 'win32') {
+    return { ok: false, message: 'Install updates from a packaged Windows build.' };
+  }
+  if (appUpdateState.status !== 'downloaded') {
+    return { ok: false, message: 'There is no downloaded update ready to install.' };
+  }
+  autoUpdater.quitAndInstall(false, true);
+  return { ok: true, message: 'Restarting Rmango to install the update.' };
 });
 
 ipcMain.handle('app:open-external', async (_event, url: string) => {
