@@ -115,3 +115,12 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - During a running turn, the composer accepts additional text/files and queues up to six follow-ups for sequential processing in the same conversation after the active response. A follow-up does not alter the request already generating; this queue is not crash-persistent yet.
 - Studio MCP provides generation/edit tools for scripts, scenes, procedural models, meshes, materials, textures, animations and asset search/insertion where exposed by the connected Studio version. Mutations still require user approval.
 - The audio skill can author Roblox audio-engine setup and SFX/music integration and search permitted Creator Store assets. It cannot create a finished audio track through this MCP connector.
+
+
+## Workflow plans, verification state and context-window handling
+
+- The cloud chat coordinator classifies a request into quick, planning, agent, debug or deep-engineering behavior. Multi-step strategies persist an ordered plan with dependencies and observable acceptance criteria in the existing agent-task result JSON; no new database status constraint is required.
+- The task row's legacy `status` is a request-lifecycle field. It must not be interpreted as proof that implementation passed acceptance checks. The separate `result.verification.status` is authoritative: ordinary agent/debug/deep responses finish as `unverified` until independent evidence is recorded; planning-only requests use `not_applicable`.
+- The desktop task history displays the saved plan and makes the verification state visible instead of presenting a completed model response as a verified implementation.
+- Before quota reservation and inference, the chat route estimates text context and applies a conservative reserve for image inputs. When the live model catalogue reports a context window, it drops only the oldest complete user turns, preserves the latest request, reserves output tokens plus a safety margin, and rejects a request that still cannot fit. The character-based tokenizer is explicitly approximate; provider-reported usage remains the source for completed-request usage records.
+- This is bounded request-time compaction, not a durable background worker or vector retrieval system. The current workflow plan is persisted and visible, but live per-step editing, worker leases, automatic acceptance-test orchestration and long-running crash recovery remain future work.

@@ -1731,23 +1731,61 @@ function App() {
               <button className="subtle-icon" title="Refresh task history" onClick={() => void window.rmango.getCloudTasks(cloudProjectId).then(setCloudTasks).catch(error => setToast(error instanceof Error ? error.message : 'Could not refresh task history.'))}><RefreshCw size={13}/></button>
             </div>
             {cloudTasks.length
-              ? cloudTasks.slice(0, 4).map(task =>
-                  <div className="task-history-item" key={task.id}>
-                    <div className="task-history-top">
-                      <span className={'task-status-dot ' + task.status}/>
-                      <strong>{task.status.replace('_', ' ')}</strong>
-                      <time>{displayTime(task.created_at)}</time>
+              ? cloudTasks.slice(0, 4).map(task => {
+                  const result = task.result || {};
+                  const workflow = result.workflow && typeof result.workflow === 'object'
+                    ? result.workflow as Record<string, unknown>
+                    : {};
+                  const verification = result.verification && typeof result.verification === 'object'
+                    ? result.verification as Record<string, unknown>
+                    : {};
+                  const verificationStatus = typeof verification.status === 'string' ? verification.status : '';
+                  const plan = Array.isArray(workflow.plan)
+                    ? workflow.plan.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>
+                    : [];
+                  const strategy = typeof workflow.strategy === 'string' ? workflow.strategy : 'workflow';
+                  const unverified = verificationStatus === 'unverified';
+                  const taskLabel = unverified
+                    ? 'response finished · verification pending'
+                    : verificationStatus === 'not_applicable' && strategy === 'planning'
+                      ? 'plan prepared · awaiting execution'
+                      : task.status.replace('_', ' ');
+                  return (
+                    <div className="task-history-item" key={task.id}>
+                      <div className="task-history-top">
+                        <span className={'task-status-dot ' + task.status + (unverified ? ' unverified' : '')}/>
+                        <strong>{taskLabel}</strong>
+                        <time>{displayTime(task.created_at)}</time>
+                      </div>
+                      <p>{task.task_text}</p>
+                      {task.error && <span className="task-history-error">{task.error}</span>}
+                      {plan.length > 0 && <details className="task-events">
+                        <summary>{strategy} plan · {plan.length} steps</summary>
+                        <div>{plan.map((item, index) => {
+                          const title = typeof item.title === 'string' ? item.title : 'Step ' + (index + 1);
+                          const description = typeof item.description === 'string' ? item.description : '';
+                          const status = typeof item.status === 'string' ? item.status : 'pending';
+                          const dependsOn = Array.isArray(item.dependsOn)
+                            ? item.dependsOn.filter(value => typeof value === 'string').join(', ')
+                            : '';
+                          return (
+                            <span key={typeof item.id === 'string' ? item.id : index}>
+                              <i/><strong>{title}</strong>{description ? ' — ' + description : ''}
+                              <small>{status.replace('_', ' ')}{dependsOn ? ' · depends on ' + dependsOn : ''}</small>
+                            </span>
+                          );
+                        })}</div>
+                      </details>}
+                      {task.events.length > 0 && <details className="task-events">
+                        <summary>{task.events.length} recorded operations</summary>
+                        <div>{task.events.slice(-5).map(event =>
+                          <span key={event.id}><i/> {event.message}</span>
+                        )}</div>
+                      </details>}
+                      {unverified && <span className="task-history-error">Code or tool actions may have run, but passing tests have not been confirmed.</span>}
                     </div>
-                    <p>{task.task_text}</p>
-                    {task.error && <span className="task-history-error">{task.error}</span>}
-                    {task.events.length > 0 && <details className="task-events">
-                      <summary>{task.events.length} recorded operations</summary>
-                      <div>{task.events.slice(-5).map(event =>
-                        <span key={event.id}><i/> {event.message}</span>
-                      )}</div>
-                    </details>}
-                  </div>
-                )
+                  );
+                })
               : <div className="activity-empty"><Layers3 size={15}/><span>Coordinated agent tasks will be saved here.</span></div>}
           </section>
           <section className="inspector-section activity-section">

@@ -1092,6 +1092,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .task-status-dot{width:7px;height:7px;flex:none;border-radius:50%;background:#81907c}
 .task-status-dot.running,.task-status-dot.queued{background:#e8c45d;box-shadow:0 0 8px rgba(232,196,93,.26)}
 .task-status-dot.completed{background:#8dc99b;box-shadow:0 0 8px rgba(141,201,155,.24)}
+.task-status-dot.unverified{background:#d7bd69;box-shadow:0 0 8px rgba(215,189,105,.22)}
 .task-status-dot.failed{background:#d98576}
 .task-status-dot.cancelled{background:#8290a1}
 .task-history-item p{margin:0;color:#e4eadc;font-size:9px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -1099,7 +1100,9 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .task-events{border-top:1px solid #2a3f2e;padding-top:5px;color:#b5c3ac;font-size:8px}
 .task-events summary{cursor:pointer;color:#a9c49e}
 .task-events>div{display:flex;flex-direction:column;gap:5px;padding:6px 0 1px}
-.task-events span{display:flex;gap:6px;line-height:1.4;color:#94a690}
+.task-events span{display:flex;flex-wrap:wrap;gap:6px;line-height:1.4;color:#94a690}
+.task-events span strong{color:#cbdcbf;font-weight:600}
+.task-events span small{width:100%;padding-left:10px;color:#849783;font-size:7px}
 .task-events span i{width:4px;height:4px;flex:none;margin-top:3px;border-radius:50%;background:#d7bd69}
 
 

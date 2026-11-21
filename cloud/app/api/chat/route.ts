@@ -10,6 +10,7 @@ import { isAllowedStudioTool } from "@/lib/studio-connector";
 import { formatSelectedProjectContext, loadSelectedProjectContext } from "@/lib/ai/project-context";
 import { buildSkillContext } from "@/lib/ai/skills";
 import { buildAgentWorkflowContext } from "@/lib/ai/orchestration";
+import { compactMessagesToContextWindow } from "@/lib/ai/context";
 import { extractSupportedDocument } from "@/lib/ai/documents";
 
 export const runtime = "nodejs";
@@ -89,10 +90,6 @@ function safeProjectRelativePath(value: string) {
 
   return normalized;
 }
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
 function estimateCostUsd(inputTokens: number, outputTokens: number, inputPerMillion: number | null, outputPerMillion: number | null): number | null {
   if (inputPerMillion === null || outputPerMillion === null) return null;
   return (inputTokens * inputPerMillion + outputTokens * outputPerMillion) / 1_000_000;
@@ -156,7 +153,7 @@ export async function POST(request: Request) {
     Math.min(8192, Number(optionalEnv("RMANGO_MAX_OUTPUT_TOKENS") || 4096) || 4096),
   );
 
-  const messages = body.messages.slice(-24).map(message => ({
+  let messages = body.messages.slice(-24).map(message => ({
     role: message.role,
     content: message.content,
   })) as ModelMessage[];
@@ -363,9 +360,27 @@ export async function POST(request: Request) {
     contentParts[0].text = String(contentParts[0].text || "") + previousAttachmentContextText;
   }
 
-  const estimatedText = systemPrompt + JSON.stringify(body.messages) + selectedProjectContextText + previousAttachmentContextText + "\n" + textAttachmentSections.join("\n");
+  // Fit the selected model's actual reported context window before reserving usage.
+  // Image payloads are excluded from text estimation and receive a conservative reserve.
   const imageTokenReserve = attachmentParts.length * 20_000;
-  const estimateInputTokens = Math.ceil(estimateTokens(estimatedText) * 1.25) + imageTokenReserve;
+  const contextFit = compactMessagesToContextWindow({
+    messages,
+    systemPrompt,
+    contextWindowTokens: choice.primary.contextWindow,
+    maxOutputTokens,
+    imageTokenReserve,
+  });
+  if (!contextFit.fits) {
+    return NextResponse.json({
+      error: "The current request and required attachments exceed the selected model's usable context window. Remove a large attachment or start a new conversation.",
+      reason: "context_window_exceeded",
+      contextWindowTokens: choice.primary.contextWindow,
+      estimatedInputTokens: contextFit.estimatedInputTokens,
+      estimated: true,
+    }, { status: 413 });
+  }
+  messages = contextFit.messages as ModelMessage[];
+  const estimateInputTokens = contextFit.estimatedInputTokens;
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
   const estimatedCost = estimateCostUsd(
     estimateInputTokens,
@@ -439,6 +454,15 @@ export async function POST(request: Request) {
         conversation_id: conversationId,
         status: "running",
         task_text: latestUserPrompt.slice(0, 4_000),
+        result: {
+          workflow: {
+            strategy: workflow.strategy,
+            riskLevel: workflow.riskLevel,
+            domains: workflow.domains,
+            plan: workflow.plan,
+          },
+          verification: { status: "pending" },
+        },
       })
       .select("id")
       .maybeSingle();
@@ -467,8 +491,15 @@ export async function POST(request: Request) {
   if (agentTaskId) {
     await recordAgentEvent("started", "Started a coordinated Roblox development task.", {
       profile,
+      strategy: workflow.strategy,
+      riskLevel: workflow.riskLevel,
       domains: workflow.domains,
       projectId: selectedProjectId || null,
+    });
+    await recordAgentEvent("plan_created", workflow.plan.length + " ordered workflow steps prepared.", {
+      strategy: workflow.strategy,
+      riskLevel: workflow.riskLevel,
+      plan: workflow.plan,
     });
   }
 
@@ -848,10 +879,33 @@ export async function POST(request: Request) {
         });
         if (agentTaskId) {
           const taskWasCancelled = request.signal.aborted;
+          const planningOnly = workflow.strategy === "planning";
+          const verificationStatus = taskWasCancelled
+            ? "not_run"
+            : planningOnly
+              ? "not_applicable"
+              : "unverified";
           await supabase.from("agent_tasks").update({
+            // The legacy DB status records request lifecycle only. The separate
+            // verification field is authoritative for whether acceptance checks passed.
             status: taskWasCancelled ? "cancelled" : "completed",
             error: taskWasCancelled ? "Cancelled by the user." : null,
             result: {
+              outcome: taskWasCancelled ? "cancelled" : "response_completed",
+              workflow: {
+                strategy: workflow.strategy,
+                riskLevel: workflow.riskLevel,
+                domains: workflow.domains,
+                plan: workflow.plan,
+              },
+              verification: {
+                status: verificationStatus,
+                message: taskWasCancelled
+                  ? "The user cancelled this request before verification."
+                  : planningOnly
+                    ? "This was a planning-only request; no implementation was requested."
+                    : "The model response ended. Independent acceptance checks have not been recorded as passed.",
+              },
               modelId: actualModelId,
               profile,
               selectedSkills: skills.ids,
@@ -859,11 +913,21 @@ export async function POST(request: Request) {
             },
             updated_at: new Date().toISOString(),
           }).eq("id", agentTaskId).eq("owner_id", user.id);
-          await recordAgentEvent(taskWasCancelled ? "cancelled" : "completed",
-            taskWasCancelled ? "The coordinated task was stopped by the user." : "The coordinated task completed its model response.", {
-              modelId: actualModelId,
-              outputCharacters: finalText.length,
-            });
+          const completionEvent = taskWasCancelled
+            ? "cancelled"
+            : planningOnly
+              ? "plan_ready"
+              : "response_finished_unverified";
+          const completionMessage = taskWasCancelled
+            ? "The coordinated task was stopped by the user."
+            : planningOnly
+              ? "The plan is ready; no implementation was requested."
+              : "The model response finished; independent verification has not been recorded.";
+          await recordAgentEvent(completionEvent, completionMessage, {
+            modelId: actualModelId,
+            outputCharacters: finalText.length,
+            verificationStatus,
+          });
         }
       },
       onError: async () => {
@@ -900,6 +964,20 @@ export async function POST(request: Request) {
           catch { closed = true; }
         };
         try {
+          if (contextFit.removedMessageCount > 0) {
+            emit({
+              type: "activity",
+              activity: {
+                id: "context-compaction",
+                name: "Context manager",
+                detail: "Removed " + contextFit.removedMessageCount +
+                  " older messages to fit the selected model window. Estimated input: ~" +
+                  contextFit.estimatedInputTokens.toLocaleString("en-US") + " tokens.",
+                status: "completed",
+                ok: true,
+              },
+            });
+          }
           for await (const part of result.fullStream) {
             if (part.type === "text-delta" && part.text) { emit({ type: "text", text: part.text }); continue; }
             if (part.type === "start") {
