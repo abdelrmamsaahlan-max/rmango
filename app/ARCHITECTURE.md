@@ -151,3 +151,6 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - Task history exposes the last 12 trace events and expandable redacted diagnostics. The end-of-run quality-gate event reports tool failures but keeps independent acceptance checks pending; tool success is never treated as proof that a Roblox feature passed tests.
 
 - The overview command also detects bounded circular-dependency paths when stored target hints resolve to known project file paths. Ambiguous or unresolved dynamic references are counted separately and excluded from cycle claims.
+
+- Project deletion also removes checkpoint backup objects from private storage before cascading checkpoint metadata, preventing orphaned recovery blobs.
+- Approved-change checkpoints are currently one-file recovery points. Restore checks the recorded post-change SHA before writing and records a new checkpoint of the current state first; this gives a conflict-safe undo/redo path for individual approved cloud file changes, not a multi-file atomic transaction.

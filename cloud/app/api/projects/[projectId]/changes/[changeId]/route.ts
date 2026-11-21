@@ -171,7 +171,30 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
     upsert: true,
     cacheControl: "3600",
   });
-  if (storageError) return NextResponse.json({ error: "Could not apply the proposed file to private storage." }, { status: 503 });
+  if (storageError) {
+    let rollbackError: unknown = null;
+    if (currentFile && originalBytes) {
+      const restored = await supabase.storage.from("rmango-files").upload(storagePath, originalBytes, {
+        contentType: currentFile.mime_type || "text/plain",
+        upsert: true,
+      });
+      rollbackError = restored.error;
+    } else if (!currentFile) {
+      const removed = await supabase.storage.from("rmango-files").remove([storagePath]);
+      rollbackError = removed.error;
+    }
+    if (rollbackError) {
+      await supabase.from("project_checkpoints").update({ status: "restore_conflict" })
+        .eq("id", checkpointId).eq("owner_id", user.id);
+      return NextResponse.json({
+        error: "The object upload failed and automatic cleanup could not be confirmed. The recovery snapshot was retained.",
+        checkpointId,
+      }, { status: 503 });
+    }
+    if (currentFile) await supabase.storage.from("rmango-files").remove([checkpointBackupPath]);
+    await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+    return NextResponse.json({ error: "Could not apply the proposed file. The original file was preserved." }, { status: 503 });
+  }
 
   const { data: appliedFile, error: indexError } = await supabase.from("project_files").upsert({
     project_id: projectId,
@@ -210,8 +233,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
     }, { status: 503 });
   }
 
-  await supabase.from("project_checkpoints").update({ status: "ready" })
-    .eq("id", checkpointId).eq("owner_id", user.id);
+  const { error: checkpointReadyError } = await supabase.from("project_checkpoints")
+    .update({ status: "ready" }).eq("id", checkpointId).eq("owner_id", user.id);
+  if (checkpointReadyError) {
+    console.warn("RMango applied file but could not finalize its checkpoint status", { checkpointId, code: checkpointReadyError.code || "unknown" });
+  }
 
   // Indexing is recoverable and must not make an already applied source change
   // appear to be unreviewed. A missing graph migration leaves the index pending.
