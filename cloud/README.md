@@ -26,7 +26,7 @@ The selected model is text-only in this RMango configuration. Image uploads and 
 
 ## Deploy to Cloudflare Workers with GitHub Actions
 
-The repository includes a **manual-only** deployment workflow at `.github/workflows/deploy-cloudflare.yml`. It never deploys automatically on a push or pull request. The workflow requires an explicit `confirm_deploy: yes` selection.
+The existing `.github/workflows/cloud-build.yml` workflow includes a **manual-only** Cloudflare deploy job. The deploy job does not run on pushes or pull requests; it runs only when you manually dispatch the workflow and explicitly select `confirm_deploy: yes`. Normal pull-request checks still build and type-check both the desktop and cloud app.
 
 ### One-time Cloudflare setup
 
@@ -42,7 +42,7 @@ Never paste either value into chat, commit it, or put it in a source file. Keep 
 ### Deploy
 
 1. Open the repository's **Actions** tab.
-2. Select **Deploy RMango Cloudflare Worker**.
+2. Select **Build Rmango Cloud Backend**.
 3. Select branch `fix/synap-ai-provider` (or the reviewed deployment branch).
 4. Leave the confirmation at `no` unless you are deliberately deploying. Select `yes` only when ready.
 5. Run the workflow and read the deployment URL in the logs or Cloudflare Workers & Pages.
