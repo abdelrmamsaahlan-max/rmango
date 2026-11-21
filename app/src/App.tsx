@@ -873,7 +873,7 @@ function App() {
             <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioConnected ? 'live' : '')}>{studioConnected ? 'CONNECTED' : 'OFFLINE'}</span></div>
             <div className="studio-status-card">
               <div className={'studio-status-icon ' + (studioConnected ? 'live' : '')}><Gamepad2 size={19}/></div>
-              <div className="studio-status-copy"><strong>{studioConnected ? 'Studio session linked' : 'Waiting for Studio'}</strong><span>{studioConnected ? 'MCP server is responding' : 'Enable Studio as MCP server'}</span></div>
+              <div className="studio-status-copy"><strong>{studioConnected ? (studioCloudLinked ? 'Studio linked to cloud' : 'Studio session linked') : 'Waiting for Studio'}</strong><span>{studioConnected ? (studioCloudLinked ? 'Secure cloud bridge active' : 'Local MCP connected · sign in to link cloud AI') : 'Enable Studio as MCP server'}</span></div>
               <span className={'status-dot ' + (studioConnected ? 'bright' : '')}/>
               <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>ACCESS</span><strong>Approval gated</strong></div><div><span>PLATFORM</span><strong>Windows</strong></div></div>
             </div>
@@ -956,7 +956,7 @@ function App() {
                 <div className="project-change-card" key={change.id}>
                   <div className="project-change-heading">
                     <div><strong>{change.file_name}</strong><small>{change.relative_path}</small></div>
-                    <badge color={change.status === 'pending' ? 'warning' : change.status === 'approved' ? 'success' : 'secondary'}>{change.status.toUpperCase()}</badge>
+                    <span className={'change-status ' + change.status}>{change.status.toUpperCase()}</span>
                   </div>
                   <p>{change.change_summary}</p>
                   <div className="project-change-meta"><span>Created {displayTime(change.created_at)}</span><span>{change.original_sha256 ? 'Existing file' : 'New file'}</span></div>
