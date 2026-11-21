@@ -110,7 +110,8 @@ Current source-file import is limited to 120 files, 512 KB per file and supporte
 - Model profiles are dynamically selected from Gateway catalogue metadata. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
 - The desktop and cloud backend have CI build checks; live anonymous guest creation, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
 - The Agent Workspace supports durable plan/implementation tasks with saved events, pause/resume/cancel/retry and an incremental source index. Normal chat Studio calls remain synchronous and bounded by request timeouts.
-- Independent specialist-agent delegation, admin usage dashboard, admin model-routing editor, PDF/DOCX parsing, vector RAG, parser-backed/full semantic project indexing and binary Roblox project import are not complete.
+- The Lead agent can request up to three metered, read-only specialist reviews per task (Luau, gameplay, UI/UX, world, assets/animation, QA, performance, security and constrained research analysis). Formal conflict-resolution records, parallel sibling-agent runs, agent-level cost dashboards and external web research are still future work.
+- Admin usage dashboard, admin model-routing editor, PDF/DOCX parsing, vector RAG, parser-backed/full semantic project indexing and binary Roblox project import are not complete.
 - Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. A separate Vercel AI Gateway budget is still required.
 
 ## Repository structure
