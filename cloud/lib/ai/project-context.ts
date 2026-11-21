@@ -153,18 +153,19 @@ export async function loadSelectedProjectContext(
   let memoryCharactersRemaining = memoryCharacterLimit;
   const boundedMemories = selectedMemories.flatMap(memory => {
     if (memoryCharactersRemaining <= 0) return [];
-    const content = String(memory.content || "").slice(0, Math.min(1_500, memoryCharactersRemaining));
+    const sourceMemory = memory.item;
+    const content = String(sourceMemory.content || "").slice(0, Math.min(1_500, memoryCharactersRemaining));
     memoryCharactersRemaining -= content.length;
-    const updatedAt = String(memory.updated_at || "");
+    const updatedAt = String(sourceMemory.updated_at || "");
     const ageDays = Number.isFinite(Date.parse(updatedAt))
       ? Math.max(0, (Date.now() - Date.parse(updatedAt)) / 86_400_000)
       : Number.POSITIVE_INFINITY;
     return [{
-      id: memory.id,
-      type: String(memory.memory_type || "note").slice(0, 40),
-      title: String(memory.title || "").slice(0, 160),
+      id: sourceMemory.id,
+      type: String(sourceMemory.memory_type || "note").slice(0, 40),
+      title: String(sourceMemory.title || "").slice(0, 160),
       content,
-      sourceRef: memory.source_ref ? String(memory.source_ref).slice(0, 300) : null,
+      sourceRef: sourceMemory.source_ref ? String(sourceMemory.source_ref).slice(0, 300) : null,
       updatedAt,
       freshness: ageDays >= 180 ? "stale" as const : ageDays >= 60 ? "aging" as const : "recent" as const,
     }];

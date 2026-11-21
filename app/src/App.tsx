@@ -706,7 +706,8 @@ function App() {
       sendOnEnter: true,
       desktopNotifications: false,
       autoUpdatesEnabled: true,
-      defaultCloudProfile: 'developer',
+      defaultCloudProfile: 'auto',
+      intelligenceLevel: 'auto',
       saveLocalChatHistory: true,
       showInspectorByDefault: true,
     };

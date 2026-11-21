@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { gateway } from "@ai-sdk/gateway";
-import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
+import { stepCountIs, streamText, tool, type ModelMessage, type ToolSet } from "ai";
 import { z } from "zod";
 import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
 import { resolveProfile, type ModelProfile } from "@/lib/ai/models";
@@ -1142,7 +1142,7 @@ export async function POST(request: Request) {
     return modelFailure;
   };
 
-  const debugHypothesisTools = workflow.strategy === "debug" && agentTaskId ? {
+  const debugHypothesisTools: ToolSet = workflow.strategy === "debug" && agentTaskId ? {
     record_debug_hypothesis: tool({
       description: "Record one evidence-based debugging hypothesis and the test that could distinguish it from alternatives. Use only observed code, logs, or tool results as supporting evidence. Update the same hypothesis after a test; never mark a hypothesis confirmed from confidence alone. These notes stay in this task's history and are not permanent project memory.",
       inputSchema: z.object({

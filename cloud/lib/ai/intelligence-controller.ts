@@ -35,6 +35,7 @@ export type IntelligenceBudget = {
   externalSourcesAvailable: false;
   useProjectTools: boolean;
   useStudioTools: boolean;
+  externalSourcesAvailable: false;
 };
 
 export type IntelligencePlan = {
@@ -217,7 +218,7 @@ export function createIntelligencePlan(input: IntelligenceControllerInput): Inte
     ? input.levelSetting
     : automatic.level;
   const profileWasAutoSelected = input.requestedProfile === "auto";
-  const modelProfile = profileWasAutoSelected
+  const modelProfile: HostedModelProfile = input.requestedProfile === "auto"
     ? automaticProfile({ intent, level, hasImage, hasSelectedProject })
     : input.requestedProfile;
 
