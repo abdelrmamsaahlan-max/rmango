@@ -845,7 +845,7 @@ async function connectRoblox() {
     const alreadyLinked = Boolean(savedSession?.studioConnectorId && savedSession.studioConnectorSecret);
     const cloudLink = selectedStudioId
       ? alreadyLinked
-        ? { linked: true, message: "The cloud connector is already linked." }
+        ? (startStudioConnectorPolling(), { linked: true, message: "The cloud connector is linked and command polling is active." })
         : await registerCloudStudioConnector().catch(error => ({
             linked: false,
             message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
