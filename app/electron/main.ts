@@ -25,7 +25,7 @@ type CloudSession = {
   currentProjectId?: string;
 };
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
-type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
+type ApprovalRequest = { requestId: string; taskId?: string; name: string; description: string; arguments: Record<string, unknown> };
 type ActivityItem = { name: string; detail: string; ok: boolean };
 type AppUpdateState = {
   status: 'idle' | 'unsupported' | 'checking' | 'downloading' | 'downloaded' | 'not-available' | 'error';
@@ -471,14 +471,14 @@ function withStudioId(tool: McpTool, input: Record<string, unknown>) {
   return { ...input, studio_id: selectedStudioId };
 }
 
-async function requestStudioApproval(name: string, description: string, args: Record<string, unknown>) {
+async function requestStudioApproval(name: string, description: string, args: Record<string, unknown>, taskId?: string): Promise<boolean> {
   if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Rmango window is not available for the approval prompt.');
   const requestId = randomUUID();
   const safeArgs = JSON.parse(JSON.stringify(args, (_key, value) => {
     if (typeof value === 'string' && value.length > 5_000) return value.slice(0, 5_000) + '… [truncated]';
     return value;
   }));
-  const request: ApprovalRequest = { requestId, name, description, arguments: safeArgs };
+  const request: ApprovalRequest = { requestId, taskId, name, description, arguments: safeArgs };
   mainWindow.webContents.send('studio:approval-request', request);
   const approved = await new Promise<boolean>(resolve => {
     const timeout = setTimeout(() => {
@@ -490,17 +490,30 @@ async function requestStudioApproval(name: string, description: string, args: Re
       resolve(value);
     });
   });
-  if (!approved) throw new Error('The request for ' + name + ' was not approved. No Studio changes were made.');
+  return approved;
 }
 
-async function callStudioTool(name: string, args: Record<string, unknown>) {
+async function callStudioTool(
+  name: string,
+  args: Record<string, unknown>,
+  context?: { taskId?: string; onApproval?: (approved: boolean) => Promise<void> },
+) {
   if (!mcpClient) throw new Error('Roblox Studio is not connected.');
   const tool = connectedTools.find(item => item.name === name);
   if (!tool || (!READ_ONLY_STUDIO_TOOLS.has(name) && !APPROVAL_REQUIRED_STUDIO_TOOLS.has(name))) {
     throw new Error('Tool ' + name + ' is not enabled in Rmango.');
   }
   if (APPROVAL_REQUIRED_STUDIO_TOOLS.has(name)) {
-    await requestStudioApproval(name, tool.description || ('This action will run ' + name + ' in the connected Roblox Studio session.'), args);
+    const approved = await requestStudioApproval(
+      name,
+      tool.description || ('This action will run ' + name + ' in the connected Roblox Studio session.'),
+      args,
+      context?.taskId,
+    );
+    // Persist the decision before running any mutating tool. A cancelled/stale cloud command
+    // is rejected here, so an old approval dialog cannot mutate a later task.
+    if (context?.onApproval) await context.onApproval(approved);
+    if (!approved) throw new Error('The request for ' + name + ' was not approved. No Studio changes were made.');
   }
   const result = await mcpClient.callTool({ name, arguments: withStudioId(tool, args) });
   if ((result as any).isError) throw new Error(JSON.stringify((result as any).content || result).slice(0, 2_000));
@@ -567,7 +580,21 @@ async function pollCloudStudioCommands() {
         ? command.tool_arguments as Record<string, unknown>
         : {};
       try {
-        const result = await callStudioTool(toolName, args);
+        const taskId = typeof command.task_id === "string" ? command.task_id : undefined;
+        const result = await callStudioTool(toolName, args, {
+          taskId,
+          onApproval: taskId ? async approved => {
+            await cloudApiRequest("/api/studio/approval", {
+              method: "POST",
+              body: JSON.stringify({
+                connectorId: session.studioConnectorId,
+                connectorSecret: session.studioConnectorSecret,
+                commandId: command.id,
+                approved,
+              }),
+            });
+          } : undefined,
+        });
         await cloudApiRequest("/api/studio/result", {
           method: "POST",
           body: JSON.stringify({
