@@ -9,6 +9,9 @@ export type AppPreferences = {
   sendOnEnter: boolean;
   desktopNotifications: boolean;
   autoUpdatesEnabled: boolean;
+  defaultCloudProfile: CloudProfile;
+  saveLocalChatHistory: boolean;
+  showInspectorByDefault: boolean;
 };
 
 export type AttachmentKind = 'image' | 'file';
