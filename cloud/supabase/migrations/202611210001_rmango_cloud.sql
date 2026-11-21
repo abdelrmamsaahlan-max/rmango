@@ -328,7 +328,7 @@ begin
   -- A crashed request must not hold reserved quota forever. Route maxDuration is
   -- bounded well below this two-hour safety window.
   delete from public.usage_reservations
-    where owner_id = v_user_id and created_at < now() - interval '2 hours';
+    where created_at < now() - interval '2 hours';
 
   select * into v_policy from public.usage_policies where id = true;
   if not found or not v_policy.enabled
