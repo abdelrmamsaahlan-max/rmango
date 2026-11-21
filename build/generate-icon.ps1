@@ -1,18 +1,7 @@
-# Generates the Rmango Windows icon as a 256x256 PNG-backed ICO.
-# Uses only .NET System.Drawing available on Windows runners and Windows PCs.
+# Creates the Rmango mango app icon as a 256x256 PNG-backed Windows ICO.
+# Runs on Windows using the .NET System.Drawing assembly.
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
-
-$size = 512
-$bitmap = [System.Drawing.Bitmap]::new(
-  $size,
-  $size,
-  [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
-)
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-$graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
-$graphics.Clear([System.Drawing.Color]::FromArgb(0, 0, 0, 0))
 
 function New-RoundedPath([float]$x, [float]$y, [float]$width, [float]$height, [float]$radius) {
   $path = [System.Drawing.Drawing2D.GraphicsPath]::new()
@@ -25,50 +14,76 @@ function New-RoundedPath([float]$x, [float]$y, [float]$width, [float]$height, [f
   return $path
 }
 
+$size = 512
+$bitmap = [System.Drawing.Bitmap]::new($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+$graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+$graphics.Clear([System.Drawing.Color]::Transparent)
+
+# Deep green rounded tile.
 $tile = New-RoundedPath 10 10 492 492 112
-$background = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 20, 25, 19))
-$border = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255, 111, 145, 61), 8)
-$graphics.FillPath($background, $tile)
-$graphics.DrawPath($border, $tile)
-
-$inner = New-RoundedPath 28 28 456 456 94
-$innerBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 27, 36, 24))
-$graphics.FillPath($innerBrush, $inner)
-
-$font = [System.Drawing.Font]::new("Arial", 360, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-$format = [System.Drawing.StringFormat]::new()
-$format.Alignment = [System.Drawing.StringAlignment]::Center
-$format.LineAlignment = [System.Drawing.StringAlignment]::Center
-$letterRect = [System.Drawing.RectangleF]::new(28, 10, 456, 484)
-$shadow = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 8, 12, 7))
-$lime = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 203, 244, 105))
-$shadowRect = [System.Drawing.RectangleF]::new(34, 18, 456, 484)
-$graphics.DrawString("R", $font, $shadow, $shadowRect, $format)
-$graphics.DrawString("R", $font, $lime, $letterRect, $format)
-
-$leaf = [System.Drawing.PointF[]]@(
-  [System.Drawing.PointF]::new(372, 88),
-  [System.Drawing.PointF]::new(442, 56),
-  [System.Drawing.PointF]::new(414, 132),
-  [System.Drawing.PointF]::new(385, 149)
+$tileBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
+  [System.Drawing.Rectangle]::new(0, 0, 512, 512),
+  [System.Drawing.Color]::FromArgb(255, 34, 59, 34),
+  [System.Drawing.Color]::FromArgb(255, 10, 28, 18),
+  [single]42
 )
-$leafBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 116, 166, 58))
-$leafHighlight = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 208, 241, 109))
-$graphics.FillPolygon($leafBrush, $leaf)
-$leafInner = [System.Drawing.PointF[]]@(
-  [System.Drawing.PointF]::new(383, 100),
-  [System.Drawing.PointF]::new(430, 78),
-  [System.Drawing.PointF]::new(408, 120)
-)
-$graphics.FillPolygon($leafHighlight, $leafInner)
+$tileBorder = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255, 118, 157, 68), 7)
+$graphics.FillPath($tileBrush, $tile)
+$graphics.DrawPath($tileBorder, $tile)
 
-$iconBitmap = [System.Drawing.Bitmap]::new(
-  256,
-  256,
-  [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+# Mango fruit silhouette.
+$fruit = [System.Drawing.Drawing2D.GraphicsPath]::new()
+$fruit.AddBezier(250, 124, 166, 99, 104, 181, 132, 279)
+$fruit.AddBezier(132, 279, 151, 353, 217, 411, 286, 385)
+$fruit.AddBezier(286, 385, 363, 356, 423, 276, 386, 193)
+$fruit.AddBezier(386, 193, 356, 130, 300, 111, 250, 124)
+$fruit.CloseFigure()
+$fruitBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
+  [System.Drawing.Rectangle]::new(115, 110, 300, 300),
+  [System.Drawing.Color]::FromArgb(255, 255, 230, 115),
+  [System.Drawing.Color]::FromArgb(255, 237, 148, 30),
+  [single]40
 )
+$fruitOutline = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255, 255, 216, 95), 4)
+$graphics.FillPath($fruitBrush, $fruit)
+$graphics.DrawPath($fruitOutline, $fruit)
+
+# Soft golden highlight on the upper-left curve.
+$shine = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(125, 255, 255, 222), 13)
+$shine.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+$shine.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+$graphics.DrawArc($shine, 145, 145, 150, 170, 196, 105)
+
+# Green leaf and short curved stem.
+$leaf = [System.Drawing.Drawing2D.GraphicsPath]::new()
+$leaf.AddBezier(265, 135, 270, 68, 344, 44, 408, 75)
+$leaf.AddBezier(408, 75, 388, 136, 332, 163, 265, 135)
+$leaf.CloseFigure()
+$leafBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
+  [System.Drawing.Rectangle]::new(255, 42, 170, 125),
+  [System.Drawing.Color]::FromArgb(255, 184, 228, 111),
+  [System.Drawing.Color]::FromArgb(255, 49, 132, 65),
+  [single]28
+)
+$leafOutline = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255, 27, 83, 46), 4)
+$graphics.FillPath($leafBrush, $leaf)
+$graphics.DrawPath($leafOutline, $leaf)
+$vein = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(190, 33, 101, 53), 4)
+$vein.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+$vein.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+$graphics.DrawBezier($vein, 276, 131, 321, 105, 358, 89, 391, 82)
+
+# Tiny golden sparkle to make the mark readable at taskbar size.
+$sparkBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 255, 236, 151))
+$graphics.FillEllipse($sparkBrush, 390, 350, 13, 13)
+
+# Render an actual 256x256 frame before embedding it in the ICO.
+$iconBitmap = [System.Drawing.Bitmap]::new(256, 256, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
 $iconGraphics = [System.Drawing.Graphics]::FromImage($iconBitmap)
 $iconGraphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+$iconGraphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
 $iconGraphics.DrawImage($bitmap, 0, 0, 256, 256)
 
 $stream = [System.IO.MemoryStream]::new()
@@ -81,7 +96,7 @@ $header = [byte[]]::new(22)
 $header[0] = 0; $header[1] = 0
 $header[2] = 1; $header[3] = 0
 $header[4] = 1; $header[5] = 0
-$header[6] = 0; $header[7] = 0 # 256 x 256 is encoded as 0 x 0
+$header[6] = 0; $header[7] = 0
 $header[8] = 0; $header[9] = 0
 $header[10] = 1; $header[11] = 0
 $header[12] = 32; $header[13] = 0
@@ -98,17 +113,18 @@ $iconGraphics.Dispose()
 $iconBitmap.Dispose()
 $graphics.Dispose()
 $bitmap.Dispose()
-$background.Dispose()
-$border.Dispose()
-$innerBrush.Dispose()
-$font.Dispose()
-$format.Dispose()
-$shadow.Dispose()
-$lime.Dispose()
-$leafBrush.Dispose()
-$leafHighlight.Dispose()
 $tile.Dispose()
-$inner.Dispose()
+$tileBrush.Dispose()
+$tileBorder.Dispose()
+$fruit.Dispose()
+$fruitBrush.Dispose()
+$fruitOutline.Dispose()
+$shine.Dispose()
+$leaf.Dispose()
+$leafBrush.Dispose()
+$leafOutline.Dispose()
+$vein.Dispose()
+$sparkBrush.Dispose()
 
-Write-Host "Generated Rmango 256x256 Windows icon: $target"
+Write-Host "Generated Rmango mango icon (256x256): $target"
 Write-Host "ICO payload size: $($icoBytes.Length) bytes"
