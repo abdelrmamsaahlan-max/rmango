@@ -3,17 +3,18 @@ import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
-  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send,
+  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square
 } from 'lucide-react';
 import type {
-  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
-  AgentActivity, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
+  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
+  AgentActivity, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
 type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
 type PendingFollowup = { id: string; content: string; profile: CloudProfile; attachments: PendingAttachment[]; queuedAt: string };
+type ProjectDialogState = { mode: 'create' | 'rename'; projectId?: string; name: string; description: string } | null;
 
 const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -88,6 +89,14 @@ function App() {
   const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
+  const [cloudTasks, setCloudTasks] = useState<CloudAgentTask[]>([]);
+  const [cloudProjects, setCloudProjects] = useState<CloudProject[]>([]);
+  const [cloudProjectSearch, setCloudProjectSearch] = useState('');
+  const [projectDialog, setProjectDialog] = useState<ProjectDialogState>(null);
+  const [savingProject, setSavingProject] = useState(false);
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
+  const [chatReady, setChatReady] = useState(false);
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
   const [cloudProjectChanges, setCloudProjectChanges] = useState<CloudProjectChange[]>([]);
   const [projectChangesOpen, setProjectChangesOpen] = useState(false);
@@ -97,6 +106,9 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [studioTools, setStudioTools] = useState<string[]>([]);
+  const [studioReady, setStudioReady] = useState(false);
+  const [studioInstances, setStudioInstances] = useState<StudioInstance[]>([]);
+  const [selectedStudioId, setSelectedStudioId] = useState<string | undefined>();
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -109,6 +121,7 @@ function App() {
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark');
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
   const [sendOnEnter, setSendOnEnter] = useState(true);
   const [desktopNotifications, setDesktopNotifications] = useState(false);
@@ -182,12 +195,14 @@ function App() {
         setTheme(state.appearance || 'dark');
         setDensity(state.density || 'comfortable');
         setAnimationsEnabled(state.animationsEnabled !== false);
+        setReducedMotion(Boolean(state.reducedMotion));
         setFontSize(state.fontSize || 'medium');
         setSendOnEnter(state.sendOnEnter !== false);
         setDesktopNotifications(Boolean(state.desktopNotifications));
         setAutoUpdatesEnabled(state.autoUpdatesEnabled !== false);
         setProjectFiles(state.projectFiles || []);
         setCloudState(cloud);
+        setConversationId(cloud.currentConversationId || undefined);
         if (cloud.currentProjectId) {
           setCloudProjectId(cloud.currentProjectId);
           try {
@@ -195,12 +210,34 @@ function App() {
             setCloudProjectChanges(changeList.changes || []);
           } catch { /* Existing cloud project may no longer be accessible. */ }
         }
-        setMessages(savedMessages || []);
+        let restoredMessages = savedMessages || [];
         if (state.studioConnected) void refreshMcpState();
         if (cloud.signedIn && cloud.serviceReady) {
-          try { setCloudModels(await window.rmango.getCloudModels()); }
-          catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models.'); }
+          try {
+            const [models, conversations, tasks, projects] = await Promise.all([
+              window.rmango.getCloudModels(),
+              window.rmango.getCloudConversations(),
+              window.rmango.getCloudTasks(),
+              window.rmango.getCloudProjects(),
+            ]);
+            setCloudModels(models);
+            setCloudConversations(conversations);
+            setCloudTasks(tasks);
+            setCloudProjects(projects);
+            if (cloud.currentConversationId) {
+              const restored = await window.rmango.loadCloudConversation(cloud.currentConversationId);
+              if (restored.messages.length) restoredMessages = restored.messages;
+              const restoredProjectId = restored.conversation.project_id || null;
+              setCloudProjectId(restoredProjectId || undefined);
+              await window.rmango.setCurrentCloudProjectId(restoredProjectId);
+              setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
+            }
+          } catch (error) {
+            setToast(error instanceof Error ? error.message : 'Could not restore cloud chat history.');
+          }
         }
+        setMessages(restoredMessages);
+        setChatReady(true);
       })
       .catch(() => setToast('Could not load Rmango cloud state. Check the backend configuration.'))
       .finally(() => setCloudLoading(false));
@@ -227,12 +264,12 @@ function App() {
   // Persist at most once per second while tokens stream, rather than writing the
   // complete chat history for every network chunk.
   useEffect(() => {
-    if (!messages.length || chatSaveTimerRef.current !== null) return;
+    if (!chatReady || chatSaveTimerRef.current !== null) return;
     chatSaveTimerRef.current = window.setTimeout(() => {
       chatSaveTimerRef.current = null;
       void window.rmango.saveMessages(latestMessagesRef.current);
     }, 1000);
-  }, [messages]);
+  }, [messages, chatReady]);
 
   useEffect(() => () => {
     if (chatSaveTimerRef.current !== null) {
@@ -256,20 +293,202 @@ function App() {
   async function refreshMcpState() {
     const state = await window.rmango.getMcpState();
     setStudioTools(state.tools || []);
+    setStudioReady(Boolean(state.studioReady));
+    setStudioInstances(state.studioInstances || []);
+    setSelectedStudioId(state.studioId || undefined);
     setStudioCloudLinked(Boolean(state.cloudLinked));
     setAppState(prev => prev ? { ...prev, studioConnected: state.connected, studioToolCount: state.toolCount } : prev);
+    return state;
   }
 
   async function refreshCloudState() {
     const state = await window.rmango.getCloudState();
     setCloudState(state);
     if (state.signedIn && state.serviceReady) {
-      try { setCloudModels(await window.rmango.getCloudModels()); }
-      catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models.'); }
+      setConversationId(state.currentConversationId || undefined);
+      try {
+        const [models, conversations, tasks, projects] = await Promise.all([
+          window.rmango.getCloudModels(),
+          window.rmango.getCloudConversations(),
+          window.rmango.getCloudTasks(),
+          window.rmango.getCloudProjects(),
+        ]);
+        setCloudModels(models);
+        setCloudConversations(conversations);
+        setCloudTasks(tasks);
+        setCloudProjects(projects);
+      } catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models or conversations.'); }
     } else {
       setCloudModels(null);
+      setCloudConversations([]);
+      setCloudTasks([]);
+      setCloudProjects([]);
     }
     return state;
+  }
+
+  async function handleSaveCloudProject() {
+    if (!projectDialog || savingProject) return;
+    const name = projectDialog.name.trim();
+    if (!name || name.length > 100) {
+      setToast('Project names must contain between 1 and 100 characters.');
+      return;
+    }
+    setSavingProject(true);
+    try {
+      if (projectDialog.mode === 'create') {
+        const project = await window.rmango.createCloudProject({
+          name,
+          description: projectDialog.description.trim(),
+        });
+        setCloudProjects(current => [project, ...current.filter(item => item.id !== project.id)].slice(0, 50));
+        setCloudProjectId(project.id);
+        setCloudState(current => current ? { ...current, currentProjectId: project.id } : current);
+        await window.rmango.setCurrentCloudProjectId(project.id);
+        setConversationId(undefined);
+        setMessages([]);
+        setActivities([]);
+        await window.rmango.setCurrentConversationId(null);
+        setCloudProjectChanges([]);
+        setCloudTasks([]);
+        setToast('Created project "' + project.name + '".');
+      } else if (projectDialog.projectId) {
+        const project = await window.rmango.updateCloudProject({
+          projectId: projectDialog.projectId,
+          name,
+          description: projectDialog.description.trim(),
+        });
+        setCloudProjects(current => current.map(item => item.id === project.id ? project : item));
+        setToast('Updated project "' + project.name + '".');
+      }
+      setProjectDialog(null);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not save the cloud project.');
+    } finally {
+      setSavingProject(false);
+    }
+  }
+
+  async function handleSelectCloudProject(project: CloudProject) {
+    if (busy || loadingConversationId) return;
+    if (cloudProjectId === project.id) return;
+    try {
+      await window.rmango.setCurrentCloudProjectId(project.id);
+      await window.rmango.setCurrentConversationId(null);
+      const projectTasks = await window.rmango.getCloudTasks(project.id);
+      setCloudProjectId(project.id);
+      setCloudState(current => current ? { ...current, currentProjectId: project.id, currentConversationId: undefined } : current);
+      setConversationId(undefined);
+      setMessages([]);
+      setActivities([]);
+      setCloudTasks(projectTasks);
+      setFollowupQueue([]);
+      followupQueueRef.current = [];
+      setCloudProjectChanges([]);
+      setToast('Switched to project "' + project.name + '". Start a chat to give RMango this project context.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not select this project.');
+    }
+  }
+
+  function openRenameProject(project: CloudProject) {
+    setProjectDialog({
+      mode: 'rename',
+      projectId: project.id,
+      name: project.name,
+      description: project.description || '',
+    });
+  }
+
+  async function handleDeleteCloudProject(project: CloudProject) {
+    if (busy || !window.confirm('Delete "' + project.name + '" and its private project files, saved memories and proposed changes? This cannot be undone.')) return;
+    try {
+      const result = await window.rmango.deleteCloudProject(project.id);
+      setCloudProjects(current => current.filter(item => item.id !== project.id));
+      if (cloudProjectId === project.id) {
+        await window.rmango.setCurrentCloudProjectId(null);
+        setCloudProjectId(undefined);
+        setCloudState(current => current ? { ...current, currentProjectId: undefined } : current);
+        setCloudProjectChanges([]);
+      }
+      setToast('Deleted project "' + project.name + '" and ' + result.deletedFileCount + ' private files.');
+      const [conversations, tasks] = await Promise.all([
+        window.rmango.getCloudConversations(),
+        window.rmango.getCloudTasks(),
+      ]);
+      setCloudConversations(conversations);
+      setCloudTasks(tasks);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not delete the cloud project. No project database row was removed unless the operation completed.');
+    }
+  }
+
+  const filteredCloudProjects = useMemo(() => {
+    const query = cloudProjectSearch.trim().toLocaleLowerCase();
+    return query
+      ? cloudProjects.filter(project => project.name.toLocaleLowerCase().includes(query) || project.description.toLocaleLowerCase().includes(query))
+      : cloudProjects;
+  }, [cloudProjects, cloudProjectSearch]);
+
+  async function handleNewConversation() {
+    if (busy || loadingConversationId) return;
+    if (!cloudState?.signedIn || !cloudState.serviceReady) {
+      setSettingsOpen(true);
+      setToast('Sign in to Rmango Cloud before starting a new cloud conversation.');
+      return;
+    }
+    try {
+      const conversation = await window.rmango.createCloudConversation({
+        title: 'New chat',
+        projectId: cloudProjectId,
+        modelProfile: cloudProfile,
+      });
+      setConversationId(conversation.id);
+      setCloudState(current => current ? { ...current, currentConversationId: conversation.id } : current);
+      setMessages([]);
+      setActivities([]);
+      setFollowupQueue([]);
+      followupQueueRef.current = [];
+      await window.rmango.setCurrentConversationId(conversation.id);
+      setCloudConversations(current => [conversation, ...current.filter(item => item.id !== conversation.id)].slice(0, 50));
+      setToast('Started a new conversation' + (cloudProjectId ? ' in this project.' : '.'));
+      composerRef.current?.focus();
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not create a new conversation.');
+    }
+  }
+
+  async function handleSelectConversation(id: string) {
+    if (busy || loadingConversationId || id === conversationId) return;
+    setLoadingConversationId(id);
+    try {
+      const loaded = await window.rmango.loadCloudConversation(id);
+      const activeProjectId = loaded.conversation.project_id || null;
+      await window.rmango.setCurrentConversationId(id);
+      await window.rmango.setCurrentCloudProjectId(activeProjectId);
+      const projectTasks = await window.rmango.getCloudTasks(activeProjectId || undefined);
+      setConversationId(id);
+      setCloudState(current => current ? {
+        ...current,
+        currentConversationId: id,
+        currentProjectId: activeProjectId || undefined,
+      } : current);
+      setCloudProjectId(activeProjectId || undefined);
+      setCloudTasks(projectTasks);
+      setMessages(loaded.messages || []);
+      setActivities([]);
+      setFollowupQueue([]);
+      followupQueueRef.current = [];
+      setCloudConversations(current => [
+        loaded.conversation,
+        ...current.filter(item => item.id !== loaded.conversation.id),
+      ]);
+      setToast('Resumed "' + loaded.conversation.title + '".');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not resume this conversation.');
+    } finally {
+      setLoadingConversationId(null);
+    }
   }
 
   async function handleAuth(event: FormEvent) {
@@ -294,6 +513,37 @@ function App() {
       }
       setAuthPassword('');
       const state = await refreshCloudState();
+      setMessages([]);
+      setActivities([]);
+      if (state.signedIn && state.currentConversationId) {
+        try {
+          const restored = await window.rmango.loadCloudConversation(state.currentConversationId);
+          setConversationId(restored.conversation.id);
+          setMessages(restored.messages);
+          const restoredProjectId = restored.conversation.project_id || null;
+          setCloudProjectId(restoredProjectId || undefined);
+          await window.rmango.setCurrentCloudProjectId(restoredProjectId);
+          setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
+        } catch (error) {
+          setConversationId(undefined);
+          setToast(error instanceof Error ? error.message : 'Signed in, but the last conversation could not be restored.');
+        }
+      } else {
+        setConversationId(undefined);
+      }
+      if (state.signedIn) {
+        try {
+          const [tasks, projects] = await Promise.all([
+            window.rmango.getCloudTasks(),
+            window.rmango.getCloudProjects(),
+          ]);
+          setCloudTasks(tasks);
+          setCloudProjects(projects);
+        } catch {
+          setCloudTasks([]);
+          setCloudProjects([]);
+        }
+      }
       if (appState?.studioConnected) await refreshMcpState();
       setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
       if (state.serviceReady) setSettingsOpen(false);
@@ -334,6 +584,15 @@ function App() {
       await window.rmango.cloudSignOut();
       setCloudState(await window.rmango.getCloudState());
       setCloudModels(null);
+      setCloudConversations([]);
+      setCloudTasks([]);
+      setCloudProjects([]);
+      setCloudProjectId(undefined);
+      setConversationId(undefined);
+      setMessages([]);
+      setActivities([]);
+      setFollowupQueue([]);
+      followupQueueRef.current = [];
       if (appState?.studioConnected) await refreshMcpState();
       setToast('Signed out of Rmango Cloud.');
     } catch (error) {
@@ -376,9 +635,19 @@ function App() {
     try {
       const result = await window.rmango.uploadCloudProject();
       setCloudProjectId(result.projectId);
-      const changeList = await window.rmango.getCloudProjectChanges(result.projectId);
+      await window.rmango.setCurrentCloudProjectId(result.projectId);
+      setCloudState(current => current ? { ...current, currentProjectId: result.projectId } : current);
+      const [changeList, projects] = await Promise.all([
+        window.rmango.getCloudProjectChanges(result.projectId),
+        window.rmango.getCloudProjects(),
+      ]);
       setCloudProjectChanges(changeList.changes || []);
-      setToast('Uploaded ' + result.uploaded + ' source files to your private cloud project.' + (result.skipped.length ? ' ' + result.skipped.length + ' files were skipped.' : ''));
+      setCloudProjects(projects);
+      setToast(
+        'Synced "' + result.projectName + '": ' + result.uploaded + ' files uploaded or updated, ' +
+        result.unchanged + ' unchanged, ' + result.removed + ' removed.' +
+        (result.skipped.length ? ' ' + result.skipped.length + ' files could not be synced.' : '')
+      );
       if (result.skipped.length) {
         setActivities(current => [
           ...current,
@@ -446,10 +715,14 @@ function App() {
     try {
       const result = await window.rmango.connectRoblox();
       if (result.ok) {
-        await refreshMcpState();
-        setToast(result.cloudLinked
-          ? 'Roblox Studio linked to Rmango Cloud · ' + result.toolCount + ' tools discovered'
-          : (result.cloudMessage || ('Studio connected locally · sign in to link cloud AI · ' + result.toolCount + ' tools')));
+        const state = await refreshMcpState();
+        if (!state.studioReady) {
+          setToast('Roblox MCP bridge is connected, but no open Studio place is available. Open your place in Studio, then refresh this connection.');
+        } else if (state.cloudLinked) {
+          setToast('Connected to ' + (studioInstances.find(item => item.id === state.studioId)?.name || 'Roblox Studio') + ' · ' + state.toolCount + ' tools available to RMango.');
+        } else {
+          setToast('Studio place connected locally. ' + (result.cloudMessage || 'Sign in to Rmango Cloud to enable AI actions.'));
+        }
       } else {
         setToast(result.error || 'Could not connect to Roblox Studio.');
       }
@@ -457,6 +730,19 @@ function App() {
       setToast(error instanceof Error ? error.message : 'Connection failed.');
     } finally {
       setConnecting(false);
+    }
+  }
+
+  async function handleSelectStudioInstance(studioId: string) {
+    if (!studioId || studioId === selectedStudioId) return;
+    try {
+      await window.rmango.selectStudioInstance(studioId);
+      const state = await refreshMcpState();
+      const instance = state.studioInstances.find(item => item.id === studioId);
+      setToast('RMango is now targeting ' + (instance?.name || 'the selected Roblox Studio place') + '.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not select that Studio instance.');
+      await refreshMcpState().catch(() => undefined);
     }
   }
 
@@ -634,7 +920,17 @@ function App() {
       });
       completedRequestsRef.current.add(requestId);
       pendingDeltasRef.current.delete(requestId);
-      if (result.conversationId) setConversationId(result.conversationId);
+      if (result.conversationId) {
+        setConversationId(result.conversationId);
+        setCloudState(current => current ? { ...current, currentConversationId: result.conversationId } : current);
+        void window.rmango.setCurrentConversationId(result.conversationId).catch(() => undefined);
+        void window.rmango.getCloudConversations(cloudProjectId)
+          .then(setCloudConversations)
+          .catch(() => undefined);
+        void window.rmango.getCloudTasks(cloudProjectId)
+          .then(setCloudTasks)
+          .catch(() => undefined);
+      }
       if (result.activity?.length) setActivities(current => [...current.filter(item => item.requestId !== requestId), ...result.activity.map(item => ({ ...item, requestId }))].slice(-80));
       setMessages(current => current.map(message =>
         message.id === requestId ? { ...message, content: result.content, modelProfile: result.profile } : message
@@ -791,7 +1087,8 @@ function App() {
       className="app-shell"
       data-theme={theme}
       data-density={density}
-      data-motion={animationsEnabled ? 'full' : 'reduced'}
+      data-motion={animationsEnabled && !reducedMotion ? 'full' : 'reduced'}
+      data-reduced-motion={reducedMotion ? 'true' : 'false'}
       data-font-size={fontSize}
       onDragOver={event => { event.preventDefault(); setDragActive(true); }}
       onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
@@ -812,8 +1109,8 @@ function App() {
         {cloudState?.signedIn
           ? <button className="top-settings" onClick={() => setSettingsOpen(true)} title="Cloud account">{cloudState.email || 'Account'}</button>
           : <button className="top-settings" onClick={() => setSettingsOpen(true)}>Sign in</button>}
-        <div className={'connection-pill ' + (studioConnected ? 'connected' : '')}>
-          <span className="status-dot"/>{studioConnected ? 'Studio connected' : 'Studio offline'}
+        <div className={'connection-pill ' + (studioReady ? 'connected' : '')}>
+          <span className="status-dot"/>{studioReady ? 'Studio ready' : studioConnected ? 'MCP bridge online' : 'Studio offline'}
         </div>
         <button className="icon-button top-icon" title="Roblox MCP help" onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}><CircleHelp size={17}/></button>
         <button
@@ -862,6 +1159,7 @@ function App() {
         <nav className="activity-rail">
           <button className="rail-button active" title="Workspace"><Bot size={18}/></button>
           <button className={"rail-button " + (leftSidebarOpen ? "active" : "")} title="Project files" onClick={() => setLeftSidebarOpen(value => !value)}><Folder size={18}/></button>
+          <button className="rail-button" title="Cloud projects" onClick={() => { setLeftSidebarOpen(true); setCloudProjectSearch(''); }}><Layers3 size={18}/></button>
           <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
           <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
           <div className="rail-spacer"/>
@@ -900,6 +1198,32 @@ function App() {
             </>}
             {!cloudReady && <small>Sign in and connect Rmango Cloud to upload</small>}
           </div>}
+          <section className="cloud-projects-panel">
+            <div className="cloud-projects-heading">
+              <span>CLOUD PROJECTS</span>
+              <button type="button" title="Create cloud project" disabled={!cloudState?.signedIn || !cloudReady} onClick={() => setProjectDialog({ mode: 'create', name: '', description: '' })}><Plus size={13}/></button>
+            </div>
+            {cloudProjects.length > 4 && <div className="cloud-project-search"><Search size={12}/><input value={cloudProjectSearch} onChange={event => setCloudProjectSearch(event.target.value)} placeholder="Search cloud projects"/></div>}
+            {!cloudState?.signedIn
+              ? <div className="cloud-project-empty">Sign in to manage cloud projects.</div>
+              : filteredCloudProjects.length === 0
+                ? <div className="cloud-project-empty">{cloudProjects.length ? 'No projects match your search.' : 'Create a cloud project to store scripts, decisions and project memory.'}</div>
+                : <div className="cloud-project-list">
+                  {filteredCloudProjects.slice(0, 20).map(project =>
+                    <div className={'cloud-project-row ' + (cloudProjectId === project.id ? 'selected' : '')} key={project.id}>
+                      <button type="button" className="cloud-project-select" disabled={busy} onClick={() => void handleSelectCloudProject(project)} title={project.description || project.name}>
+                        <span className="cloud-project-mark"><Gamepad2 size={13}/></span>
+                        <span className="cloud-project-copy"><strong>{project.name}</strong><small>{project.description || 'Roblox development project'}</small></span>
+                        {cloudProjectId === project.id && <span className="cloud-project-active-dot"/>}
+                      </button>
+                      <div className="cloud-project-actions-mini">
+                        <button type="button" title="Rename project" aria-label={'Rename ' + project.name} disabled={busy} onClick={() => openRenameProject(project)}><Pencil size={11}/></button>
+                        <button type="button" title="Delete project" aria-label={'Delete ' + project.name} disabled={busy} onClick={() => void handleDeleteCloudProject(project)}><Trash2 size={11}/></button>
+                      </div>
+                    </div>
+                  )}
+                </div>}
+          </section>
           {projectFiles.length > 0 && <>
             <div className="file-search"><Search size={13}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Filter files"/></div>
             <div className="file-tree">
@@ -911,12 +1235,54 @@ function App() {
               {filteredFiles.length === 0 && <div className="small-empty">No matching files</div>}
             </div>
           </>}
+          <div className="conversation-section">
+            <div className="conversation-section-heading">
+              <span>RECENT CHATS</span>
+              <button type="button" title="New conversation" onClick={() => void handleNewConversation()} disabled={!cloudState?.signedIn || !cloudReady || busy}><Plus size={13}/></button>
+            </div>
+            {!cloudState?.signedIn
+              ? <div className="conversation-empty">Sign in to sync chat history.</div>
+              : cloudConversations.length === 0
+                ? <div className="conversation-empty">Your cloud conversations will appear here.</div>
+                : <div className="conversation-list">
+                  {cloudConversations.slice(0, 20).map(item =>
+                    <button
+                      type="button"
+                      className={'conversation-item ' + (item.id === conversationId ? 'active' : '')}
+                      key={item.id}
+                      disabled={Boolean(loadingConversationId) || busy}
+                      onClick={() => void handleSelectConversation(item.id)}
+                      title={item.title}
+                    >
+                      <MessageSquare size={12}/>
+                      <span>{item.title || 'New chat'}</span>
+                      {loadingConversationId === item.id ? <LoaderCircle size={11} className="spin"/> : null}
+                    </button>
+                  )}
+                </div>}
+          </div>
           <div className="sidebar-bottom">
             <div className="section-row"><span>CONNECTIONS</span><span className={'tiny-status ' + (studioConnected ? 'on' : '')}/></div>
-            <div className="integration-row">
+            <div className="integration-row studio-integration-row">
               <div className="integration-icon roblox"><Gamepad2 size={14}/></div>
-              <div><strong>Roblox Studio</strong><span>{studioConnected ? studioTools.length + ' tools available' : 'Not connected'}</span></div>
-              <button className="subtle-icon" title={studioConnected ? 'Disconnect' : 'Connect'} onClick={() => studioConnected ? void handleDisconnect() : void handleConnect()}>{studioConnected ? <Check size={14}/> : <Link2 size={14}/>}</button>
+              <div className="studio-integration-copy">
+                <strong>Roblox Studio</strong>
+                <span>{studioReady
+                  ? (studioInstances.find(item => item.id === selectedStudioId)?.name || 'Studio place ready') + ' · ' + studioTools.length + ' tools'
+                  : studioConnected ? 'MCP bridge online · no open place' : 'Not connected'}</span>
+              </div>
+              {studioConnected && studioInstances.length > 1 && <select
+                className="studio-instance-select"
+                aria-label="Select Roblox Studio instance"
+                value={selectedStudioId || ''}
+                onChange={event => void handleSelectStudioInstance(event.target.value)}
+                title="Choose which open Studio instance RMango controls"
+              >
+                {studioInstances.map(instance => <option value={instance.id} key={instance.id}>{instance.name}{instance.placeId ? ' · ' + instance.placeId : ''}</option>)}
+              </select>}
+              <button className="subtle-icon" title={studioConnected ? (studioReady ? 'Disconnect Studio' : 'Refresh Studio sessions') : 'Connect to Studio MCP'} onClick={() => studioConnected && studioReady ? void handleDisconnect() : void handleConnect()} disabled={connecting}>
+                {connecting ? <LoaderCircle size={13} className="spin"/> : studioConnected && studioReady ? <Check size={14}/> : studioConnected ? <RefreshCw size={13}/> : <Link2 size={14}/>}
+              </button>
             </div>
             <div className="integration-row">
               <div className="integration-icon local"><Sparkles size={14}/></div>
@@ -930,6 +1296,7 @@ function App() {
           <div className="main-toolbar">
             <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">CLOUD AI</span></div>
             <div className="toolbar-actions">
+              <button type="button" className="new-chat-button" onClick={() => void handleNewConversation()} disabled={!cloudState?.signedIn || !cloudReady || busy} title="Start a new conversation"><Plus size={13}/> New chat</button>
               <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Cloud model'}</span>
               <button className="subtle-icon" title="Toggle inspector" onClick={() => setRightPanelOpen(value => !value)}><Menu size={16}/></button>
             </div>
@@ -1068,7 +1435,7 @@ function App() {
         {rightPanelOpen && <aside className="right-sidebar">
           <div className="right-heading"><span>WORKSPACE MAP</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close workspace panel"><X size={15}/></button></div>
           <div className="workspace-map-shell">
-            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i className={cloudReady && studioConnected ? 'all-live' : ''}/>{cloudReady && studioConnected ? 'ALL SYSTEMS READY' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioConnected ? 'STUDIO ONLINE · AI OFFLINE' : 'WAITING FOR SERVICES'}</span></div>
+            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i className={cloudReady && studioReady ? 'all-live' : ''}/>{cloudReady && studioReady ? 'ALL SYSTEMS READY' : cloudReady && studioConnected ? 'AI ONLINE · OPEN A PLACE' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioReady ? 'STUDIO READY · AI OFFLINE' : studioConnected ? 'MCP BRIDGE ONLY' : 'WAITING FOR SERVICES'}</span></div>
             <div className="workspace-map">
               <button type="button" className="map-node project-node" onClick={() => void handleOpenProject()}>
                 <span className="map-node-icon"><FolderOpen size={18}/></span>
@@ -1079,10 +1446,10 @@ function App() {
                 <span className="map-node-icon"><Sparkles size={18}/></span>
                 <span className="map-node-copy"><small>RMANGO AI</small><strong>{cloudReady ? 'Cloud engine' : 'AI service'}</strong><em>{cloudReady ? (currentProfile?.profileLabel || 'Ready for prompts') : (cloudState?.message || 'Cloud setup required')}</em></span>
               </button>
-              <span className={'map-wire ' + (studioConnected ? 'live' : '')}/>
-              <button type="button" className={'map-node studio-node ' + (studioConnected ? 'connected' : '')} onClick={() => studioConnected ? void handleDisconnect() : void handleConnect()}>
+              <span className={'map-wire ' + (studioReady ? 'live' : '')}/>
+              <button type="button" className={'map-node studio-node ' + (studioReady ? 'connected' : '')} onClick={() => studioConnected ? (studioReady ? void handleDisconnect() : void handleConnect()) : void handleConnect()}>
                 <span className="map-node-icon"><Gamepad2 size={18}/></span>
-                <span className="map-node-copy"><small>ROBLOX STUDIO</small><strong>{studioConnected ? 'Connected' : 'Waiting for Studio'}</strong><em>{studioConnected ? studioTools.length + ' tools discovered' : 'Click to connect MCP'}</em></span>
+                <span className="map-node-copy"><small>ROBLOX STUDIO</small><strong>{studioReady ? 'Place ready' : studioConnected ? 'Bridge online' : 'Waiting for Studio'}</strong><em>{studioReady ? (studioInstances.find(item => item.id === selectedStudioId)?.name || 'Studio selected') : studioConnected ? 'Open a place, then refresh' : 'Click to connect MCP'}</em></span>
               </button>
             </div>
             <div className="workspace-map-foot"><span><i className="map-dot project-dot"/> Project context</span><span><i className="map-dot ai-dot"/> Remote reasoning</span><span><i className="map-dot studio-dot"/> Studio tools</span></div>
@@ -1119,53 +1486,52 @@ function App() {
           </section>
 
           <section className="inspector-section">
-            <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioConnected ? 'live' : '')}>{studioConnected ? 'CONNECTED' : 'OFFLINE'}</span></div>
+            <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioReady ? 'live' : '')}>{studioReady ? 'PLACE READY' : studioConnected ? 'BRIDGE ONLY' : 'OFFLINE'}</span></div>
             <div className="studio-status-card">
-              <div className={'studio-status-icon ' + (studioConnected ? 'live' : '')}><Gamepad2 size={19}/></div>
-              <div className="studio-status-copy"><strong>{studioConnected ? (studioCloudLinked ? 'Studio linked to cloud' : 'Studio session linked') : 'Waiting for Studio'}</strong><span>{studioConnected ? (studioCloudLinked ? 'Secure cloud bridge active' : 'Local MCP connected · sign in to link cloud AI') : 'Enable Studio as MCP server'}</span></div>
-              <span className={'status-dot ' + (studioConnected ? 'bright' : '')}/>
-              <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>ACCESS</span><strong>Approval gated</strong></div><div><span>PLATFORM</span><strong>Windows</strong></div></div>
+              <div className={'studio-status-icon ' + (studioReady ? 'live' : '')}><Gamepad2 size={19}/></div>
+              <div className="studio-status-copy">
+                <strong>{studioReady
+                  ? (studioInstances.find(item => item.id === selectedStudioId)?.name || 'Studio place ready')
+                  : studioConnected ? 'MCP bridge is running' : 'Waiting for Studio'}</strong>
+                <span>{studioReady
+                  ? (studioCloudLinked ? 'Live place selected · secure cloud bridge active' : 'Live place selected · sign in to link cloud AI')
+                  : studioConnected ? 'Open a place in Roblox Studio, then refresh the connection' : 'Enable Studio as MCP server in Assistant → Manage MCP Servers'}</span>
+              </div>
+              <span className={'status-dot ' + (studioReady ? 'bright' : '')}/>
+              <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>PLACE</span><strong>{studioReady ? 'Selected' : 'None'}</strong></div><div><span>ACCESS</span><strong>Approval gated</strong></div></div>
             </div>
-            {studioConnected
-              ? <button className="outline-action" onClick={() => void handleDisconnect()}><X size={13}/> Disconnect Studio</button>
-              : <button className="primary-action" onClick={() => void handleConnect()} disabled={connecting}>{connecting ? <LoaderCircle size={14} className="spin"/> : <Link2 size={14}/>} Connect to Studio <ArrowRight size={13}/></button>}
-            {!studioConnected && <div className="connect-help">
-              <strong>Quick setup</strong>
-              <span>In Roblox Studio: Assistant → Manage MCP Servers → turn on “Enable Studio as MCP server”. Keep Studio open, then connect here.</span>
+            {studioConnected && studioInstances.length > 1 && <label className="studio-instance-picker">
+              <span>ACTIVE STUDIO INSTANCE</span>
+              <select value={selectedStudioId || ''} onChange={event => void handleSelectStudioInstance(event.target.value)}>
+                {studioInstances.map(instance => <option value={instance.id} key={instance.id}>{instance.name}{instance.placeId ? ' · Place ' + instance.placeId : ''}</option>)}
+              </select>
+            </label>}
+            <div className="studio-connection-actions">
+              {!studioConnected
+                ? <button className="primary-action" onClick={() => void handleConnect()} disabled={connecting}>{connecting ? <LoaderCircle size={14} className="spin"/> : <Link2 size={14}/>} Connect Studio MCP <ArrowRight size={13}/></button>
+                : <button className="outline-action" onClick={() => studioReady ? void handleDisconnect() : void handleConnect()} disabled={connecting}>
+                    {connecting ? <LoaderCircle size={13} className="spin"/> : studioReady ? <Check size={13}/> : <RefreshCw size={13}/>}
+                    {studioReady ? 'Disconnect Studio' : 'Refresh Studio sessions'}
+                  </button>}
+              {studioConnected && <button className="studio-disconnect-quiet" onClick={() => void handleDisconnect()} disabled={connecting} title="Stop the local MCP bridge">Stop bridge</button>}
+            </div>
+            {!studioReady && <div className="connect-help">
+              <strong>{studioConnected ? 'One more step' : 'Quick setup'}</strong>
+              <span>Open a place in Roblox Studio. In Assistant → Manage MCP Servers, enable “Enable Studio as MCP server”. Then refresh Studio sessions here.</span>
               <button onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}>Official setup guide <ExternalLink size={11}/></button>
             </div>}
           </section>
 
           <section className="inspector-section">
-            <div className="section-title"><span>AGENT TOOL ACCESS</span><span className="count-tag">{studioTools.length}</span></div>
-            <div className="permission-legend"><span><i className="legend-read"/> Read-only</span><span><i className="legend-approve"/> Approval required</span></div>
-            <div className="tool-stack">
-              {studioConnected && studioTools.length
-                ? studioTools.slice(0, 9).map(name => {
-                    const needsApproval = [
-                      'multi_edit','execute_luau','generate_mesh','generate_material','generate_texture',
-                      'generate_procedural_model','generate_scene','generate_animation','generate_avatar',
-                      'auto_setup_avatar','segment_mesh','insert_asset','upload_image','start_stop_play',
-                      'character_navigation','user_keyboard_input','user_mouse_input','save_place',
-                      'subagent','open_cloud_invoke','create_skill','edit_skill',
-                    ].includes(name);
-                    return <div className="tool-item" key={name}><span className={'tool-icon ' + (needsApproval ? 'approve' : '')}><Wrench size={12}/></span><span>{name}</span><span className={'tool-read-tag ' + (needsApproval ? 'approve' : '')}>{needsApproval ? 'ASK' : 'READ'}</span></div>;
-                  })
-                : <div className="tools-empty"><Wrench size={17}/><span>Connect Studio to see available tools.</span></div>}
-              {studioConnected && studioTools.length > 9 && <div className="more-tools">+ {studioTools.length - 9} more available</div>}
-            </div>
-          </section>
-
-          <section className="inspector-section">
             <div className="section-title"><span>QUICK ACTIONS</span></div>
-            <button className="quick-action-row" onClick={() => void handleDiagnostics()} disabled={!studioConnected || diagnosing}>
+            <button className="quick-action-row" onClick={() => void handleDiagnostics()} disabled={!studioReady || diagnosing}>
               <span className="action-icon"><Activity size={14}/></span><span><strong>Run Studio diagnostics</strong><small>Check session and place state</small></span>
               {diagnosing ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={13}/>}
             </button>
-            <button className="quick-action-row" onClick={() => void sendMessage('Inspect the open Roblox place. Map the current DataModel, identify existing map and gameplay systems, then suggest the next high-impact improvement. Do not make changes before explaining the plan.')} disabled={!studioConnected || busy}>
+            <button className="quick-action-row" onClick={() => void sendMessage('Inspect the open Roblox place. Map the current DataModel, identify existing map and gameplay systems, then suggest the next high-impact improvement. Do not make changes before explaining the plan.')} disabled={!studioReady || busy}>
               <span className="action-icon mango"><Search size={14}/></span><span><strong>Map my current place</strong><small>Inspect structure and layout</small></span><ArrowRight size={13}/>
             </button>
-            <button className="quick-action-row" onClick={() => void sendMessage(quickPrompts[2].prompt)} disabled={!studioConnected || busy}>
+            <button className="quick-action-row" onClick={() => void sendMessage(quickPrompts[2].prompt)} disabled={!studioReady || busy}>
               <span className="action-icon build"><Layers3 size={14}/></span><span><strong>Design a new map</strong><small>Plan it before generating</small></span><ArrowRight size={13}/>
             </button>
           </section>
@@ -1174,6 +1540,31 @@ function App() {
             <div className="section-title"><span>DIAGNOSTIC OUTPUT</span><button className="subtle-icon" onClick={() => setDiagnosticResult('')}><X size={13}/></button></div>
             <pre>{diagnosticResult}</pre>
           </section>}
+          <section className="inspector-section task-history-section">
+            <div className="section-title">
+              <span>DEVELOPMENT TASKS</span>
+              <button className="subtle-icon" title="Refresh task history" onClick={() => void window.rmango.getCloudTasks(cloudProjectId).then(setCloudTasks).catch(error => setToast(error instanceof Error ? error.message : 'Could not refresh task history.'))}><RefreshCw size={13}/></button>
+            </div>
+            {cloudTasks.length
+              ? cloudTasks.slice(0, 4).map(task =>
+                  <div className="task-history-item" key={task.id}>
+                    <div className="task-history-top">
+                      <span className={'task-status-dot ' + task.status}/>
+                      <strong>{task.status.replace('_', ' ')}</strong>
+                      <time>{displayTime(task.created_at)}</time>
+                    </div>
+                    <p>{task.task_text}</p>
+                    {task.error && <span className="task-history-error">{task.error}</span>}
+                    {task.events.length > 0 && <details className="task-events">
+                      <summary>{task.events.length} recorded operations</summary>
+                      <div>{task.events.slice(-5).map(event =>
+                        <span key={event.id}><i/> {event.message}</span>
+                      )}</div>
+                    </details>}
+                  </div>
+                )
+              : <div className="activity-empty"><Layers3 size={15}/><span>Coordinated agent tasks will be saved here.</span></div>}
+          </section>
           <section className="inspector-section activity-section">
             <div className="section-title"><span>RECENT ACTIVITY</span><button className="subtle-icon" onClick={() => setActivities([])} title="Clear activity"><RefreshCw size={13}/></button></div>
             {activities.length
@@ -1190,6 +1581,30 @@ function App() {
           <div className="right-footer"><ShieldCheck size={13}/> Every Studio change requires your approval.</div>
         </aside>}
       </div>
+
+      {projectDialog && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !savingProject) setProjectDialog(null); }}>
+        <form className="settings-modal cloud-project-dialog" onSubmit={event => { event.preventDefault(); void handleSaveCloudProject(); }}>
+          <div className="modal-header">
+            <div>
+              <div className="modal-kicker">CLOUD PROJECT WORKSPACE</div>
+              <h2>{projectDialog.mode === 'create' ? 'Create a project' : 'Rename project'}</h2>
+              <p>Keep project files, AI conversations, architecture notes and development tasks organized together.</p>
+            </div>
+            <button type="button" className="icon-button" disabled={savingProject} onClick={() => setProjectDialog(null)}><X size={17}/></button>
+          </div>
+          <label className="field-label" htmlFor="cloud-project-name">PROJECT NAME</label>
+          <input id="cloud-project-name" className="settings-input" value={projectDialog.name} onChange={event => setProjectDialog(current => current ? { ...current, name: event.target.value } : current)} placeholder="My Roblox game" maxLength={100} required autoFocus/>
+          <label className="field-label" htmlFor="cloud-project-description">DESCRIPTION</label>
+          <textarea id="cloud-project-description" className="settings-input project-description-input" value={projectDialog.description} onChange={event => setProjectDialog(current => current ? { ...current, description: event.target.value } : current)} placeholder="What are you building? Key systems, genre and current goals…" maxLength={2000} rows={4}/>
+          <div className="modal-footer">
+            <button type="button" className="cancel-button" disabled={savingProject} onClick={() => setProjectDialog(null)}>Cancel</button>
+            <button type="submit" className="save-button" disabled={savingProject || !projectDialog.name.trim()}>
+              {savingProject ? <LoaderCircle size={14} className="spin"/> : projectDialog.mode === 'create' ? <Plus size={14}/> : <Check size={14}/>}
+              {projectDialog.mode === 'create' ? 'Create project' : 'Save changes'}
+            </button>
+          </div>
+        </form>
+      </div>}
 
       {projectChangesOpen && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setProjectChangesOpen(false); }}>
         <div className="settings-modal project-changes-modal">
@@ -1288,6 +1703,10 @@ function App() {
               <div className="preference-switch-row">
                 <span><strong>Interface animations</strong><small>Transitions, subtle pulses and motion effects.</small></span>
                 <button type="button" role="switch" aria-checked={animationsEnabled} className={'preference-switch ' + (animationsEnabled ? 'on' : '')} onClick={() => { const value = !animationsEnabled; setAnimationsEnabled(value); void savePreferences({ animationsEnabled: value }); }}><i/></button>
+              </div>
+              <div className="preference-switch-row">
+                <span><strong>Reduced motion</strong><small>Minimize movement and transitions, independently of system settings.</small></span>
+                <button type="button" role="switch" aria-checked={reducedMotion} className={'preference-switch ' + (reducedMotion ? 'on' : '')} onClick={() => { const value = !reducedMotion; setReducedMotion(value); void savePreferences({ reducedMotion: value }); }}><i/></button>
               </div>
               <div className="preference-switch-row">
                 <span><strong>Enter to send</strong><small>Turn off to type freely; use Ctrl + Enter to send.</small></span>

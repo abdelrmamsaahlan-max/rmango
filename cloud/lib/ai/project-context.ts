@@ -17,6 +17,14 @@ export type SelectedProjectContext = {
     sha256: string | null;
   }>;
   manifestTruncated: boolean;
+  memories: Array<{
+    id: string;
+    type: string;
+    title: string;
+    content: string;
+    sourceRef: string | null;
+    updatedAt: string;
+  }>;
 };
 
 /**
@@ -49,7 +57,31 @@ export async function loadSelectedProjectContext(
 
   if (filesError) throw new Error("Could not load the selected project's file manifest.");
 
+  const { data: memories, error: memoriesError } = await supabase
+    .from("project_memories")
+    .select("id,memory_type,title,content,source_ref,updated_at")
+    .eq("project_id", projectId)
+    .eq("owner_id", ownerId)
+    .order("updated_at", { ascending: false })
+    .limit(20);
+
+  if (memoriesError) throw new Error("Could not load the selected project's saved memories.");
+
   const rows = files || [];
+  let memoryCharactersRemaining = 16_000;
+  const boundedMemories = (memories || []).flatMap(memory => {
+    if (memoryCharactersRemaining <= 0) return [];
+    const content = String(memory.content || "").slice(0, Math.min(1_500, memoryCharactersRemaining));
+    memoryCharactersRemaining -= content.length;
+    return [{
+      id: memory.id,
+      type: String(memory.memory_type || "note").slice(0, 40),
+      title: String(memory.title || "").slice(0, 160),
+      content,
+      sourceRef: memory.source_ref ? String(memory.source_ref).slice(0, 300) : null,
+      updatedAt: String(memory.updated_at || ""),
+    }];
+  });
   return {
     project: {
       id: project.id,
@@ -66,6 +98,7 @@ export async function loadSelectedProjectContext(
       sha256: file.sha256 ? String(file.sha256).slice(0, 64) : null,
     })),
     manifestTruncated: rows.length > manifestLimit,
+    memories: boundedMemories,
   };
 }
 

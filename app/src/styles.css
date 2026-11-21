@@ -1057,3 +1057,92 @@ html, body, #root { background: var(--bg); }
  .app-shell[data-theme="system"] .cloud-setup-instructions code{color:#55431f}
  .app-shell[data-theme="system"] .cloud-budget-note{background:#fff8e9;border-color:#e5d4a6;color:#69552a}
 }
+
+
+/* Conversation history */
+.conversation-section{margin:13px 3px 0;min-height:0;display:flex;flex-direction:column;gap:6px}
+.conversation-section-heading{display:flex;align-items:center;justify-content:space-between;padding:0 5px;font:8px var(--mono);letter-spacing:.8px;color:#9aac93}
+.conversation-section-heading button{width:23px;height:22px;border:1px solid #40563b;border-radius:6px;background:#172c1d;color:#d8e8bf;display:flex;align-items:center;justify-content:center}
+.conversation-section-heading button:hover:not(:disabled){border-color:var(--gold);color:#ffe18a;background:#243824}
+.conversation-list{display:flex;flex-direction:column;gap:3px;max-height:190px;overflow:auto;padding-right:2px;scrollbar-width:thin;scrollbar-color:#3f5c3f transparent}
+.conversation-item{width:100%;min-width:0;height:29px;padding:0 7px;display:flex;align-items:center;gap:7px;border:1px solid transparent;border-radius:6px;background:transparent;color:#9cad97;text-align:left;font-size:9px}
+.conversation-item>svg:first-child{flex:none;color:#80977d}
+.conversation-item span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.conversation-item:hover:not(:disabled){background:#1a3020;color:#e4eed9}
+.conversation-item.active{background:#263725;border-color:#586d3e;color:#fff0b4}
+.conversation-item.active>svg:first-child{color:var(--gold)}
+.conversation-empty{padding:5px 7px;color:#7f927e;font-size:9px;line-height:1.45}
+.new-chat-button{height:25px;padding:0 8px;display:flex;align-items:center;gap:5px;border:1px solid #4a603e;border-radius:6px;background:#1b3020;color:#e1eacb;font-size:9px}
+.new-chat-button:hover:not(:disabled){border-color:var(--gold);color:#fff0b5;background:#263725}
+.new-chat-button:disabled{opacity:.45}
+
+/* Keyboard focus and motion accessibility */
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #f4c55d;outline-offset:2px}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+
+
+/* Persisted agent task history */
+.task-history-section{display:flex;flex-direction:column;gap:8px}
+.task-history-item{border:1px solid #2d4531;background:rgba(18,37,23,.76);border-radius:8px;padding:8px 9px;display:flex;flex-direction:column;gap:6px}
+.task-history-top{display:flex;align-items:center;gap:6px}
+.task-history-top strong{font:8px var(--mono);text-transform:uppercase;letter-spacing:.45px;color:#cbdcbf}
+.task-history-top time{margin-left:auto;color:#849783;font-size:8px}
+.task-status-dot{width:7px;height:7px;flex:none;border-radius:50%;background:#81907c}
+.task-status-dot.running,.task-status-dot.queued{background:#e8c45d;box-shadow:0 0 8px rgba(232,196,93,.26)}
+.task-status-dot.completed{background:#8dc99b;box-shadow:0 0 8px rgba(141,201,155,.24)}
+.task-status-dot.failed{background:#d98576}
+.task-status-dot.cancelled{background:#8290a1}
+.task-history-item p{margin:0;color:#e4eadc;font-size:9px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.task-history-error{font-size:8px;line-height:1.4;color:#e2a397}
+.task-events{border-top:1px solid #2a3f2e;padding-top:5px;color:#b5c3ac;font-size:8px}
+.task-events summary{cursor:pointer;color:#a9c49e}
+.task-events>div{display:flex;flex-direction:column;gap:5px;padding:6px 0 1px}
+.task-events span{display:flex;gap:6px;line-height:1.4;color:#94a690}
+.task-events span i{width:4px;height:4px;flex:none;margin-top:3px;border-radius:50%;background:#d7bd69}
+
+
+/* Cloud project workspace */
+.cloud-projects-panel{margin:15px 2px 0;padding:10px 8px 8px;border:1px solid #2c4731;border-radius:9px;background:linear-gradient(150deg,rgba(25,48,30,.88),rgba(17,34,22,.72))}
+.cloud-projects-heading{display:flex;align-items:center;justify-content:space-between;font:8px var(--mono);letter-spacing:.9px;color:#a9b99b;padding:0 3px 7px}
+.cloud-projects-heading button{width:23px;height:22px;border:1px solid #526a40;border-radius:6px;background:#233820;color:#f7d982;display:flex;align-items:center;justify-content:center}
+.cloud-projects-heading button:hover:not(:disabled){border-color:var(--gold);background:#354329;color:#fff2ad}
+.cloud-project-search{height:25px;margin:0 0 6px;padding:0 7px;display:flex;align-items:center;gap:6px;border:1px solid #314d36;border-radius:6px;background:#14271a;color:#93a68d}
+.cloud-project-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:#e8efdc;font-size:9px}
+.cloud-project-search input::placeholder{color:#768d76}
+.cloud-project-list{display:flex;flex-direction:column;gap:3px;max-height:180px;overflow:auto;scrollbar-width:thin;scrollbar-color:#3d5d3d transparent}
+.cloud-project-row{display:flex;align-items:center;gap:3px;padding:3px 3px 3px 0;border:1px solid transparent;border-radius:7px}
+.cloud-project-row.selected{border-color:#56693c;background:#263722}
+.cloud-project-row:hover{background:#203524}
+.cloud-project-select{display:flex;align-items:center;gap:7px;flex:1;min-width:0;text-align:left;border:0;background:transparent;padding:3px;color:#c3d1bb}
+.cloud-project-mark{width:25px;height:25px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:7px;background:#30432a;color:#f6d779}
+.cloud-project-copy{min-width:0;display:flex;flex-direction:column;gap:3px;flex:1}
+.cloud-project-copy strong{font-size:9px;color:#e2ecd9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cloud-project-copy small{font-size:8px;color:#8fa18a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cloud-project-active-dot{width:6px;height:6px;flex:none;border-radius:50%;background:#d7df88;box-shadow:0 0 7px rgba(215,223,136,.4)}
+.cloud-project-actions-mini{display:flex;gap:1px;opacity:.45}
+.cloud-project-row:hover .cloud-project-actions-mini,.cloud-project-row.selected .cloud-project-actions-mini{opacity:1}
+.cloud-project-actions-mini button{width:22px;height:22px;display:flex;align-items:center;justify-content:center;border:0;border-radius:5px;background:transparent;color:#9daf95}
+.cloud-project-actions-mini button:hover:not(:disabled){background:#3b4d2c;color:#ffe5a0}
+.cloud-project-actions-mini button:last-child:hover:not(:disabled){background:#4b2923;color:#ffc1ae}
+.cloud-project-empty{padding:7px 4px 3px;color:#83977f;font-size:8px;line-height:1.5}
+.cloud-project-dialog{max-width:470px}
+.cloud-project-dialog .field-label{display:block;margin:12px 0 6px}
+.project-description-input{min-height:100px;resize:vertical;padding:9px 10px;line-height:1.5}
+
+
+/* Live Roblox Studio session state */
+.studio-integration-row{align-items:flex-start;flex-wrap:wrap}
+.studio-integration-copy{flex:1;min-width:90px;display:flex;flex-direction:column;gap:3px;padding-top:1px}
+.studio-integration-copy strong{font-size:10px;font-weight:600;color:#d9e4d0}
+.studio-integration-copy span{font-size:8px;line-height:1.4;color:#9bac93;overflow-wrap:anywhere}
+.studio-instance-select{max-width:100%;min-width:0;height:24px;padding:0 5px;border:1px solid #40583c;border-radius:5px;background:#14251a;color:#dce8d4;font-size:8px}
+.studio-instance-picker{display:flex;flex-direction:column;gap:5px;margin:9px 0;padding:8px;border:1px solid #344d37;border-radius:7px;background:#14271a}
+.studio-instance-picker>span{font:8px var(--mono);letter-spacing:.55px;color:#a5b89a}
+.studio-instance-picker select{height:29px;min-width:0;border:1px solid #40583c;border-radius:5px;background:#101f15;color:#e1ead9;padding:0 7px;font-size:9px}
+.studio-connection-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.studio-disconnect-quiet{height:26px;padding:0 8px;border:1px solid #364b38;border-radius:6px;background:transparent;color:#91a38d;font-size:8px}
+.studio-disconnect-quiet:hover:not(:disabled){border-color:#8c5d4e;background:#2c1d1b;color:#ffc8b3}
+.connection-pill:not(.connected){color:#bdc3ad;border-color:#57553a;background:#24271b}
+.connection-pill:not(.connected) .status-dot{background:#d8b455;box-shadow:0 0 7px rgba(216,180,85,.24)}

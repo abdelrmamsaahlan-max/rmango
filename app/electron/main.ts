@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -12,7 +12,48 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 
 type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
-type ChatMessage = { role: 'user' | 'assistant'; content: string; createdAt?: string };
+type ChatMessage = {
+  id?: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt?: string;
+  attachments?: Array<{ id: string; name: string; mimeType: string; kind: 'image' | 'file'; size: number }>;
+  modelProfile?: CloudProfile;
+};
+type CloudConversation = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  model_profile: CloudProfile;
+  created_at: string;
+  updated_at: string;
+};
+type CloudAgentTask = {
+  id: string;
+  project_id: string | null;
+  conversation_id: string | null;
+  status: 'queued' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+  task_text: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  events: Array<{
+    id: number;
+    task_id: string;
+    event_type: string;
+    message: string;
+    data: Record<string, unknown>;
+    created_at: string;
+  }>;
+};
+type CloudProject = {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+};
 type Attachment = { name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string };
 type AppearanceTheme = 'dark' | 'light' | 'system';
 type SettingsFile = {
@@ -20,6 +61,7 @@ type SettingsFile = {
   appearance: AppearanceTheme;
   density: 'comfortable' | 'compact';
   animationsEnabled: boolean;
+  reducedMotion: boolean;
   fontSize: 'small' | 'medium' | 'large';
   sendOnEnter: boolean;
   desktopNotifications: boolean;
@@ -34,8 +76,10 @@ type CloudSession = {
   studioConnectorId?: string;
   studioConnectorSecret?: string;
   currentProjectId?: string;
+  currentConversationId?: string;
 };
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
+type StudioInstance = { id: string; name: string; placeId?: string };
 type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
 type ActivityItem = { id?: string; name: string; detail: string; ok: boolean; status?: 'running' | 'completed' | 'failed' | 'cancelled' };
 type AppUpdateState = {
@@ -56,6 +100,7 @@ let mcpClient: Client | null = null;
 let mcpTransport: StdioClientTransport | null = null;
 let connectedTools: McpTool[] = [];
 let selectedStudioId: string | undefined;
+let studioInstances: StudioInstance[] = [];
 let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
@@ -92,6 +137,7 @@ const DEFAULT_SETTINGS: SettingsFile = {
   appearance: 'dark',
   density: 'comfortable',
   animationsEnabled: true,
+  reducedMotion: false,
   fontSize: 'medium',
   sendOnEnter: true,
   desktopNotifications: false,
@@ -105,6 +151,7 @@ function normaliseSettings(value: Partial<SettingsFile> | null | undefined): Set
     appearance: input.appearance === 'light' || input.appearance === 'system' || input.appearance === 'dark' ? input.appearance : DEFAULT_SETTINGS.appearance,
     density: input.density === 'compact' || input.density === 'comfortable' ? input.density : DEFAULT_SETTINGS.density,
     animationsEnabled: typeof input.animationsEnabled === 'boolean' ? input.animationsEnabled : DEFAULT_SETTINGS.animationsEnabled,
+    reducedMotion: typeof input.reducedMotion === 'boolean' ? input.reducedMotion : DEFAULT_SETTINGS.reducedMotion,
     fontSize: input.fontSize === 'small' || input.fontSize === 'large' || input.fontSize === 'medium' ? input.fontSize : DEFAULT_SETTINGS.fontSize,
     sendOnEnter: typeof input.sendOnEnter === 'boolean' ? input.sendOnEnter : DEFAULT_SETTINGS.sendOnEnter,
     desktopNotifications: typeof input.desktopNotifications === 'boolean' ? input.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
@@ -288,19 +335,28 @@ async function cloudApiRequest<T = any>(route: string, init: RequestInit = {}, a
 }
 
 async function cloudSignIn(email: string, password: string) {
+  const previousSession = await readCloudSession();
   resetCloudAuthRefreshState();
   const payload = await cloudApiRequest<any>('/api/auth/sign-in', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   }, false);
+  const sameAccount = Boolean(previousSession && previousSession.user.id === payload.user.id);
   const session: CloudSession = {
     accessToken: payload.session.accessToken,
     refreshToken: payload.session.refreshToken,
     expiresAt: payload.session.expiresAt,
     user: payload.user,
+    ...(sameAccount ? {
+      currentProjectId: previousSession?.currentProjectId,
+      currentConversationId: previousSession?.currentConversationId,
+    } : {}),
   };
   await writeCloudSession(session);
-  if (mcpClient) await registerCloudStudioConnector();
+  if (mcpClient) {
+    await discoverStudioInstances().catch(() => []);
+    if (selectedStudioId) await registerCloudStudioConnector();
+  }
   return { ok: true, user: session.user };
 }
 
@@ -318,7 +374,10 @@ async function cloudSignUp(email: string, password: string, displayName?: string
     user: payload.user,
   };
   await writeCloudSession(session);
-  if (mcpClient) await registerCloudStudioConnector();
+  if (mcpClient) {
+    await discoverStudioInstances().catch(() => []);
+    if (selectedStudioId) await registerCloudStudioConnector();
+  }
   return { ok: true, requiresEmailConfirmation: false, user: session.user };
 }
 
@@ -402,11 +461,153 @@ async function getCloudState() {
     apiHost: new URL(apiBaseUrl).host,
     message: healthError,
     currentProjectId: latestSession?.currentProjectId,
+    currentConversationId: latestSession?.currentConversationId,
   };
 }
 
 async function getCloudModels() {
   return cloudApiRequest<any>('/api/models', {}, true);
+}
+
+async function listCloudConversations(projectId?: string): Promise<CloudConversation[]> {
+  const query = projectId ? '?projectId=' + encodeURIComponent(projectId) : '';
+  const result = await cloudApiRequest<{ conversations: CloudConversation[] }>('/api/conversations' + query, {}, true);
+  return Array.isArray(result.conversations) ? result.conversations : [];
+}
+
+function mapCloudMessage(row: any): ChatMessage | null {
+  if (!row || (row.role !== 'user' && row.role !== 'assistant')) return null;
+  const stored = row.content && typeof row.content === 'object'
+    ? row.content as Record<string, unknown>
+    : {};
+  const content = typeof stored.text === 'string'
+    ? stored.text
+    : typeof row.content === 'string' ? row.content : '';
+  const attachments = Array.isArray(stored.attachments)
+    ? stored.attachments.flatMap((item: any) => {
+        if (!item || typeof item !== 'object' || typeof item.name !== 'string') return [];
+        const kind: 'image' | 'file' = item.kind === 'image' ? 'image' : 'file';
+        return [{
+          id: randomUUID(),
+          name: item.name.slice(0, 200),
+          mimeType: typeof item.mimeType === 'string' ? item.mimeType.slice(0, 100) : 'application/octet-stream',
+          kind,
+          size: Math.max(0, Number(item.size) || 0),
+        }];
+      })
+    : undefined;
+  return {
+    id: typeof row.id === 'string' ? row.id : randomUUID(),
+    role: row.role,
+    content,
+    createdAt: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+    modelProfile: typeof row.model_profile === 'string' ? row.model_profile as CloudProfile : undefined,
+    attachments: attachments?.length ? attachments : undefined,
+  };
+}
+
+async function listCloudTasks(projectId?: string): Promise<CloudAgentTask[]> {
+  const query = projectId ? '?projectId=' + encodeURIComponent(projectId) : '';
+  const result = await cloudApiRequest<{ tasks: CloudAgentTask[] }>('/api/tasks' + query, {}, true);
+  return Array.isArray(result.tasks) ? result.tasks : [];
+}
+
+async function listCloudProjects(): Promise<CloudProject[]> {
+  const result = await cloudApiRequest<{ projects: CloudProject[] }>('/api/projects', {}, true);
+  return Array.isArray(result.projects) ? result.projects : [];
+}
+
+async function createCloudProject(payload: { name: string; description?: string }): Promise<CloudProject> {
+  const result = await cloudApiRequest<{ project: CloudProject }>('/api/projects', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, true);
+  return result.project;
+}
+
+async function updateCloudProject(projectId: string, payload: { name?: string; description?: string }): Promise<CloudProject> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+    throw new Error('Invalid cloud project ID.');
+  }
+  const result = await cloudApiRequest<{ project: CloudProject }>('/api/projects/' + encodeURIComponent(projectId), {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }, true);
+  return result.project;
+}
+
+async function deleteCloudProject(projectId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+    throw new Error('Invalid cloud project ID.');
+  }
+  const result = await cloudApiRequest<{ ok: boolean; deletedProjectId: string; deletedFileCount: number }>(
+    '/api/projects/' + encodeURIComponent(projectId),
+    { method: 'DELETE' },
+    true,
+  );
+  const session = await readCloudSession();
+  if (session?.currentProjectId === projectId) {
+    const next = { ...session };
+    delete next.currentProjectId;
+    await writeCloudSession(next);
+  }
+  return result;
+}
+
+async function loadCloudConversation(conversationId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) {
+    throw new Error('Invalid conversation ID.');
+  }
+  const result = await cloudApiRequest<{ conversation: CloudConversation; messages: any[] }>(
+    '/api/conversations/' + encodeURIComponent(conversationId), {}, true,
+  );
+  const messages = (result.messages || []).map(mapCloudMessage).filter((item): item is ChatMessage => Boolean(item));
+  return { conversation: result.conversation, messages };
+}
+
+async function createCloudConversation(payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) {
+  const result = await cloudApiRequest<{ conversation: CloudConversation }>('/api/conversations', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: (payload.title || 'New chat').slice(0, 80),
+      projectId: payload.projectId || null,
+      modelProfile: payload.modelProfile,
+    }),
+  }, true);
+  const session = await readCloudSession();
+  if (session) {
+    const updatedSession = { ...session, currentConversationId: result.conversation.id };
+    if (payload.projectId) updatedSession.currentProjectId = payload.projectId;
+    else delete updatedSession.currentProjectId;
+    await writeCloudSession(updatedSession);
+  }
+  return result.conversation;
+}
+
+async function setCurrentCloudProject(projectId?: string | null) {
+  if (projectId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+    throw new Error('Invalid cloud project ID.');
+  }
+  const session = await readCloudSession();
+  if (!session) return { ok: false };
+  const next = { ...session };
+  if (projectId) next.currentProjectId = projectId;
+  else delete next.currentProjectId;
+  await writeCloudSession(next);
+  return { ok: true };
+}
+
+async function setCurrentCloudConversation(conversationId?: string | null) {
+  if (conversationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) {
+    throw new Error('Invalid conversation ID.');
+  }
+  const session = await readCloudSession();
+  if (!session) return { ok: false };
+  const next = { ...session };
+  if (conversationId) next.currentConversationId = conversationId;
+  else delete next.currentConversationId;
+  await writeCloudSession(next);
+  return { ok: true };
 }
 
 async function sendCloudMessage(payload: {
@@ -439,6 +640,13 @@ async function sendCloudMessage(payload: {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+    const responseConversationId = response.headers.get('X-Rmango-Conversation-Id');
+    if (responseConversationId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(responseConversationId)) {
+      const latest = await readCloudSession();
+      if (latest?.user.id === session.user.id) {
+        await writeCloudSession({ ...latest, currentConversationId: responseConversationId });
+      }
+    }
     if (!response.ok) {
       const raw = await response.text();
       let message = raw;
@@ -631,29 +839,47 @@ function getStudioProcessEnvironment(): Record<string, string> {
 
 async function connectRoblox() {
   if (mcpClient) {
-    const cloudLink = await registerCloudStudioConnector().catch(error => ({
-      linked: false,
-      message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
-    }));
-    return { ok: true, connected: true, toolCount: connectedTools.length, cloudLinked: cloudLink.linked, cloudMessage: cloudLink.message };
+    try { await discoverStudioInstances(); }
+    catch { /* The bridge may connect before Studio has opened a place. */ }
+    const savedSession = await readCloudSession();
+    const alreadyLinked = Boolean(savedSession?.studioConnectorId && savedSession.studioConnectorSecret);
+    const cloudLink = selectedStudioId
+      ? alreadyLinked
+        ? { linked: true, message: "The cloud connector is already linked." }
+        : await registerCloudStudioConnector().catch(error => ({
+            linked: false,
+            message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
+          }))
+      : { linked: false, message: "MCP bridge connected. Open a place in Roblox Studio, then choose Refresh Studio connection." };
+    return {
+      ok: true,
+      connected: true,
+      studioReady: Boolean(selectedStudioId),
+      studioId: selectedStudioId,
+      studioInstances,
+      toolCount: safeToolList().length,
+      cloudLinked: cloudLink.linked,
+      cloudMessage: cloudLink.message,
+    };
   }
   if (process.platform !== 'win32') {
-    return { ok: false, connected: false, error: 'The bundled Roblox Studio MCP connection is configured for Windows.' };
+    return { ok: false, connected: false, studioReady: false, error: 'The bundled Roblox Studio MCP connection is configured for Windows.' };
   }
   const localAppData = process.env.LOCALAPPDATA;
-  if (!localAppData) return { ok: false, connected: false, error: 'Windows LOCALAPPDATA was not found.' };
+  if (!localAppData) return { ok: false, connected: false, studioReady: false, error: 'Windows LOCALAPPDATA was not found.' };
   const mcpBat = path.join(localAppData, 'Roblox', 'mcp.bat');
   if (!existsSync(mcpBat)) {
     return {
       ok: false,
       connected: false,
+      studioReady: false,
       error: 'Roblox MCP launcher was not found at ' + mcpBat + '. Update Roblox Studio, then enable Assistant → Manage MCP Servers → Enable Studio as MCP server.',
     };
   }
   try {
     const transport = new StdioClientTransport({
       command: 'cmd.exe',
-      args: ['/d', '/s', '/c', '\"' + mcpBat + '\"'],
+      args: ['/d', '/s', '/c', '"' + mcpBat + '"'],
       env: getStudioProcessEnvironment(),
     });
     const client = new Client({ name: 'rmango-desktop', version: app.getVersion() }, { capabilities: {} });
@@ -662,17 +888,21 @@ async function connectRoblox() {
     mcpClient = client;
     mcpTransport = transport;
     connectedTools = result.tools as McpTool[];
-    selectedStudioId = await discoverStudioId().catch(() => undefined);
-    const cloudLink = await registerCloudStudioConnector().catch(error => ({
-      linked: false,
-      message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
-    }));
+    await discoverStudioInstances().catch(() => []);
+    const cloudLink = selectedStudioId
+      ? await registerCloudStudioConnector().catch(error => ({
+          linked: false,
+          message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
+        }))
+      : { linked: false, message: "MCP bridge connected. Open a place in Roblox Studio, then choose Refresh Studio connection." };
     return {
       ok: true,
       connected: true,
+      studioReady: Boolean(selectedStudioId),
       toolCount: connectedTools.length,
       tools: connectedTools.map(tool => tool.name),
       studioId: selectedStudioId,
+      studioInstances,
       cloudLinked: cloudLink.linked,
       cloudMessage: cloudLink.message,
     };
@@ -681,7 +911,8 @@ async function connectRoblox() {
     mcpTransport = null;
     connectedTools = [];
     selectedStudioId = undefined;
-    return { ok: false, connected: false, error: error instanceof Error ? error.message : String(error) };
+    studioInstances = [];
+    return { ok: false, connected: false, studioReady: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -697,7 +928,8 @@ async function disconnectRoblox() {
   mcpTransport = null;
   connectedTools = [];
   selectedStudioId = undefined;
-  return { ok: true, connected: false };
+  studioInstances = [];
+  return { ok: true, connected: false, studioReady: false };
 }
 
 const READ_ONLY_STUDIO_TOOLS = new Set([
@@ -729,39 +961,52 @@ function tryParseJson(value: string): any {
   try { return JSON.parse(value); } catch { return undefined; }
 }
 
-function findStudioId(value: any): string | undefined {
-  if (!value || typeof value !== 'object') return undefined;
+function collectStudioInstances(value: any, found = new Map<string, StudioInstance>(), depth = 0): StudioInstance[] {
+  if (!value || typeof value !== "object" || depth > 12) return [...found.values()];
   if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findStudioId(item);
-      if (found) return found;
-    }
-    return undefined;
+    for (const item of value) collectStudioInstances(item, found, depth + 1);
+    return [...found.values()];
   }
-  for (const key of ['studio_id', 'studioId']) {
-    if (typeof value[key] === 'string' && value[key]) return value[key];
+
+  const idValue = typeof value.studio_id === "string" ? value.studio_id
+    : typeof value.studioId === "string" ? value.studioId
+    : typeof value.instance_id === "string" ? value.instance_id
+    : undefined;
+  if (idValue) {
+    const nameValue = [value.name, value.studio_name, value.studioName, value.place_name, value.placeName]
+      .find(item => typeof item === "string" && item.trim());
+    const placeValue = typeof value.place_id === "string" ? value.place_id
+      : typeof value.placeId === "string" || typeof value.placeId === "number" ? String(value.placeId)
+      : undefined;
+    found.set(idValue, {
+      id: idValue.slice(0, 180),
+      name: typeof nameValue === "string" ? nameValue.trim().slice(0, 120) : "Roblox Studio",
+      placeId: placeValue?.slice(0, 80),
+    });
   }
-  for (const child of Object.values(value)) {
-    const found = findStudioId(child);
-    if (found) return found;
-  }
-  return undefined;
+  for (const child of Object.values(value)) collectStudioInstances(child, found, depth + 1);
+  return [...found.values()];
 }
 
-async function discoverStudioId(): Promise<string | undefined> {
-  if (!mcpClient || !connectedTools.some(tool => tool.name === 'list_roblox_studios')) return undefined;
-  try {
-    const result = await mcpClient.callTool({ name: 'list_roblox_studios', arguments: {} });
-    const structuredId = findStudioId((result as any).structuredContent);
-    if (structuredId) return structuredId;
-    for (const item of (result as any).content || []) {
-      if (item.type === 'text') {
-        const parsedId = findStudioId(tryParseJson(item.text));
-        if (parsedId) return parsedId;
-      }
-    }
-  } catch { /* Studio may not have announced a session yet. */ }
-  return undefined;
+async function discoverStudioInstances(): Promise<StudioInstance[]> {
+  if (!mcpClient || !connectedTools.some(tool => tool.name === "list_roblox_studios")) {
+    studioInstances = [];
+    selectedStudioId = undefined;
+    return [];
+  }
+  const result = await mcpClient.callTool({ name: "list_roblox_studios", arguments: {} });
+  const found = new Map<string, StudioInstance>();
+  collectStudioInstances((result as any).structuredContent, found);
+  for (const item of (result as any).content || []) {
+    if (item?.type !== "text" || typeof item.text !== "string") continue;
+    const parsed = tryParseJson(item.text);
+    if (parsed) collectStudioInstances(parsed, found);
+  }
+  studioInstances = [...found.values()];
+  if (!studioInstances.some(instance => instance.id === selectedStudioId)) {
+    selectedStudioId = studioInstances[0]?.id;
+  }
+  return studioInstances;
 }
 
 function withStudioId(tool: McpTool, input: Record<string, unknown>) {
@@ -799,6 +1044,9 @@ async function callStudioTool(name: string, args: Record<string, unknown>) {
   if (!tool || (!READ_ONLY_STUDIO_TOOLS.has(name) && !APPROVAL_REQUIRED_STUDIO_TOOLS.has(name))) {
     throw new Error('Tool ' + name + ' is not enabled in Rmango.');
   }
+  if (name !== 'list_roblox_studios' && !selectedStudioId) {
+    throw new Error('The Roblox MCP bridge is running, but no open Studio place is selected. Open your place in Roblox Studio, then refresh the Studio connection.');
+  }
   if (APPROVAL_REQUIRED_STUDIO_TOOLS.has(name)) {
     await requestStudioApproval(name, tool.description || ('This action will run ' + name + ' in the connected Roblox Studio session.'), args);
   }
@@ -808,7 +1056,8 @@ async function callStudioTool(name: string, args: Record<string, unknown>) {
 }
 
 async function registerCloudStudioConnector() {
-  if (!mcpClient) return { linked: false, message: "Roblox Studio is not connected." };
+  if (!mcpClient) return { linked: false, message: "Roblox Studio MCP bridge is not connected." };
+  if (!selectedStudioId) return { linked: false, message: "The MCP bridge is online, but no open Roblox Studio place was detected. Open a place and refresh the Studio connection." };
   const session = await readCloudSession();
   if (!session) return { linked: false, message: "Sign in to Rmango Cloud to link the Studio connector." };
   const tools = safeToolList().map(tool => ({
@@ -848,7 +1097,7 @@ function startStudioConnectorPolling() {
 }
 
 async function pollCloudStudioCommands() {
-  if (studioPollInFlight || !mcpClient) return;
+  if (studioPollInFlight || !mcpClient || !selectedStudioId) return;
   const session = await readCloudSession();
   if (!session?.studioConnectorId || !session.studioConnectorSecret) return;
   studioPollInFlight = true;
@@ -1016,49 +1265,89 @@ async function downloadCloudProjectZip(projectId: string) {
 
 async function uploadCloudProject() {
   const settings = await readSettings();
-  if (!settings.projectPath) throw new Error("Open a local project folder before uploading it to Rmango Cloud.");
+  if (!settings.projectPath) throw new Error("Open a local project folder before syncing it to Rmango Cloud.");
   const session = await getValidCloudSession();
   const root = await fs.realpath(settings.projectPath);
-  const projectName = path.basename(root) || "Roblox Project";
-  const created = await cloudApiRequest<any>("/api/projects", {
-    method: "POST",
-    body: JSON.stringify({
-      name: projectName,
-      description: "Source files imported from " + projectName + " using Rmango Desktop.",
-    }),
-  });
+  const localProjectName = path.basename(root) || "Roblox Project";
 
-  const projectId = created.project?.id;
-  if (typeof projectId !== "string") throw new Error("The cloud service did not return a project ID.");
+  let cloudProject: CloudProject | null = null;
+  let projectId = session.currentProjectId;
+  if (projectId) {
+    try {
+      const existing = await cloudApiRequest<{ project: CloudProject }>("/api/projects/" + encodeURIComponent(projectId), {}, true);
+      if (existing.project?.id === projectId) cloudProject = existing.project;
+      else projectId = undefined;
+    } catch (error) {
+      if (error instanceof Error && /cloud project not found/i.test(error.message)) {
+        projectId = undefined;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  if (!projectId) {
+    const created = await cloudApiRequest<{ project: CloudProject }>("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: localProjectName,
+        description: "Source files imported from " + localProjectName + " using Rmango Desktop.",
+      }),
+    });
+    if (typeof created.project?.id !== "string") {
+      throw new Error("The cloud service did not return a project ID.");
+    }
+    cloudProject = created.project;
+    projectId = created.project.id;
+  }
+
+  if (!cloudProject) {
+    throw new Error("The selected cloud project could not be verified. No files were uploaded.");
+  }
   await writeCloudSession({ ...session, currentProjectId: projectId });
 
-  const entries = (await projectFiles(root)).filter(item => item.kind === "file").slice(0, 120);
+  const remote = await cloudApiRequest<{ files: Array<{
+    relative_path: string;
+    sha256: string | null;
+    size_bytes: number;
+  }> }>("/api/projects/" + projectId + "/files", {}, true);
+  const remoteByPath = new Map((remote.files || []).map(file => [file.relative_path, file]));
+  const allEntries = (await projectFiles(root)).filter(item => item.kind === "file");
+  const entries = allEntries.slice(0, 120);
+  const scanComplete = allEntries.length <= entries.length;
   const uploaded: string[] = [];
+  const unchanged: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
 
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index];
-    const relativePath = path.relative(root, entry.path);
+    const relativePath = path.relative(root, entry.path).split(path.sep).join("/");
     try {
       const content = await readProjectFile(root, relativePath);
       const extension = path.extname(entry.name).toLowerCase();
       const mimeType = extension === ".json" ? "application/json" : extension === ".csv" ? "text/csv" : "text/plain";
       const bytes = Buffer.from(content, "utf8");
-      await cloudApiRequest("/api/projects/" + projectId + "/files", {
-        method: "POST",
-        body: JSON.stringify({
-          relativePath: relativePath.split(path.sep).join("/"),
-          fileName: entry.name,
-          mimeType,
-          sizeBytes: bytes.length,
-          dataBase64: bytes.toString("base64"),
-        }),
-      });
-      uploaded.push(relativePath);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const existing = remoteByPath.get(relativePath);
+      if (existing?.sha256 === sha256) {
+        unchanged.push(relativePath);
+      } else {
+        await cloudApiRequest("/api/projects/" + projectId + "/files", {
+          method: "POST",
+          body: JSON.stringify({
+            relativePath,
+            fileName: entry.name,
+            mimeType,
+            sizeBytes: bytes.length,
+            dataBase64: bytes.toString("base64"),
+          }),
+        });
+        uploaded.push(relativePath);
+      }
     } catch (error) {
       skipped.push({
         name: relativePath,
-        reason: error instanceof Error ? error.message : "File could not be uploaded.",
+        reason: error instanceof Error ? error.message : "File could not be synced.",
       });
     }
 
@@ -1076,18 +1365,42 @@ async function uploadCloudProject() {
     }
   }
 
+  let removed = 0;
+  // Do not delete cloud files when the local scan was capped or any local
+  // read/upload failed; an incomplete scan is not evidence of deletion.
+  if (scanComplete && skipped.length === 0) {
+    const localPaths = new Set(entries.map(entry => path.relative(root, entry.path).split(path.sep).join("/")));
+    const stalePaths = (remote.files || [])
+      .map(file => file.relative_path)
+      .filter(relativePath => !localPaths.has(relativePath));
+    for (let offset = 0; offset < stalePaths.length; offset += 500) {
+      const batch = stalePaths.slice(offset, offset + 500);
+      const result = await cloudApiRequest<{ removed: number }>("/api/projects/" + projectId + "/files", {
+        method: "DELETE",
+        body: JSON.stringify({ relativePaths: batch }),
+      });
+      removed += Number(result.removed) || 0;
+    }
+  }
+
   return {
     ok: true,
     projectId,
-    projectName,
+    projectName: cloudProject.name,
     totalFiles: entries.length,
     uploaded: uploaded.length,
+    unchanged: unchanged.length,
+    removed,
     skipped,
   };
 }
 
 async function runDiagnostics() {
-  if (!mcpClient) return { ok: false, error: 'Connect Roblox Studio first.' };
+  if (!mcpClient) return { ok: false, error: 'Connect the Roblox Studio MCP bridge first.' };
+  try { await discoverStudioInstances(); } catch { /* Report the latest known Studio state below. */ }
+  if (!selectedStudioId) {
+    return { ok: false, error: 'The MCP bridge is connected, but no open Roblox Studio place was detected. Open a place, then refresh the connection.' };
+  }
   const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
   for (const name of ['list_roblox_studios', 'get_studio_state']) {
     if (!READ_ONLY_STUDIO_TOOLS.has(name) || !connectedTools.some(tool => tool.name === name)) continue;
@@ -1291,6 +1604,7 @@ handleIpc('app:get-state', async () => {
     appearance: settings.appearance,
     density: settings.density,
     animationsEnabled: settings.animationsEnabled,
+    reducedMotion: settings.reducedMotion,
     fontSize: settings.fontSize,
     sendOnEnter: settings.sendOnEnter,
     desktopNotifications: settings.desktopNotifications,
@@ -1312,6 +1626,10 @@ handleIpc('settings:update', async (_event, patch: SettingsPatch) => {
   if ('animationsEnabled' in patch) {
     if (typeof patch.animationsEnabled !== 'boolean') throw new Error('Animation preference must be on or off.');
     next.animationsEnabled = patch.animationsEnabled;
+  }
+  if ('reducedMotion' in patch) {
+    if (typeof patch.reducedMotion !== 'boolean') throw new Error('Reduced-motion preference must be on or off.');
+    next.reducedMotion = patch.reducedMotion;
   }
   if ('fontSize' in patch) {
     if (patch.fontSize !== 'small' && patch.fontSize !== 'medium' && patch.fontSize !== 'large') throw new Error('Choose Small, Medium, or Large text.');
@@ -1357,6 +1675,26 @@ handleIpc('cloud:sign-up', async (_event, payload: { email: string; password: st
 });
 handleIpc('cloud:sign-out', () => cloudSignOut());
 handleIpc('cloud:models', () => getCloudModels());
+handleIpc('cloud:conversations:list', (_event, projectId?: string) => listCloudConversations(projectId));
+handleIpc('cloud:tasks:list', (_event, projectId?: string) => listCloudTasks(projectId));
+handleIpc('cloud:projects:list', () => listCloudProjects());
+handleIpc('cloud:projects:create', (_event, payload: { name: string; description?: string }) => {
+  if (!payload || typeof payload.name !== 'string') throw new Error('Enter a project name.');
+  return createCloudProject({ name: payload.name, description: payload.description });
+});
+handleIpc('cloud:projects:update', (_event, payload: { projectId: string; name?: string; description?: string }) => {
+  if (!payload || typeof payload.projectId !== 'string') throw new Error('Invalid cloud project update.');
+  return updateCloudProject(payload.projectId, { name: payload.name, description: payload.description });
+});
+handleIpc('cloud:projects:delete', (_event, projectId: string) => deleteCloudProject(projectId));
+handleIpc('cloud:conversations:load', (_event, conversationId: string) => loadCloudConversation(conversationId));
+handleIpc('cloud:conversations:create', (_event, payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => {
+  const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
+  if (!payload || !allowedProfiles.includes(payload.modelProfile)) throw new Error('Invalid conversation settings.');
+  return createCloudConversation(payload);
+});
+handleIpc('cloud:project:set-active', (_event, projectId?: string | null) => setCurrentCloudProject(projectId));
+handleIpc('cloud:conversation:set-active', (_event, conversationId?: string | null) => setCurrentCloudConversation(conversationId));
 
 handleIpc('project:open', async () => {
   const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
@@ -1385,14 +1723,29 @@ handleIpc('project:clear', async () => {
 handleIpc('mcp:connect', () => connectRoblox());
 handleIpc('mcp:disconnect', () => disconnectRoblox());
 handleIpc('mcp:state', async () => {
+  if (mcpAvailable()) {
+    try { await discoverStudioInstances(); } catch { /* Keep the last known session list during a transient MCP error. */ }
+  } else {
+    studioInstances = [];
+    selectedStudioId = undefined;
+  }
   const session = await readCloudSession();
   return {
     connected: mcpAvailable(),
+    studioReady: Boolean(mcpAvailable() && selectedStudioId),
     cloudLinked: Boolean(session?.studioConnectorId && session.studioConnectorSecret),
     toolCount: safeToolList().length,
     tools: safeToolList().map(tool => tool.name),
     studioId: selectedStudioId || null,
+    studioInstances,
   };
+});
+handleIpc('mcp:select-studio', (_event, studioId: string) => {
+  if (typeof studioId !== 'string' || !studioInstances.some(instance => instance.id === studioId)) {
+    throw new Error('That Roblox Studio instance is no longer available. Refresh Studio connections and try again.');
+  }
+  selectedStudioId = studioId;
+  return { ok: true, studioId: selectedStudioId, studioReady: true };
 });
 handleIpc('mcp:list-tools', () => ({
   all: connectedTools.map(tool => ({ name: tool.name, description: tool.description || '' })),
@@ -1429,15 +1782,59 @@ handleIpc('chat:load', async () => {
         return [];
       }
     }
-    if (!Array.isArray(parsed)) return [];
 
-    if (legacyPlaintext) {
-      const encrypted = safeStorage.encryptString(JSON.stringify(parsed)).toString('base64');
+    const cloudSession = await readCloudSession();
+    const activeOwnerId = cloudSession?.user.id || null;
+    let ownerId: string | null = null;
+    let messages: unknown;
+
+    if (Array.isArray(parsed)) {
+      // Pre-account history is treated as guest-only. It must not appear inside
+      // a signed-in account, where it could reveal a previous account's chats.
+      ownerId = null;
+      messages = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      const saved = parsed as { version?: unknown; ownerId?: unknown; messages?: unknown };
+      if (saved.version !== 2 || (saved.ownerId !== null && typeof saved.ownerId !== 'string') || !Array.isArray(saved.messages)) {
+        return [];
+      }
+      ownerId = typeof saved.ownerId === 'string' ? saved.ownerId : null;
+      messages = saved.messages;
+    } else {
+      return [];
+    }
+
+    if (ownerId !== activeOwnerId) {
+      // A legacy unscoped transcript may have belonged to a different signed-in
+      // account. Replace it with an empty account-bound cache instead of showing it.
+      if (activeOwnerId && ownerId === null) {
+        const encrypted = safeStorage.encryptString(JSON.stringify({
+          version: 2,
+          ownerId: activeOwnerId,
+          messages: [],
+        })).toString('base64');
+        const temporaryPath = filePath + '.migrating';
+        await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+        await fs.rename(temporaryPath, filePath);
+      }
+      return [];
+    }
+    const cleaned = (messages as ChatMessage[]).filter(message =>
+      message && (message.role === 'user' || message.role === 'assistant') &&
+      typeof message.content === 'string'
+    ).slice(-100);
+
+    if (legacyPlaintext || Array.isArray(parsed)) {
+      const encrypted = safeStorage.encryptString(JSON.stringify({
+        version: 2,
+        ownerId,
+        messages: cleaned,
+      })).toString('base64');
       const temporaryPath = filePath + '.migrating';
       await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
       await fs.rename(temporaryPath, filePath);
     }
-    return parsed.slice(-100) as ChatMessage[];
+    return cleaned;
   } catch {
     return [];
   }
@@ -1454,14 +1851,19 @@ handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
       ? (message as any).attachments.map(({ id, name, mimeType, kind, size }: any) => ({ id, name, mimeType, kind, size }))
       : undefined,
   }));
-  const encrypted = safeStorage.encryptString(JSON.stringify(cleaned)).toString('base64');
+  const cloudSession = await readCloudSession();
+  const ownerId = cloudSession?.user.id || null;
+  const encrypted = safeStorage.encryptString(JSON.stringify({
+    version: 2,
+    ownerId,
+    messages: cleaned,
+  })).toString('base64');
   const filePath = sessionPath();
   const temporaryPath = filePath + '.tmp';
   await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
   await fs.rename(temporaryPath, filePath);
-  return { ok: true, encrypted: true };
+  return { ok: true, encrypted: true, accountScoped: true };
 });
-
 handleIpc('cloud:cancel', (_event, requestId: string) => {
   if (typeof requestId !== 'string' || requestId.length > 80) return { ok: false };
   const controller = activeChatRequests.get(requestId);
