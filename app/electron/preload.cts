@@ -12,6 +12,7 @@ const api = {
   cloudSignOut: () => ipcRenderer.invoke('cloud:sign-out'),
   getCloudModels: () => ipcRenderer.invoke('cloud:models'),
   getCloudConversations: (projectId?: string) => ipcRenderer.invoke('cloud:conversations:list', projectId),
+  getCloudTasks: (projectId?: string) => ipcRenderer.invoke('cloud:tasks:list', projectId),
   loadCloudConversation: (conversationId: string) => ipcRenderer.invoke('cloud:conversations:load', conversationId),
   createCloudConversation: (payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => ipcRenderer.invoke('cloud:conversations:create', payload),
   setCurrentConversationId: (conversationId?: string | null) => ipcRenderer.invoke('cloud:conversation:set-active', conversationId),
