@@ -71,6 +71,7 @@ jobs:
           Write-Host "Windows mango icon generated successfully."
 
       - name: Configure public Rmango Cloud API URL
+        id: cloud-config
         shell: pwsh
         env:
           RMANGO_CLOUD_API_URL: ${{ vars.RMANGO_CLOUD_API_URL }}
@@ -82,12 +83,13 @@ jobs:
             if ($parsed.Scheme -ne "https" -or -not $parsed.IsAbsoluteUri) {
               throw "RMANGO_CLOUD_API_URL must be an absolute HTTPS URL."
             }
-          }
-          @{ apiBaseUrl = $apiUrl } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
-          if ($apiUrl) {
+            @{ apiBaseUrl = $apiUrl } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
+            "configured=true" >> $env:GITHUB_OUTPUT
             Write-Host "Configured Rmango Cloud endpoint: $($parsed.Host)"
           } else {
-            Write-Warning "RMANGO_CLOUD_API_URL repository variable is empty. The installer will display Cloud not configured until a new build is made."
+            @{ apiBaseUrl = "" } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
+            "configured=false" >> $env:GITHUB_OUTPUT
+            Write-Warning "Cloud URL is not configured. This run will verify a build artifact only; it will NOT publish a public installer release."
           }
 
       - name: Import optional Windows code-signing certificate
@@ -176,11 +178,18 @@ jobs:
         working-directory: app-src
         run: npm install --no-audit --no-fund
 
-      - name: Build, create update manifest, and publish GitHub Release
+      - name: Build and optionally publish Windows installer
         working-directory: app-src
         env:
           GH_TOKEN: ${{ github.token }}
-        run: npm run dist:win:publish
+          RMANGO_CLOUD_CONFIGURED: ${{ steps.cloud-config.outputs.configured }}
+        shell: pwsh
+        run: |
+          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
+            npm run dist:win:publish
+          } else {
+            npm run dist:win
+          }
 
       - name: Verify setup executable and update manifest
         id: verify
@@ -193,14 +202,20 @@ jobs:
             throw "Build did not produce $installerPattern."
           }
 
+          $configured = "${{ steps.cloud-config.outputs.configured }}"
           $manifest = Join-Path "app-src/release" "latest.yml"
-          if (-not (Test-Path $manifest)) {
-            throw "Missing latest.yml. The auto-update feed would not work."
-          }
+          if ($configured -eq "true") {
+            if (-not (Test-Path $manifest)) {
+              throw "Missing latest.yml. The auto-update feed would not work."
+            }
 
-          $manifestText = Get-Content -LiteralPath $manifest -Raw
-          if ($manifestText -notmatch "(?m)^version:\s*$([regex]::Escape($version))\s*$") {
-            throw "latest.yml does not describe this build version ($version)."
+            $manifestText = Get-Content -LiteralPath $manifest -Raw
+            if ($manifestText -notmatch "(?m)^version:\s*$([regex]::Escape($version))\s*$") {
+              throw "latest.yml does not describe this build version ($version)."
+            }
+            Write-Host "Auto-update manifest: $manifest"
+          } else {
+            Write-Warning "Cloud URL is not configured, so this unsigned/local-config build is an artifact only and is not release-published."
           }
 
           $sizeMb = [math]::Round($installer.Length / 1MB, 2)
@@ -214,12 +229,12 @@ jobs:
           Write-Host "Size: $sizeMb MB"
           Write-Host "SHA256: $sha256"
           Write-Host "Authenticode status: $($signature.Status)"
-          Write-Host "Auto-update manifest: $manifest"
           if ($env:RMANGO_HAS_SIGNING_CERT -eq "true" -and $signature.Status -ne "Valid") {
             throw "A signing certificate was configured, but the installer signature is not valid."
           }
 
       - name: Verify public GitHub Release contains the update feed
+        if: steps.cloud-config.outputs.configured == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
