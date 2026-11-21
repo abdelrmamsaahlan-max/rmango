@@ -108,7 +108,7 @@ let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
 const activeChatRequests = new Map<string, AbortController>();
-const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
 let updateDownloadInFlight = false;
 let lastDownloadedUpdateVersion: string | null = null;
