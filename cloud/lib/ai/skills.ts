@@ -12,7 +12,7 @@ export type RmangoSkill = {
 const SKILLS: RmangoSkill[] = [
   {
     id: "roblox-engineering-core",
-    version: "1.0.0",
+    version: "2.0.0",
     label: "Roblox Engineering Core",
     description: "The shared workflow for reliable Roblox development.",
     triggers: [],
