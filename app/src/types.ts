@@ -206,6 +206,8 @@ declare global {
       getCloudState: () => Promise<CloudState>;
       getCloudUsage: () => Promise<CloudUsage>;
       cloudSignIn: (credentials: { email: string; password: string }) => Promise<{ ok: boolean; user: { id: string; email?: string } }>;
+      cloudSignInWithGoogle: () => Promise<{ ok: boolean; user: { id: string; email?: string } }>;
+      cancelGoogleSignIn: () => Promise<{ ok: boolean; message?: string }>;
       requestPasswordReset: (payload: { email: string }) => Promise<{ ok: boolean; message: string }>;
       cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => Promise<{ ok: boolean; requiresEmailConfirmation: boolean; user: { id: string; email?: string } }>;
       cloudSignOut: () => Promise<{ ok: boolean }>;
