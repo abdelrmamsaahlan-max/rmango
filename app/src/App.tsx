@@ -3,17 +3,18 @@ import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
-  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send,
+  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square
 } from 'lucide-react';
 import type {
-  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
+  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
   AgentActivity, CloudAgentTask, CloudConversation, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
 type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
 type PendingFollowup = { id: string; content: string; profile: CloudProfile; attachments: PendingAttachment[]; queuedAt: string };
+type ProjectDialogState = { mode: 'create' | 'rename'; projectId?: string; name: string; description: string } | null;
 
 const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -90,6 +91,10 @@ function App() {
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
   const [cloudTasks, setCloudTasks] = useState<CloudAgentTask[]>([]);
+  const [cloudProjects, setCloudProjects] = useState<CloudProject[]>([]);
+  const [cloudProjectSearch, setCloudProjectSearch] = useState('');
+  const [projectDialog, setProjectDialog] = useState<ProjectDialogState>(null);
+  const [savingProject, setSavingProject] = useState(false);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [chatReady, setChatReady] = useState(false);
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
@@ -208,10 +213,12 @@ function App() {
               window.rmango.getCloudModels(),
               window.rmango.getCloudConversations(),
               window.rmango.getCloudTasks(),
+              window.rmango.getCloudProjects(),
             ]);
             setCloudModels(models);
             setCloudConversations(conversations);
             setCloudTasks(tasks);
+            setCloudProjects(projects);
             if (cloud.currentConversationId) {
               const restored = await window.rmango.loadCloudConversation(cloud.currentConversationId);
               if (restored.messages.length) restoredMessages = restored.messages;
@@ -292,18 +299,121 @@ function App() {
           window.rmango.getCloudModels(),
           window.rmango.getCloudConversations(),
           window.rmango.getCloudTasks(),
+          window.rmango.getCloudProjects(),
         ]);
         setCloudModels(models);
         setCloudConversations(conversations);
         setCloudTasks(tasks);
+        setCloudProjects(projects);
       } catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models or conversations.'); }
     } else {
       setCloudModels(null);
       setCloudConversations([]);
       setCloudTasks([]);
+      setCloudProjects([]);
     }
     return state;
   }
+
+  async function handleSaveCloudProject() {
+    if (!projectDialog || savingProject) return;
+    const name = projectDialog.name.trim();
+    if (!name || name.length > 100) {
+      setToast('Project names must contain between 1 and 100 characters.');
+      return;
+    }
+    setSavingProject(true);
+    try {
+      if (projectDialog.mode === 'create') {
+        const project = await window.rmango.createCloudProject({
+          name,
+          description: projectDialog.description.trim(),
+        });
+        setCloudProjects(current => [project, ...current.filter(item => item.id !== project.id)].slice(0, 50));
+        setCloudProjectId(project.id);
+        setCloudState(current => current ? { ...current, currentProjectId: project.id } : current);
+        await window.rmango.setCurrentCloudProjectId(project.id);
+        setConversationId(undefined);
+        setMessages([]);
+        setActivities([]);
+        await window.rmango.setCurrentConversationId(null);
+        setCloudProjectChanges([]);
+        setToast('Created project "' + project.name + '".');
+      } else if (projectDialog.projectId) {
+        const project = await window.rmango.updateCloudProject({
+          projectId: projectDialog.projectId,
+          name,
+          description: projectDialog.description.trim(),
+        });
+        setCloudProjects(current => current.map(item => item.id === project.id ? project : item));
+        setToast('Updated project "' + project.name + '".');
+      }
+      setProjectDialog(null);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not save the cloud project.');
+    } finally {
+      setSavingProject(false);
+    }
+  }
+
+  async function handleSelectCloudProject(project: CloudProject) {
+    if (busy || loadingConversationId) return;
+    if (cloudProjectId === project.id) return;
+    try {
+      await window.rmango.setCurrentCloudProjectId(project.id);
+      await window.rmango.setCurrentConversationId(null);
+      setCloudProjectId(project.id);
+      setCloudState(current => current ? { ...current, currentProjectId: project.id, currentConversationId: undefined } : current);
+      setConversationId(undefined);
+      setMessages([]);
+      setActivities([]);
+      setFollowupQueue([]);
+      followupQueueRef.current = [];
+      setCloudProjectChanges([]);
+      setToast('Switched to project "' + project.name + '". Start a chat to give RMango this project context.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not select this project.');
+    }
+  }
+
+  function openRenameProject(project: CloudProject) {
+    setProjectDialog({
+      mode: 'rename',
+      projectId: project.id,
+      name: project.name,
+      description: project.description || '',
+    });
+  }
+
+  async function handleDeleteCloudProject(project: CloudProject) {
+    if (busy || !window.confirm('Delete "' + project.name + '" and its private project files, saved memories and proposed changes? This cannot be undone.')) return;
+    try {
+      const result = await window.rmango.deleteCloudProject(project.id);
+      setCloudProjects(current => current.filter(item => item.id !== project.id));
+      if (cloudProjectId === project.id) {
+        await window.rmango.setCurrentCloudProjectId(null);
+        setCloudProjectId(undefined);
+        setCloudState(current => current ? { ...current, currentProjectId: undefined } : current);
+        setCloudProjectChanges([]);
+      }
+      setToast('Deleted project "' + project.name + '" and ' + result.deletedFileCount + ' private files.');
+      const [conversations, tasks] = await Promise.all([
+        window.rmango.getCloudConversations(),
+        window.rmango.getCloudTasks(),
+      ]);
+      setCloudConversations(conversations);
+      setCloudTasks(tasks);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not delete the cloud project. No project database row was removed unless the operation completed.');
+    }
+  }
+
+  const filteredCloudProjects = useMemo(() => {
+    const query = cloudProjectSearch.trim().toLocaleLowerCase();
+    return query
+      ? cloudProjects.filter(project => project.name.toLocaleLowerCase().includes(query) || project.description.toLocaleLowerCase().includes(query))
+      : cloudProjects;
+  }, [cloudProjects, cloudProjectSearch]);
 
   async function handleNewConversation() {
     if (busy || loadingConversationId) return;
@@ -396,7 +506,17 @@ function App() {
         setConversationId(undefined);
       }
       if (state.signedIn) {
-        try { setCloudTasks(await window.rmango.getCloudTasks()); } catch { setCloudTasks([]); }
+        try {
+          const [tasks, projects] = await Promise.all([
+            window.rmango.getCloudTasks(),
+            window.rmango.getCloudProjects(),
+          ]);
+          setCloudTasks(tasks);
+          setCloudProjects(projects);
+        } catch {
+          setCloudTasks([]);
+          setCloudProjects([]);
+        }
       }
       if (appState?.studioConnected) await refreshMcpState();
       setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
@@ -440,6 +560,8 @@ function App() {
       setCloudModels(null);
       setCloudConversations([]);
       setCloudTasks([]);
+      setCloudProjects([]);
+      setCloudProjectId(undefined);
       setConversationId(undefined);
       setMessages([]);
       setActivities([]);
