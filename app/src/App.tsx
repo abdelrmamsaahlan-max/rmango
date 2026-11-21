@@ -1,10 +1,10 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, CircleHelp,
+  Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
   MessageSquare, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send,
-  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X
+  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3
 } from 'lucide-react';
 import type {
   AIProvider, AppState, AttachmentPayload, ChatAttachment, ChatMessage,
