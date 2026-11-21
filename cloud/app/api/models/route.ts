@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       profiles: catalogue.profiles,
       availableModelCount: catalogue.availableModelCount,
-      source: "synap-qwen3-coder",
+      source: "cloudflare-workers-ai-glm-4.7-flash",
       benchmarkScores: null,
     }, {
       headers: { "Cache-Control": "private, max-age=60" },
