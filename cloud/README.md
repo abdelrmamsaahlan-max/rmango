@@ -19,7 +19,7 @@ Deployment requires:
 1. An approved Vercel project in the account/team that owns the Rmango domain and release.
 2. A new dedicated Supabase project for Rmango. Do not reuse unrelated projects.
 3. Vercel OIDC enabled for the cloud project.
-4. The database migration applied to that Supabase project.
+4. Apply the base database migration, then the incremental workspace/index migration.
 5. Server-only environment variables configured in Vercel.
 6. An HTTPS deployment URL added as the GitHub repository variable RMANGO_CLOUD_API_URL.
 7. An administrator explicitly authorizing the cloud Gateway budget/spend policy before model-generation requests are enabled.
@@ -38,14 +38,17 @@ Create a **new** Supabase project for Rmango. Apply:
 
 `supabase/migrations/202611210001_rmango_cloud.sql`
 
-The migration creates:
+The two migrations create:
 - Email/password accounts and user profiles.
 - Projects, conversations, messages, private project files and project memories.
 - Pending file-change proposals and review status.
-- Studio connectors and queued tool commands.
+- Studio connectors and queued tool commands, including task-linked commands and approval state.
 - Per-user usage reservations and usage events.
 - A global admin-managed usage policy with daily and monthly request/token limits.
+- A versioned source index with Luau symbols, dependency edges and index-run history.
 - A private `rmango-files` storage bucket and owner-only row/object policies.
+
+Apply `supabase/migrations/202611210001_rmango_cloud.sql` first, followed by `supabase/migrations/202611220001_rmango_agent_workspace.sql`. The second migration is incremental and expects the base project tables to exist.
 
 The service-role key is only used in cloud server code for atomic usage accounting. Never add it to the desktop app, any `NEXT_PUBLIC_*` variable or a public GitHub Actions variable.
 
@@ -120,19 +123,20 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 - `/api/projects/:id/download` — owner-authenticated ZIP export.
 - `/api/agent/tasks` — create a durable project-scoped agent workflow and list the user's tasks.
 - `/api/agent/tasks/:taskId` — read task state/events and pause, resume, cancel or retry an owned task.
-- `/api/studio/register`, `poll`, `result`, `disconnect` — authenticated local Studio connector.
+- `/api/projects/:id/index` — inspect index coverage and start a full project re-index.
+- `/api/studio/register`, `poll`, `result`, `disconnect`, `approval` — authenticated local Studio connector, task-linked commands and approval decisions.
 
 ## Limitations in this build
 
-- Cloud project import supports text/source files up to 512 KB per file and 120 files per desktop upload. Binary `.rbxl` and `.rbxm` project files are not parsed here.
-- The Windows client still has a local-folder picker and local Roblox Studio MCP transport. These are for file selection and Studio control only, not AI inference.
-- The durable Workflow SDK task API now checkpoints a plan phase and a separate project-inspection/implementation phase, records task events, and supports pause/resume/cancel/retry at phase boundaries. An execution token fences stale attempts so an older retry cannot overwrite a newer one.
-- Durable tasks currently work against uploaded cloud-project text/source files. Their edits are reviewable proposals; the workflow does not directly invoke the local Studio MCP bridge, and it explicitly reports that Roblox runtime/playtest verification has not happened.
-- The Electron UI does not yet include a full durable-task monitor for these endpoints. Task creation and controls are currently available through the authenticated cloud API.
-- Studio tool calls made through normal chat remain synchronous within a bounded request and can time out.
+- Desktop import scans up to 2,000 non-hidden project entries and uploads supported text/source files up to 512 KB each. Binary `.rbxl` and `.rbxm` files, assets and files outside the supported text formats are reported as skipped; they are not unpacked or parsed.
+- The Luau index is a lightweight, versioned source scanner. It extracts module/function/service/remote symbols and common `require`/instance references; it is not a full Luau AST, type checker, or proof that a referenced instance exists in the live DataModel. Ambiguous or unresolved links retain low confidence.
+- Durable tasks index stale uploaded source files, create an implementation plan, run a WorkflowAgent loop, and can call the currently registered allowlisted Roblox Studio MCP tools through the local desktop bridge. Studio commands are persisted against the task; mutating tools wait for the desktop approval decision. Pausing/cancelling also cancels pending Studio commands.
+- The Electron Agent Workspace reads task state and event history from cloud storage, so task lists, plans, activity, errors and reports remain available after the desktop app closes. The UI polls saved task state; it does not depend on a single open window or chat transcript.
+- Playtest verification is conservative. RMango marks runtime verified only when the connected Studio subagent returns an explicit passing playtest result and a subsequent console inspection gives a clean result. A started play session, successful code edit or successful tool call alone is not a pass.
+- Normal chat Studio calls remain synchronous and can time out; the durable Studio tool path is used by the Agent Workspace task workflow.
 - Admin usage reports/policy editing UI is not complete. Policies can be managed in the database for now.
-- PDF/DOCX parsing, embeddings/vector RAG, complete dependency indexing, a side-by-side proposal diff viewer, specialist-agent delegation, and automated Luau test runners are not complete.
-- No end-to-end cloud inference, real account signup, Studio bridge or ZIP export test has been performed because the cloud database/project has not been provisioned.
+- Full Luau AST/type analysis, automated arbitrary game-specific test generation, vector/embedding RAG, full binary place/model parsing, complete semantic dependency analysis, side-by-side proposal diff UI and specialist-agent delegation are not complete.
+- Cloud inference, signup, storage, and real Roblox Studio playtest still require an activated Rmango Supabase/Vercel deployment and a connected desktop Studio session. This PR's CI verifies code builds and unit tests; it does not substitute for a live game playtest.
 
 ## Local development
 

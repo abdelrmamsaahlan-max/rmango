@@ -10,6 +10,8 @@ on:
   pull_request:
     branches:
       - main
+      - upgrade/project-context-retrieval
+      - upgrade/agent-workspace-studio
     paths:
       - "cloud/**"
       - ".github/workflows/cloud-build.yml"
@@ -46,6 +48,9 @@ jobs:
 
       - name: Type-check cloud backend
         run: npm run typecheck
+
+      - name: Run project index tests
+        run: npm test
 
       - name: Build cloud backend
         run: npm run build

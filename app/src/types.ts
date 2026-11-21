@@ -28,6 +28,54 @@ export type ChatMessage = {
   modelProfile?: CloudProfile;
 };
 
+export type AgentTaskStatus = 'queued' | 'running' | 'paused' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+
+export type AgentTask = {
+  id: string;
+  project_id: string | null;
+  conversation_id: string | null;
+  workflow_run_id?: string | null;
+  status: AgentTaskStatus;
+  task_text: string;
+  result: Record<string, any> | null;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AgentTaskEvent = {
+  id: number;
+  event_type: string;
+  message: string;
+  data: Record<string, any>;
+  created_at: string;
+};
+
+export type AgentTaskDetail = { task: AgentTask; events: AgentTaskEvent[] };
+
+export type ProjectIndexStatus = {
+  project: { id: string; name: string };
+  index: {
+    latestRun: {
+      id: string;
+      status: 'running' | 'completed' | 'partial' | 'failed';
+      file_count: number;
+      indexed_count: number;
+      dependency_count: number;
+      symbol_count: number;
+      error_count: number;
+      error?: string | null;
+      started_at: string;
+      completed_at?: string | null;
+    } | null;
+    fileCount: number;
+    indexedCount: number;
+    dependencyCount: number;
+    symbolCount: number;
+    coverage: number;
+  };
+};
+
 export type CloudProjectChange = {
   id: string;
   relative_path: string;
@@ -96,6 +144,7 @@ export type CloudModels = {
 
 export type StudioApprovalRequest = {
   requestId: string;
+  taskId?: string;
   name: string;
   description: string;
   arguments: Record<string, unknown>;
@@ -125,6 +174,12 @@ declare global {
       clearProject: () => Promise<any>;
       uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; skipped: Array<{ name: string; reason: string }> }>;
       getCloudProjectChanges: (projectId: string) => Promise<{ project: { id: string; name: string }; changes: CloudProjectChange[] }>;
+      getAgentTasks: (projectId?: string) => Promise<{ tasks: AgentTask[] }>;
+      getAgentTask: (taskId: string) => Promise<AgentTaskDetail>;
+      createAgentTask: (payload: { projectId: string; conversationId?: string; taskText: string; profile: CloudProfile }) => Promise<{ task: AgentTask; conversationId: string; workflowRunId: string }>;
+      controlAgentTask: (payload: { taskId: string; action: 'pause' | 'resume' | 'cancel' | 'retry' }) => Promise<{ ok: boolean; status: AgentTaskStatus; workflowRunId?: string }>;
+      getCloudProjectIndex: (projectId: string) => Promise<ProjectIndexStatus>;
+      startCloudProjectIndex: (projectId: string) => Promise<{ workflowRunId?: string; status: string; alreadyRunning?: boolean }>;
       reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => Promise<{ ok: boolean; status: string; relativePath?: string }>;
       downloadCloudProject: (projectId: string) => Promise<{ canceled: boolean; path?: string; sizeBytes?: number }>;
       onProjectUploadProgress: (callback: (event: ProjectUploadProgress) => void) => () => void;

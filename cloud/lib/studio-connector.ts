@@ -11,7 +11,7 @@ export const STUDIO_READ_ONLY_TOOLS = new Set([
 export const STUDIO_APPROVAL_TOOLS = new Set([
   "multi_edit", "execute_luau", "generate_mesh", "generate_material", "generate_texture",
   "generate_procedural_model", "generate_scene", "generate_animation", "generate_avatar",
-  "auto_setup_avatar", "segment_mesh", "store_image", "insert_asset", "upload_image",
+  "auto_setup_avatar", "segment_mesh", "store_image", "insert_asset", "upload_image", "subagent",
   "start_stop_play", "character_navigation", "user_keyboard_input", "user_mouse_input",
   "save_place",
 ]);

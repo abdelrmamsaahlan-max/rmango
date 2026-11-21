@@ -49,7 +49,7 @@ export async function GET(request: Request, context: { params: Promise<{ project
     .eq("project_id", projectId)
     .eq("owner_id", user.id)
     .order("relative_path", { ascending: true })
-    .limit(500);
+    .range(0, 1999);
   if (error) return NextResponse.json({ error: "Could not list cloud project files." }, { status: 503 });
   return NextResponse.json({ files: data || [] });
 }
@@ -111,6 +111,7 @@ export async function POST(request: Request, context: { params: Promise<{ projec
       size_bytes: bytes.length,
       sha256: createHash("sha256").update(bytes).digest("hex"),
       indexed_at: null,
+      index_version: 0,
     }, { onConflict: "project_id,relative_path" })
     .select("id,relative_path,file_name,mime_type,size_bytes,created_at")
     .single();

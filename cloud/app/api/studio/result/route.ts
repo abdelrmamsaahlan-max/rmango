@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { resumeHook } from "workflow/api";
 import { z } from "zod";
-import { getAuthErrorResponse } from "@/lib/supabase";
+import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
 import { verifyConnector } from "@/lib/studio-connector";
 
 export const runtime = "nodejs";
@@ -41,12 +42,33 @@ export async function POST(request: Request) {
     .eq("connector_id", payload.connectorId)
     .eq("owner_id", user.id)
     .eq("execution_status", "running")
-    .select("id")
+    .select("id,task_id")
     .maybeSingle();
 
   if (error || !data) {
     return NextResponse.json({ error: "That Studio command is no longer pending." }, { status: 409 });
   }
 
-  return NextResponse.json({ ok: true });
+  let workflowResumed = false;
+  try {
+    await resumeHook(payload.commandId, payload.ok
+      ? { ok: true, result: payload.result ?? null }
+      : { ok: false, error: payload.error || "The local Studio tool failed." });
+    workflowResumed = true;
+  } catch {
+    // The durable command row remains the source of truth if the workflow hook has expired.
+  }
+
+  if (data.task_id) {
+    const admin = createAdminClient();
+    await admin.from("agent_events").insert({
+      task_id: data.task_id,
+      owner_id: user.id,
+      event_type: payload.ok ? "studio_tool_completed" : "studio_tool_failed",
+      message: payload.ok ? "Roblox Studio completed the requested tool call." : "Roblox Studio returned an error for the requested tool call.",
+      data: { commandId: payload.commandId, workflowResumed },
+    });
+  }
+
+  return NextResponse.json({ ok: true, workflowResumed });
 }

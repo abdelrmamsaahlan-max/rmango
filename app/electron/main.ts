@@ -25,7 +25,7 @@ type CloudSession = {
   currentProjectId?: string;
 };
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
-type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
+type ApprovalRequest = { requestId: string; taskId?: string; name: string; description: string; arguments: Record<string, unknown> };
 type ActivityItem = { name: string; detail: string; ok: boolean };
 type AppUpdateState = {
   status: 'idle' | 'unsupported' | 'checking' | 'downloading' | 'downloaded' | 'not-available' | 'error';
@@ -411,7 +411,7 @@ const READ_ONLY_STUDIO_TOOLS = new Set([
 const APPROVAL_REQUIRED_STUDIO_TOOLS = new Set([
   'multi_edit', 'execute_luau', 'generate_mesh', 'generate_material', 'generate_texture',
   'generate_procedural_model', 'generate_scene', 'generate_animation', 'generate_avatar',
-  'auto_setup_avatar', 'segment_mesh', 'store_image', 'insert_asset', 'upload_image', 'start_stop_play',
+  'auto_setup_avatar', 'segment_mesh', 'store_image', 'insert_asset', 'upload_image', 'subagent', 'start_stop_play',
   'character_navigation', 'user_keyboard_input', 'user_mouse_input', 'save_place',
 ]);
 
@@ -471,14 +471,14 @@ function withStudioId(tool: McpTool, input: Record<string, unknown>) {
   return { ...input, studio_id: selectedStudioId };
 }
 
-async function requestStudioApproval(name: string, description: string, args: Record<string, unknown>) {
+async function requestStudioApproval(name: string, description: string, args: Record<string, unknown>, taskId?: string): Promise<boolean> {
   if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Rmango window is not available for the approval prompt.');
   const requestId = randomUUID();
   const safeArgs = JSON.parse(JSON.stringify(args, (_key, value) => {
     if (typeof value === 'string' && value.length > 5_000) return value.slice(0, 5_000) + '… [truncated]';
     return value;
   }));
-  const request: ApprovalRequest = { requestId, name, description, arguments: safeArgs };
+  const request: ApprovalRequest = { requestId, taskId, name, description, arguments: safeArgs };
   mainWindow.webContents.send('studio:approval-request', request);
   const approved = await new Promise<boolean>(resolve => {
     const timeout = setTimeout(() => {
@@ -490,17 +490,30 @@ async function requestStudioApproval(name: string, description: string, args: Re
       resolve(value);
     });
   });
-  if (!approved) throw new Error('The request for ' + name + ' was not approved. No Studio changes were made.');
+  return approved;
 }
 
-async function callStudioTool(name: string, args: Record<string, unknown>) {
+async function callStudioTool(
+  name: string,
+  args: Record<string, unknown>,
+  context?: { taskId?: string; onApproval?: (approved: boolean) => Promise<void> },
+) {
   if (!mcpClient) throw new Error('Roblox Studio is not connected.');
   const tool = connectedTools.find(item => item.name === name);
   if (!tool || (!READ_ONLY_STUDIO_TOOLS.has(name) && !APPROVAL_REQUIRED_STUDIO_TOOLS.has(name))) {
     throw new Error('Tool ' + name + ' is not enabled in Rmango.');
   }
   if (APPROVAL_REQUIRED_STUDIO_TOOLS.has(name)) {
-    await requestStudioApproval(name, tool.description || ('This action will run ' + name + ' in the connected Roblox Studio session.'), args);
+    const approved = await requestStudioApproval(
+      name,
+      tool.description || ('This action will run ' + name + ' in the connected Roblox Studio session.'),
+      args,
+      context?.taskId,
+    );
+    // Persist the decision before running any mutating tool. A cancelled/stale cloud command
+    // is rejected here, so an old approval dialog cannot mutate a later task.
+    if (context?.onApproval) await context.onApproval(approved);
+    if (!approved) throw new Error('The request for ' + name + ' was not approved. No Studio changes were made.');
   }
   const result = await mcpClient.callTool({ name, arguments: withStudioId(tool, args) });
   if ((result as any).isError) throw new Error(JSON.stringify((result as any).content || result).slice(0, 2_000));
@@ -567,7 +580,21 @@ async function pollCloudStudioCommands() {
         ? command.tool_arguments as Record<string, unknown>
         : {};
       try {
-        const result = await callStudioTool(toolName, args);
+        const taskId = typeof command.task_id === "string" ? command.task_id : undefined;
+        const result = await callStudioTool(toolName, args, {
+          taskId,
+          onApproval: taskId ? async approved => {
+            await cloudApiRequest("/api/studio/approval", {
+              method: "POST",
+              body: JSON.stringify({
+                connectorId: session.studioConnectorId,
+                connectorSecret: session.studioConnectorSecret,
+                commandId: command.id,
+                approved,
+              }),
+            });
+          } : undefined,
+        });
         await cloudApiRequest("/api/studio/result", {
           method: "POST",
           body: JSON.stringify({
@@ -621,21 +648,24 @@ async function disconnectCloudStudioConnector() {
 }
 
 async function projectFiles(root: string, depth = 0): Promise<Array<{ name: string; path: string; kind: 'file' | 'folder' }>> {
-  if (depth > 3) return [];
+  if (depth > 8) return [];
   const ignored = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', 'coverage']);
   let entries;
   try { entries = await fs.readdir(root, { withFileTypes: true }); } catch { return []; }
   const result: Array<{ name: string; path: string; kind: 'file' | 'folder' }> = [];
-  for (const entry of entries.slice(0, 160)) {
+  for (const entry of entries.slice(0, 500)) {
     if (ignored.has(entry.name) || entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
     const fullPath = path.join(root, entry.name);
     if (entry.isDirectory()) {
       result.push({ name: entry.name, path: fullPath, kind: 'folder' });
-      if (depth < 2) result.push(...(await projectFiles(fullPath, depth + 1)).slice(0, 24));
+      if (depth < 8) {
+        const nested = await projectFiles(fullPath, depth + 1);
+        result.push(...nested.slice(0, Math.max(0, 2_000 - result.length)));
+      }
     } else {
       result.push({ name: entry.name, path: fullPath, kind: 'file' });
     }
-    if (result.length >= 180) break;
+    if (result.length >= 2_000) break;
   }
   return result;
 }
@@ -664,6 +694,68 @@ async function readProjectFile(root: string, relativePath: string) {
   if (!info.isFile()) throw new Error('Only regular files can be read.');
   if (info.size > 512_000) throw new Error('File is larger than the 500 KB read limit.');
   return fs.readFile(realTarget, 'utf8');
+}
+
+function validateCloudUuid(value: string, label: string) {
+  if (typeof value !== "string" || !/^[0-9a-f-]{36}$/i.test(value)) {
+    throw new Error("Invalid " + label + ".");
+  }
+}
+
+async function listAgentTasks(projectId?: string) {
+  if (projectId) validateCloudUuid(projectId, "cloud project ID");
+  const query = projectId ? "?projectId=" + encodeURIComponent(projectId) : "";
+  return cloudApiRequest<any>("/api/agent/tasks" + query);
+}
+
+async function getAgentTask(taskId: string) {
+  validateCloudUuid(taskId, "agent task ID");
+  return cloudApiRequest<any>("/api/agent/tasks/" + taskId);
+}
+
+async function createAgentTask(payload: {
+  projectId: string;
+  conversationId?: string;
+  taskText: string;
+  profile: CloudProfile;
+}) {
+  if (!payload) throw new Error("Invalid agent task request.");
+  validateCloudUuid(payload.projectId, "cloud project ID");
+  if (payload.conversationId) validateCloudUuid(payload.conversationId, "conversation ID");
+  if (typeof payload.taskText !== "string" || payload.taskText.trim().length < 8 || payload.taskText.length > 12_000) {
+    throw new Error("Describe the Roblox task using between 8 and 12,000 characters.");
+  }
+  const profiles: CloudProfile[] = ["fast", "developer", "think", "vision", "agent"];
+  if (!profiles.includes(payload.profile)) throw new Error("Invalid Rmango model profile.");
+  return cloudApiRequest<any>("/api/agent/tasks", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, taskText: payload.taskText.trim() }),
+    signal: AbortSignal.timeout(30_000),
+  });
+}
+
+async function controlAgentTask(payload: { taskId: string; action: "pause" | "resume" | "cancel" | "retry" }) {
+  if (!payload) throw new Error("Invalid agent task control request.");
+  validateCloudUuid(payload.taskId, "agent task ID");
+  const actions = ["pause", "resume", "cancel", "retry"] as const;
+  if (!actions.includes(payload.action)) throw new Error("Invalid agent task action.");
+  return cloudApiRequest<any>("/api/agent/tasks/" + payload.taskId, {
+    method: "PATCH",
+    body: JSON.stringify({ action: payload.action }),
+  });
+}
+
+async function getCloudProjectIndex(projectId: string) {
+  validateCloudUuid(projectId, "cloud project ID");
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/index");
+}
+
+async function startCloudProjectIndex(projectId: string) {
+  validateCloudUuid(projectId, "cloud project ID");
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/index", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
 }
 
 async function getCloudProjectChanges(projectId: string) {
@@ -732,7 +824,7 @@ async function uploadCloudProject() {
   if (typeof projectId !== "string") throw new Error("The cloud service did not return a project ID.");
   await writeCloudSession({ ...session, currentProjectId: projectId });
 
-  const entries = (await projectFiles(root)).filter(item => item.kind === "file").slice(0, 120);
+  const entries = (await projectFiles(root)).filter(item => item.kind === "file").slice(0, 2_000);
   const uploaded: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
 
@@ -979,6 +1071,12 @@ ipcMain.handle('project:open', async () => {
 });
 ipcMain.handle('project:upload-cloud', () => uploadCloudProject());
 ipcMain.handle('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
+ipcMain.handle('agent:tasks:list', (_event, projectId?: string) => listAgentTasks(projectId));
+ipcMain.handle('agent:tasks:get', (_event, taskId: string) => getAgentTask(taskId));
+ipcMain.handle('agent:tasks:create', (_event, payload: { projectId: string; conversationId?: string; taskText: string; profile: CloudProfile }) => createAgentTask(payload));
+ipcMain.handle('agent:tasks:control', (_event, payload: { taskId: string; action: "pause" | "resume" | "cancel" | "retry" }) => controlAgentTask(payload));
+ipcMain.handle('project:index:get', (_event, projectId: string) => getCloudProjectIndex(projectId));
+ipcMain.handle('project:index:start', (_event, projectId: string) => startCloudProjectIndex(projectId));
 ipcMain.handle('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
   if (!payload || (payload.decision !== "approve" && payload.decision !== "reject")) {
     throw new Error("A valid approve/reject decision is required.");
