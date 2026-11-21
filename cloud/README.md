@@ -126,8 +126,8 @@ The current free model is text-only and supports tool calling. Synap currently a
 - The current free Synap Qwen3 Coder model accepts text only. Image uploads and vision requests are disabled until a vision-capable provider is configured.
 - While a response is running, the desktop accepts up to six follow-up messages with files and submits them in order as subsequent turns in the same conversation after the current response. They do not interrupt or alter the already-running generation; the queue is currently in-memory and is not crash-persistent.
 - Embeddings/vector RAG, project-wide dependency indexing, diff viewer for proposed file content, durable agent workflow workers and automated Luau test runners are still not complete.
-- The Supabase project is provisioned, but full account signup, authenticated project storage, Studio bridge and ZIP-export end-to-end tests remain pending. The server-only service-role secret is not yet configured in Vercel.
-- Paid model inference is deliberately disabled and has not been tested. Do not enable it without a separately approved budget.
+- The Supabase project is provisioned, but full account signup, authenticated project storage, Studio bridge and ZIP-export end-to-end tests remain pending.
+- This provider migration has not yet been deployed or tested with a live Synap key. The provider's free allowance is limited; adding paid credits is optional and should never happen without explicit budget approval.
 
 ## Local development
 
