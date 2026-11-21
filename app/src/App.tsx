@@ -2157,7 +2157,7 @@ function App() {
                     </div>
                     {cloudState.message?.includes('SUPABASE_SECRET_KEY') && <div className="cloud-setup-instructions">
                       <strong>Server setup is incomplete</strong>
-                      <span>Open Cloudflare → Workers & Pages → rmango → Settings → Variables and Secrets and configure <code>SUPABASE_SECRET_KEY</code>. Keep it on the cloud server; never add it to the desktop app or source code.</span>
+                      <span>Open Cloudflare → Workers & Pages → rmango → Settings → Variables and Secrets. Set <code>SUPABASE_URL</code> and <code>SUPABASE_PUBLISHABLE_KEY</code>, then add <code>SUPABASE_SECRET_KEY</code> as an encrypted secret (or the legacy <code>SUPABASE_SERVICE_ROLE_KEY</code>). Use the same Supabase project as the existing RMango backend. Never put the server key in the desktop app or source code.</span>
                       <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://dash.cloudflare.com/')}><ExternalLink size={13}/> Open Cloudflare dashboard</button>
                     </div>}
                     <button type="button" className="settings-secondary-button" disabled={cloudRefreshing} onClick={() => void handleRefreshCloud()}>
