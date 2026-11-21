@@ -1,17 +1,30 @@
 import { randomUUID } from "node:crypto";
 import { gateway } from "@ai-sdk/gateway";
 import { WorkflowAgent, type ModelCallStreamPart } from "@ai-sdk/workflow";
-import { generateText, isStepCount } from "ai";
+import { generateText, isStepCount, tool } from "ai";
+import { z } from "zod";
 import { getWritable } from "workflow";
 import { resolveProfile, type ModelProfile } from "@/lib/ai/models";
 import { createAdminClient } from "@/lib/supabase";
 import {
   appendTaskEventStep,
+  assertCurrentTaskStep,
   createProjectAgentTools,
   getActiveStudioToolsStep,
+  getProjectDependencyGraphStep,
   getProjectLearningSignalsStep,
+  listProjectMemoriesStep,
+  readProjectFileStep,
+  type ProjectAgentContext,
 } from "@/workflows/agent-tools";
 import { indexProjectStep } from "@/workflows/project-index";
+import {
+  getSpecialistDefinition,
+  getSpecialistDelegationError,
+  MAX_SPECIALIST_DELEGATIONS_PER_TASK,
+  SPECIALIST_ROLES,
+  type SpecialistRole,
+} from "@/workflows/specialists";
 
 type TaskRow = {
   id: string;
@@ -63,6 +76,14 @@ type TaskResult = {
   usage?: { inputTokens: number; outputTokens: number };
   toolsUsed?: string[];
   verification?: TaskVerification;
+};
+
+type AgentReservationOptions = {
+  maxSteps?: number;
+  maxOutputTokens?: number;
+  minEstimatedInputTokens?: number;
+  maxEstimatedInputTokens?: number;
+  inputSafetyMultiplier?: number;
 };
 
 type AgentReservation = {
@@ -161,12 +182,25 @@ async function failTaskStep(taskId: string, ownerId: string, runToken: string, m
     .filter("result->>runToken", "eq", runToken);
 }
 
-async function reserveAgentCallStep(ownerId: string, profile: ModelProfile, prompt: string): Promise<AgentReservation> {
+async function reserveAgentCallStep(
+  ownerId: string,
+  profile: ModelProfile,
+  prompt: string,
+  options: AgentReservationOptions = {},
+): Promise<AgentReservation> {
   "use step";
   const choice = await resolveProfile(profile, process.env.VERCEL_OIDC_TOKEN || null);
-  const maxSteps = 8;
-  const maxOutputTokens = Math.min(choice.primary.maxOutputTokens || 4096, 4096);
-  const estimatedInputTokens = Math.min(24_000, Math.max(6_000, Math.ceil(estimateTokens(prompt) * 3)));
+  const maxSteps = Math.max(1, Math.min(8, Math.floor(options.maxSteps ?? 8)));
+  const providerOutputLimit = choice.primary.maxOutputTokens || 4096;
+  const requestedOutputLimit = Math.max(256, Math.floor(options.maxOutputTokens ?? 4096));
+  const maxOutputTokens = Math.min(providerOutputLimit, requestedOutputLimit);
+  const maxEstimatedInputTokens = Math.max(1, Math.min(24_000, Math.floor(options.maxEstimatedInputTokens ?? 24_000)));
+  const minEstimatedInputTokens = Math.max(1, Math.min(maxEstimatedInputTokens, Math.floor(options.minEstimatedInputTokens ?? 6_000)));
+  const inputSafetyMultiplier = Math.max(1, Math.min(4, options.inputSafetyMultiplier ?? 3));
+  const estimatedInputTokens = Math.min(
+    maxEstimatedInputTokens,
+    Math.max(minEstimatedInputTokens, Math.ceil(estimateTokens(prompt) * inputSafetyMultiplier)),
+  );
   const estimatedOutputTokens = maxOutputTokens * maxSteps;
   const estimatedCost = estimateCostUsd(
     estimatedInputTokens,
