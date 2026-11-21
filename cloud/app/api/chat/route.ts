@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { gateway } from "@ai-sdk/gateway";
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import { z } from "zod";
-import { getAuthErrorResponse } from "@/lib/supabase";
+import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
 import { resolveProfile, type ModelProfile } from "@/lib/ai/models";
 import { optionalEnv } from "@/lib/env";
 
@@ -36,6 +36,8 @@ const requestSchema = z.object({
     role: z.enum(["user", "assistant"]),
     content: z.string().max(100_000),
   })).min(1).max(30),
+  conversationId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
   attachments: z.array(z.object({
     name: z.string().max(200),
     mimeType: z.string().max(100),
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
   const { context, response } = await getAuthErrorResponse(request);
   if (response) return response;
   const { supabase, user } = context!;
+  const admin = createAdminClient();
 
   let body: z.infer<typeof requestSchema>;
   try {
@@ -144,10 +147,40 @@ export async function POST(request: Request) {
   }
   lastUserMessage.content = contentParts as never;
 
+  let conversationId = body.conversationId;
+  if (conversationId) {
+    const { data: existingConversation, error: conversationError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", conversationId)
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    if (conversationError || !existingConversation) {
+      return NextResponse.json({ error: "That conversation does not belong to this account." }, { status: 404 });
+    }
+  } else {
+    const firstPrompt = body.messages.find(message => message.role === "user")?.content || "New chat";
+    const { data: createdConversation, error: createConversationError } = await supabase
+      .from("conversations")
+      .insert({
+        owner_id: user.id,
+        project_id: body.projectId || null,
+        title: firstPrompt.replace(/\\s+/g, " ").slice(0, 80) || "New chat",
+        model_profile: profile,
+      })
+      .select("id")
+      .single();
+    if (createConversationError || !createdConversation) {
+      return NextResponse.json({ error: "Could not create the cloud conversation." }, { status: 503 });
+    }
+    conversationId = createdConversation.id;
+  }
+
   const estimateInputTokens = estimateTokens(JSON.stringify(messages));
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
   const requestId = randomUUID();
-  const { data: reservation, error: reserveError } = await supabase.rpc("reserve_ai_request", {
+  const { data: reservation, error: reserveError } = await admin.rpc("reserve_ai_request", {
+    p_user_id: user.id,
     p_request_id: requestId,
     p_model_profile: profile,
     p_estimated_tokens: estimatedTokens,
@@ -165,6 +198,22 @@ export async function POST(request: Request) {
       reason: reservation?.reason || "usage_limit",
       message: "Your account has a daily or monthly request/token limit. Try again after it resets or contact the Rmango administrator.",
     }, { status: 429 });
+  }
+
+  const latestUserText = body.messages.filter(message => message.role === "user").at(-1)?.content || "";
+  const attachmentMetadata = (body.attachments || []).map(item => ({
+    name: item.name, mimeType: item.mimeType, kind: item.kind, size: item.size,
+  }));
+  const { error: saveUserMessageError } = await supabase.from("messages").insert({
+    conversation_id: conversationId,
+    owner_id: user.id,
+    role: "user",
+    content: { text: latestUserText, attachments: attachmentMetadata },
+    model_profile: profile,
+  });
+  if (saveUserMessageError) {
+    await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
+    return NextResponse.json({ error: "Could not save the cloud conversation message." }, { status: 503 });
   }
 
   const projectTools = {
@@ -258,7 +307,18 @@ export async function POST(request: Request) {
           choice.primary.inputUsdPerMillionTokens,
           choice.primary.outputUsdPerMillionTokens,
         );
-        await supabase.rpc("complete_ai_request", {
+        const finalText = (modelResponse as unknown as { text?: string }).text || "";
+        await supabase.from("messages").insert({
+          conversation_id: conversationId,
+          owner_id: user.id,
+          role: "assistant",
+          content: { text: finalText },
+          model_profile: profile,
+        });
+        await supabase.from("conversations").update({ updated_at: new Date().toISOString() })
+          .eq("id", conversationId).eq("owner_id", user.id);
+        await admin.rpc("complete_ai_request", {
+          p_user_id: user.id,
           p_request_id: requestId,
           p_model_profile: profile,
           p_model_id: actualModelId,
@@ -269,7 +329,7 @@ export async function POST(request: Request) {
         });
       },
       onError: async () => {
-        await supabase.rpc("cancel_ai_request", { p_request_id: requestId });
+        await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
       },
     });
 
@@ -279,10 +339,11 @@ export async function POST(request: Request) {
         "X-Rmango-Model-Profile": profile,
         "X-Rmango-Model": choice.primary.id,
         "X-Rmango-Request-Id": requestId,
+        "X-Rmango-Conversation-Id": conversationId,
       },
     });
   } catch (error) {
-    await supabase.rpc("cancel_ai_request", { p_request_id: requestId });
+    await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
     return NextResponse.json({
       error: error instanceof Error ? error.message : "The cloud model request failed.",
     }, { status: 502 });
