@@ -11,6 +11,26 @@ const updateSchema = z.object({
   description: z.string().trim().max(2000).optional(),
 }).refine(value => value.name !== undefined || value.description !== undefined);
 
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ projectId: string }> },
+) {
+  const { context, response } = await getAuthErrorResponse(request);
+  if (response) return response;
+  const { projectId } = await params;
+  if (!idSchema.safeParse(projectId).success) return NextResponse.json({ error: "Invalid project ID." }, { status: 400 });
+
+  const { data, error } = await context!.supabase
+    .from("projects")
+    .select("id,name,description,created_at,updated_at")
+    .eq("id", projectId)
+    .eq("owner_id", context!.user.id)
+    .maybeSingle();
+
+  if (error || !data) return NextResponse.json({ error: "Cloud project not found." }, { status: 404 });
+  return NextResponse.json({ project: data }, { headers: { "Cache-Control": "private, no-store" } });
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ projectId: string }> },
