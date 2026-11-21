@@ -412,35 +412,6 @@ async function getCloudState() {
     currentProjectId: session?.currentProjectId,
   };
 }
-  const apiBaseUrl = await getCloudApiBaseUrl();
-  const session = await readCloudSession();
-  if (!apiBaseUrl) {
-    return { configured: false, signedIn: Boolean(session), email: session?.user.email, message: 'Cloud backend URL has not been configured in this build.' };
-  }
-  let serviceReady = false;
-  let healthError: string | undefined;
-  try {
-    const health = await cloudApiRequest<any>('/api/health', {}, false);
-    serviceReady = health.status === 'ready';
-    if (!serviceReady) healthError = 'Cloud backend needs its database and Vercel AI Gateway to be configured.';
-  } catch (error) {
-    healthError = error instanceof Error ? error.message : 'Cloud backend is unavailable.';
-  }
-  let signedIn = Boolean(session);
-  let email = session?.user.email;
-  if (session) {
-    try { await getValidCloudSession(); } catch { signedIn = false; email = undefined; }
-  }
-  return {
-    configured: true,
-    serviceReady,
-    signedIn,
-    email,
-    apiHost: new URL(apiBaseUrl).host,
-    message: healthError,
-    currentProjectId: session?.currentProjectId,
-  };
-}
 
 async function getCloudModels() {
   return cloudApiRequest<any>('/api/models', {}, true);
