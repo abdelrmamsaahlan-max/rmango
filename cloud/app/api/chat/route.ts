@@ -821,7 +821,7 @@ export async function POST(request: Request) {
           existing?.evidence_sha256 === evidence.fileSha256 &&
           existing?.evidence_snippet_sha256 === evidence.snippetSha256
         );
-        if (sameContent && (!evidence || sameEvidence)) {
+        if (sameContent && (!evidence || sameEvidence || !provenanceAvailable)) {
           return {
             saved: true,
             updated: false,
@@ -835,7 +835,12 @@ export async function POST(request: Request) {
               provenance: provenanceAvailable ? existing.provenance : "legacy_unverified",
               verificationStatus: provenanceAvailable ? existing.verification_status : "unverified",
               revisionCount: provenanceAvailable ? Number(existing.revision_count || 0) : null,
-              evidenceInterpretation: "No memory revision was needed. Any source-excerpt status proves excerpt presence only, not the truth of its interpretation.",
+              evidenceInterpretation: evidence?.ok && !provenanceAvailable
+                ? "The excerpt was checked, but this deployment cannot store its provenance yet. Treat the note as unverified."
+                : "No memory revision was needed. A source-excerpt status proves excerpt presence only, not the truth of its interpretation.",
+              note: !provenanceAvailable
+                ? "The memory provenance migration is not installed; this unchanged note was left untouched."
+                : null,
             },
           };
         }
@@ -894,7 +899,7 @@ export async function POST(request: Request) {
         const saved = write.data;
         return {
           saved: true,
-          updated: Boolean(existing && saved.id === existing.id && existing.content !== content),
+          updated: Boolean(existing && saved.id === existing.id),
           provenanceAvailable,
           memory: {
             id: saved.id,
