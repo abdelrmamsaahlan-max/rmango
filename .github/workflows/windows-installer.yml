@@ -185,7 +185,7 @@ jobs:
           RMANGO_CLOUD_CONFIGURED: ${{ steps.cloud-config.outputs.configured }}
         shell: pwsh
         run: |
-          if ("${{ github.event_name }}" -ne "pull_request" -and $env:RMANGO_CLOUD_CONFIGURED -eq "true") {
+          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
             npm run dist:win:publish
           } else {
             npm run dist:win
@@ -203,9 +203,8 @@ jobs:
           }
 
           $configured = "${{ steps.cloud-config.outputs.configured }}"
-          $eventName = "${{ github.event_name }}"
           $manifest = Join-Path "app-src/release" "latest.yml"
-          if ($configured -eq "true" -and $eventName -ne "pull_request") {
+          if ($configured -eq "true") {
             if (-not (Test-Path $manifest)) {
               throw "Missing latest.yml. The auto-update feed would not work."
             }
@@ -235,7 +234,7 @@ jobs:
           }
 
       - name: Verify public GitHub Release contains the update feed
-        if: github.event_name != 'pull_request' && steps.cloud-config.outputs.configured == 'true'
+        if: steps.cloud-config.outputs.configured == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
