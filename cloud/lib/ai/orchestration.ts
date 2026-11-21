@@ -38,6 +38,7 @@ const DOMAIN_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
 ];
 
 const BUILD_INTENT = /\b(build|create|make|implement|add|generate|design|rebuild|refactor|fix|debug|upgrade|automate|wire up|set up)\b/i;
+const IMPLEMENTATION_INTENT = /\b(implement|build|create|write|code|modify|edit|add|fix|debug|upgrade|refactor|generate|set up|wire up)\b/i;
 const LARGE_SCOPE = /\b(complete|full|entire|end[- ]to[- ]end|from scratch|whole game|production[- ]ready|multiple systems|all systems|comprehensive)\b/i;
 const PLANNING_INTENT = /\b(plan|planning|break down|roadmap|architecture plan|implementation plan|before coding|design the architecture)\b/i;
 const DEBUG_INTENT = /\b(debug|diagnos(e|is)|troubleshoot|trace the (error|bug|issue)|not working|broken|crash|stack trace|regression|fix (the )?(bug|error|issue))\b/i;
@@ -133,8 +134,8 @@ export function buildAgentWorkflowContext(input: {
   const domains = DOMAIN_PATTERNS
     .filter(item => item.pattern.test(prompt))
     .map(item => item.id);
-  const isBuildRequest = BUILD_INTENT.test(prompt);
-  const planningOnly = PLANNING_INTENT.test(prompt) && !isBuildRequest;
+  const planningOnly = PLANNING_INTENT.test(prompt) && !IMPLEMENTATION_INTENT.test(prompt);
+  const isBuildRequest = BUILD_INTENT.test(prompt) && !planningOnly;
   const isDebugRequest = DEBUG_INTENT.test(prompt);
   const isLargeRequest = LARGE_SCOPE.test(prompt);
   const deepRequest = DEEP_INTENT.test(prompt) || (domains.length >= 3 && input.profile === "think");
