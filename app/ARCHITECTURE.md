@@ -154,3 +154,11 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 
 - Project deletion also removes checkpoint backup objects from private storage before cascading checkpoint metadata, preventing orphaned recovery blobs.
 - Approved-change checkpoints are currently one-file recovery points. Restore checks the recorded post-change SHA before writing and records a new checkpoint of the current state first; this gives a conflict-safe undo/redo path for individual approved cloud file changes, not a multi-file atomic transaction.
+
+
+## Read-only local Git workspace
+
+- The desktop reads Git status for the user-selected folder using fixed `git status --porcelain=v1 --branch` arguments via `spawn(..., shell: false)`. It also reads staged and unstaged unified diffs with external diff and text conversion disabled.
+- Process runtime and output are bounded. Git absence and non-repository folders return an explicit unavailable state. File names are parsed and rendered as data, never concatenated into a command.
+- The project explorer displays branch, ahead/behind, staged, unstaged, untracked and conflicted counts, a bounded changed-file list and a bounded diff preview.
+- This first integration is deliberately read-only: no staging, commits, branch switches, checkouts, rollbacks, pushes, hooks, worktrees or GitHub operations are run automatically.

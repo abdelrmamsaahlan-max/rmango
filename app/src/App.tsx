@@ -1,7 +1,7 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
-  Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
+  Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder, GitBranch,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
   LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square, RotateCcw,
@@ -10,7 +10,7 @@ import {
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectCheckpoint,
   CloudProjectChange,
-  AgentActivity, CloudProfile, CloudState, CloudUsage, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
+  AgentActivity, CloudProfile, CloudState, CloudUsage, GitWorkspaceDiff, GitWorkspaceState, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
@@ -39,6 +39,12 @@ const SETTINGS_NAVIGATION: Array<{
 
 const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+function GitDiffPreview({ text }: { text: string }) {
+  return <pre className="git-diff-preview"><code>{text.split(/\\r?\\n/).map((line, index) => (
+    <span key={index} className={line.startsWith("@@") || line.startsWith("diff --git") ? "git-line-meta" : line.startsWith("+") ? "git-line-added" : line.startsWith("-") ? "git-line-removed" : ""}>{line || " "}</span>
+  ))}</code></pre>;
+}
 
 function MangoMark({ size = 34, className = '' }: { size?: number; className?: string }) {
   return (
@@ -130,6 +136,10 @@ function App() {
   const [projectUploadProgress, setProjectUploadProgress] = useState<{ completed: number; total: number; uploaded: number; skipped: number; currentFile: string } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [gitWorkspace, setGitWorkspace] = useState<GitWorkspaceState | null>(null);
+  const [gitDiff, setGitDiff] = useState<GitWorkspaceDiff | null>(null);
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [gitBusy, setGitBusy] = useState(false);
   const [studioTools, setStudioTools] = useState<string[]>([]);
   const [studioReady, setStudioReady] = useState(false);
   const [studioInstances, setStudioInstances] = useState<StudioInstance[]>([]);
@@ -140,6 +150,28 @@ function App() {
   const [followupQueue, setFollowupQueue] = useState<PendingFollowup[]>([]);
   const followupQueueRef = useRef<PendingFollowup[]>([]);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    if (!appState?.projectPath) {
+      setGitWorkspace(null);
+      setGitDiff(null);
+      setGitPanelOpen(false);
+      return () => { current = false; };
+    }
+    setGitWorkspace(null);
+    void window.rmango.getGitWorkspaceState()
+      .then(result => { if (current) setGitWorkspace(result); })
+      .catch(error => {
+        if (current) setGitWorkspace({
+          available: false, branch: "", ahead: 0, behind: 0, staged: 0,
+          unstaged: 0, untracked: 0, conflicted: 0, changes: [],
+          listingTruncated: false,
+          reason: error instanceof Error ? error.message : "Could not inspect Git.",
+        });
+      });
+    return () => { current = false; };
+  }, [appState?.projectPath]);
   const [connecting, setConnecting] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1002,11 +1034,38 @@ function App() {
     setToast('Roblox Studio disconnected.');
   }
 
+  async function handleRefreshGitWorkspace() {
+    if (!appState?.projectPath || gitBusy) return;
+    setGitBusy(true);
+    try {
+      setGitWorkspace(await window.rmango.getGitWorkspaceState());
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not inspect Git.");
+    } finally {
+      setGitBusy(false);
+    }
+  }
+
+  async function handleOpenGitDiff() {
+    if (!appState?.projectPath || gitBusy) return;
+    setGitBusy(true);
+    try {
+      setGitDiff(await window.rmango.getGitWorkspaceDiff());
+      setGitPanelOpen(true);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not load Git diff.");
+    } finally {
+      setGitBusy(false);
+    }
+  }
+
   async function handleOpenProject() {
     const result = await window.rmango.openProject();
     if (result.canceled) return;
     setProjectFiles(result.files || []);
     setAppState(prev => prev ? { ...prev, projectPath: result.path || '' } : prev);
+    setGitWorkspace(null);
+    setGitDiff(null);
     setToast('Project folder added to Rmango.');
   }
 
@@ -1488,7 +1547,62 @@ function App() {
               {filteredFiles.length === 0 && <div className="small-empty">No matching files</div>}
             </div>
           </>}
-          <div className="conversation-section">
+          <section className="git-workspace-panel">
+  <div className="git-workspace-heading">
+    <span><GitBranch size={12}/> GIT WORKSPACE</span>
+    <button type="button" className="subtle-icon" title="Refresh Git status" aria-label="Refresh Git status" disabled={!appState?.projectPath || gitBusy} onClick={() => void handleRefreshGitWorkspace()}>
+      {gitBusy ? <LoaderCircle size={12} className="spin"/> : <RefreshCw size={12}/>}
+    </button>
+  </div>
+  {!appState?.projectPath
+    ? <div className="git-workspace-empty">Open a local project folder to inspect Git.</div>
+    : !gitWorkspace
+      ? <div className="git-workspace-empty">Checking Git status…</div>
+      : !gitWorkspace.available
+        ? <div className="git-workspace-empty">{gitWorkspace.reason || "Git status is unavailable."}</div>
+        : <>
+          <div className="git-branch-row">
+            <GitBranch size={12}/>
+            <strong title={gitWorkspace.branch}>{gitWorkspace.branch || "(unknown branch)"}</strong>
+            {(gitWorkspace.ahead > 0 || gitWorkspace.behind > 0) && <span>↑{gitWorkspace.ahead} ↓{gitWorkspace.behind}</span>}
+          </div>
+          <div className="git-change-counts">
+            <span><b>{gitWorkspace.staged}</b> staged</span>
+            <span><b>{gitWorkspace.unstaged}</b> unstaged</span>
+            <span><b>{gitWorkspace.untracked}</b> untracked</span>
+            {gitWorkspace.conflicted > 0 && <span className="git-conflict-count"><b>{gitWorkspace.conflicted}</b> conflicts</span>}
+          </div>
+          {gitWorkspace.changes.length > 0
+            ? <div className="git-file-list">
+                {gitWorkspace.changes.slice(0, 18).map((change, index) => (
+                  <div className="git-file-row" key={change.path + "-" + index} title={change.path}>
+                    <span className={"git-file-status " + (change.conflicted ? "conflict" : change.untracked ? "untracked" : change.staged ? "staged" : "modified")}>{change.status}</span>
+                    <span>{change.path}</span>
+                  </div>
+                ))}
+                {gitWorkspace.changes.length > 18 && <small>+{gitWorkspace.changes.length - 18} more changed paths</small>}
+                {gitWorkspace.listingTruncated && <small>File listing reached its size limit.</small>}
+              </div>
+            : <div className="git-workspace-empty">Working tree clean.</div>}
+          <button type="button" className="git-diff-button" disabled={gitBusy} onClick={() => void handleOpenGitDiff()}>
+            <FileCode2 size={12}/> Inspect staged and unstaged diff
+          </button>
+          {gitPanelOpen && gitDiff && <div className="git-diff-sections">
+            <div className="git-diff-section">
+              <strong>UNSTAGED CHANGES</strong>
+              {gitDiff.unstaged.text ? <GitDiffPreview text={gitDiff.unstaged.text}/> : <div className="git-workspace-empty">No unstaged tracked changes.</div>}
+              {gitDiff.unstaged.truncated && <small>Unstaged diff preview was truncated.</small>}
+            </div>
+            <div className="git-diff-section">
+              <strong>STAGED CHANGES</strong>
+              {gitDiff.staged.text ? <GitDiffPreview text={gitDiff.staged.text}/> : <div className="git-workspace-empty">No staged changes.</div>}
+              {gitDiff.staged.truncated && <small>Staged diff preview was truncated.</small>}
+            </div>
+            <small>{gitDiff.note}</small>
+          </div>}
+        </>}
+</section>
+<div className="conversation-section">
             <div className="conversation-section-heading">
               <span>RECENT CHATS</span>
               <button type="button" title="New conversation" onClick={() => void handleNewConversation()} disabled={!cloudState?.signedIn || !cloudReady || busy}><Plus size={13}/></button>
