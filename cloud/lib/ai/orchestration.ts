@@ -29,10 +29,13 @@ const DOMAIN_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "audio", pattern: /\b(audio|sound|sfx|music|voice|footstep|spatial audio)\b/i },
   { id: "data-security", pattern: /\b(datastore|data store|saving|persistence|remote validation|security|exploit|rate.?limit|purchase|currency|leaderboard)\b/i },
   { id: "testing", pattern: /\b(test|playtest|regression|output|console|diagnostic|performance|profiling|optimi[sz]e)\b/i },
+  { id: "ai-agent", pattern: /\b(ai|agent|reasoning|thinking|orchestration|tool loop|decision making|model routing)\b/i },
+  { id: "memory-context", pattern: /\b(memory|memories|context retrieval|project state|knowledge base|conversation history)\b/i },
+  { id: "reliability", pattern: /\b(reliability|verification|acceptance criteria|recovery|observability|task tracking|error handling)\b/i },
 ];
 
 const BUILD_INTENT = /\b(build|create|make|implement|add|generate|rebuild|refactor|fix|debug|upgrade|improve|automate|wire up|set up)\b/i;
-const LARGE_SCOPE = /\b(complete|full|entire|end[- ]to[- ]end|from scratch|whole game|production[- ]ready|multiple systems|all systems|everything)\b/i;
+const LARGE_SCOPE = /\b(complete|full|entire|end[- ]to[- ]end|from scratch|whole game|whole system|entire system|production[- ]ready|multiple systems|all systems|everything|agent architecture|full workflow)\b/i;
 const DEBUG_INTENT = /\b(not working|doesn.t work|broken|bug|error|exception|crash|fails?|failing|debug|fix this|fix the)\b/i;
 const AUDIT_INTENT = /\b(audit|review|inspect|assess|check|evaluate|find problems|what needs improvement)\b/i;
 const DESIGN_INTENT = /\b(brainstorm|concept|game design|design a|plan a|ideas for|player experience|visual direction)\b/i;
@@ -99,6 +102,8 @@ function assessComplexity(prompt: string, domains: string[]): number {
   if (/\b(across|integrat(?:e|ion)|end[- ]to[- ]end|connected systems|multiple files|several modules|full pipeline)\b/i.test(prompt)) score += 1.5;
   if (/\b(persist(?:ence|ent)?|save|load|replicat(?:e|ion)|network|multiplayer|server.?client|security|permissions|economy)\b/i.test(prompt)) score += 1;
   if (/\b(performance|optimi[sz]e|memory leak|race condition|concurren(?:t|cy)|scal(?:e|ability))\b/i.test(prompt)) score += 1;
+  if (/\b(reasoning|thinking|agent orchestration|tool execution|memory system|context retrieval|decision making|verification loop)\b/i.test(prompt)) score += 1.5;
+  if (/\b(improve|upgrade|rebuild|redesign)\b/i.test(prompt) && /\b(system|systems|intelligence|thinking|reasoning|memory|agent)\b/i.test(prompt)) score += 2;
   if (prompt.length > 2_000) score += 0.75;
   if (prompt.length > 6_000) score += 0.75;
   return Math.min(10, Math.round(score * 10) / 10);
