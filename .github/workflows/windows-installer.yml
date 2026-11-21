@@ -227,6 +227,10 @@ jobs:
         working-directory: app-src
         run: npm audit --audit-level=high
 
+      - name: Run guest-auth tests
+        working-directory: app-src
+        run: npm test
+
       - name: Build and optionally publish Windows installer
         working-directory: app-src
         env:
