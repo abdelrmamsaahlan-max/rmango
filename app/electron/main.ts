@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -113,9 +114,49 @@ async function ollamaRequest<T>(route: string, init: RequestInit = {}, timeoutMs
   return data as T;
 }
 
+let ollamaLaunchAttempted = false;
+
+async function ensureOllamaServer(): Promise<boolean> {
+  try {
+    await ollamaRequest('/api/tags');
+    return true;
+  } catch {
+    // The runtime may be installed without its local server being started.
+  }
+
+  if (process.platform !== 'win32' || ollamaLaunchAttempted) return false;
+  ollamaLaunchAttempted = true;
+
+  const candidates = [
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe') : '',
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Ollama', 'ollama.exe') : 'C:\\Program Files\\Ollama\\ollama.exe',
+  ].filter(Boolean);
+  const executable = candidates.find(candidate => existsSync(candidate));
+  if (!executable) return false;
+
+  try {
+    const child = spawn(executable, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+  } catch {
+    return false;
+  }
+
+  for (let attempt = 0; attempt < 16; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      await ollamaRequest('/api/tags');
+      return true;
+    } catch {
+      // Keep waiting briefly for the local API to bind its port.
+    }
+  }
+  return false;
+}
+
 async function getLocalAiState(requestedModel?: string) {
   const model = requestedModel?.trim() || (await readSettings()).model || DEFAULT_LOCAL_MODEL;
   try {
+    if (!(await ensureOllamaServer())) throw new Error('Ollama is not running. Install Ollama for Windows, then check again.');
     const data = await ollamaRequest<{ models?: Array<{ name?: string; model?: string }> }>('/api/tags');
     const models = (data.models || []).map(item => item.name || item.model || '').filter(Boolean);
     const modelInstalled = models.some(name => name === model);
@@ -232,10 +273,10 @@ const READ_ONLY_STUDIO_TOOLS = new Set([
 ]);
 
 const APPROVAL_REQUIRED_STUDIO_TOOLS = new Set([
-  'multi_edit', 'execute_luau', 'generate_mesh', 'generate_material',
-  'generate_procedural_model', 'generate_animation', 'generate_avatar',
-  'insert_asset', 'upload_image', 'start_stop_play', 'character_navigation',
-  'user_keyboard_input', 'user_mouse_input', 'save_place',
+  'multi_edit', 'execute_luau', 'generate_mesh', 'generate_material', 'generate_texture',
+  'generate_procedural_model', 'generate_scene', 'generate_animation', 'generate_avatar',
+  'auto_setup_avatar', 'segment_mesh', 'insert_asset', 'upload_image', 'start_stop_play',
+  'character_navigation', 'user_keyboard_input', 'user_mouse_input', 'save_place',
 ]);
 
 function safeToolList() {
