@@ -13,10 +13,12 @@ type TaskRow = {
   status: string;
   task_text: string;
   result: Record<string, unknown> | null;
+  created_at: string;
 };
 
 type TaskResult = {
   modelProfile: ModelProfile;
+  runToken: string;
   stage: "queued" | "planned" | "executed" | "completed";
   plan?: string;
   output?: string;
@@ -62,7 +64,7 @@ async function getTaskStep(taskId: string, ownerId: string): Promise<TaskRow> {
   "use step";
   const admin = createAdminClient();
   const { data, error } = await admin.from("agent_tasks")
-    .select("id,owner_id,project_id,conversation_id,status,task_text,result")
+    .select("id,owner_id,project_id,conversation_id,status,task_text,result,created_at")
     .eq("id", taskId)
     .eq("owner_id", ownerId)
     .maybeSingle();
@@ -83,17 +85,20 @@ async function appendEventStep(taskId: string, ownerId: string, eventType: strin
   if (error) throw new Error("Could not save agent task progress: " + error.message);
 }
 
-async function updateTaskResultStep(taskId: string, ownerId: string, result: TaskResult) {
+async function updateTaskResultStep(taskId: string, ownerId: string, runToken: string, result: TaskResult) {
   "use step";
   const admin = createAdminClient();
   const { error } = await admin.from("agent_tasks")
     .update({ result, updated_at: new Date().toISOString() })
     .eq("id", taskId)
-    .eq("owner_id", ownerId);
-  if (error) throw new Error("Could not checkpoint agent task progress: " + error.message);
+    .eq("owner_id", ownerId)
+    .filter("result->>runToken", "eq", runToken)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) throw new Error("Could not checkpoint agent task progress: " + (error?.message || "the task run is no longer current"));
 }
 
-async function setTaskRunningStep(taskId: string, ownerId: string) {
+async function setTaskRunningStep(taskId: string, ownerId: string, runToken: string) {
   "use step";
   const admin = createAdminClient();
   const { data, error } = await admin.from("agent_tasks")
@@ -101,13 +106,14 @@ async function setTaskRunningStep(taskId: string, ownerId: string) {
     .eq("id", taskId)
     .eq("owner_id", ownerId)
     .eq("status", "queued")
+    .filter("result->>runToken", "eq", runToken)
     .select("id")
     .maybeSingle();
   if (error) throw new Error("Could not start the agent task.");
   return Boolean(data);
 }
 
-async function completeTaskStep(taskId: string, ownerId: string) {
+async function completeTaskStep(taskId: string, ownerId: string, runToken: string) {
   "use step";
   const admin = createAdminClient();
   const { data, error } = await admin.from("agent_tasks")
@@ -115,20 +121,22 @@ async function completeTaskStep(taskId: string, ownerId: string) {
     .eq("id", taskId)
     .eq("owner_id", ownerId)
     .eq("status", "running")
+    .filter("result->>runToken", "eq", runToken)
     .select("id")
     .maybeSingle();
   if (error) throw new Error("Could not mark the agent task complete.");
   return Boolean(data);
 }
 
-async function failTaskStep(taskId: string, ownerId: string, message: string) {
+async function failTaskStep(taskId: string, ownerId: string, runToken: string, message: string) {
   "use step";
   const admin = createAdminClient();
   await admin.from("agent_tasks")
     .update({ status: "failed", error: message.slice(0, 2_000), updated_at: new Date().toISOString() })
     .eq("id", taskId)
     .eq("owner_id", ownerId)
-    .in("status", ["queued", "running"]);
+    .in("status", ["queued", "running"])
+    .filter("result->>runToken", "eq", runToken);
 }
 
 async function planTaskStep(taskId: string, ownerId: string, projectId: string, taskText: string, profile: ModelProfile) {
@@ -231,6 +239,17 @@ async function executeTaskStep(
 ) {
   "use step";
   const admin = createAdminClient();
+  const assertCurrentRun = async () => {
+    const { data, error } = await admin.from("agent_tasks")
+      .select("status")
+      .eq("id", taskId)
+      .eq("owner_id", ownerId)
+      .filter("result->>runToken", "eq", runToken)
+      .maybeSingle();
+    if (error || !data || data.status !== "running") {
+      throw new Error("This task attempt is no longer active; its changes were not saved.");
+    }
+  };
   const choice = await resolveProfile(profile, process.env.VERCEL_OIDC_TOKEN || null);
   const maxOutputTokens = Math.min(choice.primary.maxOutputTokens || 4096, 4096);
   const prompt = [
@@ -358,6 +377,7 @@ async function executeTaskStep(
         summary: z.string().trim().min(2).max(500),
       }),
       execute: async ({ relativePath, content, summary }) => {
+        await assertCurrentRun();
         const safePath = safeRelativePath(relativePath);
         if (!safePath || !SEARCHABLE_EXTENSIONS.has(getExtension(safePath))) throw new Error("That proposal path or extension is not supported.");
         if (Buffer.byteLength(content, "utf8") > 512_000) throw new Error("Proposed file content exceeds the 512 KB limit.");
@@ -396,6 +416,7 @@ async function executeTaskStep(
         sourceRef: z.string().trim().max(300).optional(),
       }),
       execute: async ({ memoryType, title, content, sourceRef }) => {
+        await assertCurrentRun();
         const { data: existing } = await admin.from("project_memories")
           .select("id")
           .eq("project_id", projectId)
@@ -474,7 +495,7 @@ async function executeTaskStep(
   }
 }
 
-async function verifyTaskStep(taskId: string, ownerId: string, projectId: string, conversationId: string | null) {
+async function verifyTaskStep(taskId: string, ownerId: string, projectId: string, conversationId: string | null, createdAt: string) {
   "use step";
   const admin = createAdminClient();
   let query = admin.from("project_changes")
@@ -484,6 +505,7 @@ async function verifyTaskStep(taskId: string, ownerId: string, projectId: string
     .order("created_at", { ascending: false })
     .limit(30);
   if (conversationId) query = query.eq("conversation_id", conversationId);
+  query = query.gte("created_at", createdAt);
   const { data } = await query;
   const proposals = (data || []).map(item => ({ id: item.id, path: item.relative_path, status: item.status }));
   return {
@@ -493,16 +515,17 @@ async function verifyTaskStep(taskId: string, ownerId: string, projectId: string
   };
 }
 
-export async function runAgentTask(taskId: string, ownerId: string, profile: ModelProfile) {
+export async function runAgentTask(taskId: string, ownerId: string, profile: ModelProfile, runToken: string) {
   "use workflow";
   try {
     let task = await getTaskStep(taskId, ownerId);
+    if (String(task.result?.runToken || "") !== runToken) return;
     if (task.status === "paused" || task.status === "cancelled" || task.status === "completed") return;
     if (task.status === "queued") {
-      const didStart = await setTaskRunningStep(taskId, ownerId);
+      const didStart = await setTaskRunningStep(taskId, ownerId, runToken);
       if (!didStart) {
         task = await getTaskStep(taskId, ownerId);
-        if (task.status !== "running") return;
+        if (String(task.result?.runToken || "") !== runToken || task.status !== "running") return;
       }
     } else if (task.status !== "running") {
       return;
@@ -520,10 +543,11 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
         planModel: planned.modelId,
         usage: { inputTokens: planned.inputTokens, outputTokens: planned.outputTokens },
       };
-      await updateTaskResultStep(taskId, ownerId, result);
+      await updateTaskResultStep(taskId, ownerId, runToken, result);
     }
 
     task = await getTaskStep(taskId, ownerId);
+    if (String(task.result?.runToken || "") !== runToken) return;
     if (task.status === "paused" || task.status === "cancelled") {
       await appendEventStep(taskId, ownerId, task.status, task.status === "paused" ? "Paused at a workflow checkpoint. Resume to continue." : "Task cancelled at a workflow checkpoint.");
       return;
@@ -552,19 +576,20 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
         },
         toolsUsed: executed.toolsUsed,
       };
-      await updateTaskResultStep(taskId, ownerId, result);
+      await updateTaskResultStep(taskId, ownerId, runToken, result);
     }
 
     task = await getTaskStep(taskId, ownerId);
+    if (String(task.result?.runToken || "") !== runToken) return;
     if (task.status === "paused" || task.status === "cancelled") {
       await appendEventStep(taskId, ownerId, task.status, task.status === "paused" ? "Paused after the implementation step. Resume to complete verification." : "Task cancelled after the implementation step.");
       return;
     }
 
-    const verification = await verifyTaskStep(taskId, ownerId, task.project_id!, task.conversation_id);
+    const verification = await verifyTaskStep(taskId, ownerId, task.project_id!, task.conversation_id, task.created_at);
     result = { ...(task.result as unknown as TaskResult), stage: "completed", verification };
-    await updateTaskResultStep(taskId, ownerId, result);
-    const completed = await completeTaskStep(taskId, ownerId);
+    await updateTaskResultStep(taskId, ownerId, runToken, result);
+    const completed = await completeTaskStep(taskId, ownerId, runToken);
     if (!completed) {
       const latest = await getTaskStep(taskId, ownerId);
       if (latest.status === "paused" || latest.status === "cancelled") return;
@@ -576,7 +601,7 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected agent task failure.";
-    await failTaskStep(taskId, ownerId, message);
+    await failTaskStep(taskId, ownerId, runToken, message);
     await appendEventStep(taskId, ownerId, "failed", message).catch(() => undefined);
   }
 }
