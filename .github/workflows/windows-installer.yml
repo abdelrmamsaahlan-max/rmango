@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (example: v0.1.1)"
+        description: "Release tag (example: v0.2.0)"
         required: true
-        default: "v0.1.1"
+        default: "v0.2.0"
         type: string
 
 permissions:
@@ -19,54 +19,73 @@ permissions:
 
 concurrency:
   group: rmango-windows-installer-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   windows-installer:
     name: Build Rmango Setup EXE
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify and extract app source
+      - name: Prepare editable app source
         shell: pwsh
         run: |
-          $archive = "source/Rmango-source.zip"
-          if (-not (Test-Path $archive)) {
-            throw "Missing $archive. The source bundle must be committed before building."
-          }
-
-          $expectedSha256 = "cc6199d696d18f9f89109f5ff57453effb53176524a079bd668489d0b903546c"
-          $actualSha256 = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualSha256 -ne $expectedSha256) {
-            throw "Source archive SHA256 mismatch. Expected $expectedSha256 but got $actualSha256."
-          }
-
           New-Item -ItemType Directory -Force -Path "app-src" | Out-Null
-          Expand-Archive -LiteralPath $archive -DestinationPath "app-src" -Force
 
-          foreach ($required in @("package.json", "electron/main.ts", "src/App.tsx", "build/icon.ico")) {
+          if (Test-Path "app/package.json") {
+            Copy-Item -Path "app/*" -Destination "app-src" -Recurse -Force
+            Write-Host "Using editable source from app/."
+          } else {
+            $archive = "source/Rmango-source.zip"
+            if (-not (Test-Path $archive)) {
+              throw "Missing app/ and source/Rmango-source.zip."
+            }
+
+            $expectedSha256 = "cc6199d696d18f9f89109f5ff57453effb53176524a079bd668489d0b903546c"
+            $actualSha256 = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualSha256 -ne $expectedSha256) {
+              throw "Source archive SHA256 mismatch. Expected $expectedSha256 but got $actualSha256."
+            }
+
+            Expand-Archive -LiteralPath $archive -DestinationPath "app-src" -Force
+            Copy-Item -LiteralPath "build/generate-icon.ps1" -Destination "app-src/build/generate-icon.ps1" -Force
+            Write-Host "Using verified fallback source archive."
+          }
+
+          foreach ($required in @("package.json", "electron/main.ts", "src/App.tsx", "src/styles.css", "build/generate-icon.ps1")) {
             if (-not (Test-Path (Join-Path "app-src" $required))) {
-              throw "Source archive is missing required app file: $required"
+              throw "Application source is missing required file: $required"
             }
           }
 
-          Write-Host "Source archive verified and extracted."
-
-      - name: Generate a valid 256x256 Windows app icon
+      - name: Generate branded 256x256 mango Windows icon
         shell: pwsh
         run: |
-          if (-not (Test-Path "build/generate-icon.ps1")) {
-            throw "Missing build/generate-icon.ps1."
-          }
-          Copy-Item -LiteralPath "build/generate-icon.ps1" -Destination "app-src/build/generate-icon.ps1" -Force
           & "app-src/build/generate-icon.ps1"
           if (-not (Test-Path "app-src/build/icon.ico")) {
-            throw "The Windows icon generator did not create app-src/build/icon.ico."
+            throw "The mango icon generator did not create app-src/build/icon.ico."
           }
-          Write-Host "Windows icon generated successfully."
+          Write-Host "Windows mango icon generated successfully."
+
+      - name: Import optional Windows code-signing certificate
+        shell: pwsh
+        env:
+          RMANGO_SIGNING_PFX_BASE64: ${{ secrets.RMANGO_SIGNING_PFX_BASE64 }}
+          RMANGO_SIGNING_PFX_PASSWORD: ${{ secrets.RMANGO_SIGNING_PFX_PASSWORD }}
+        run: |
+          if ($env:RMANGO_SIGNING_PFX_BASE64 -and $env:RMANGO_SIGNING_PFX_PASSWORD) {
+            $certificatePath = Join-Path $env:RUNNER_TEMP "rmango-signing.pfx"
+            $bytes = [Convert]::FromBase64String($env:RMANGO_SIGNING_PFX_BASE64)
+            [System.IO.File]::WriteAllBytes($certificatePath, $bytes)
+            "CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
+            "CSC_KEY_PASSWORD=$env:RMANGO_SIGNING_PFX_PASSWORD" >> $env:GITHUB_ENV
+            Write-Host "Code-signing certificate imported for electron-builder."
+          } else {
+            Write-Warning "No publisher certificate configured. This build will be unsigned and Smart App Control may block it."
+          }
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -83,7 +102,7 @@ jobs:
         working-directory: app-src
         run: npm run dist:win
 
-      - name: Verify the Windows setup executable
+      - name: Verify Windows setup executable
         id: verify
         shell: pwsh
         run: |
@@ -94,12 +113,18 @@ jobs:
 
           $sizeMb = [math]::Round($installer.Length / 1MB, 2)
           $sha256 = (Get-FileHash -Path $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
           "installer_path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
           "installer_name=$($installer.Name)" >> $env:GITHUB_OUTPUT
           "installer_sha256=$sha256" >> $env:GITHUB_OUTPUT
+          "signature_status=$($signature.Status)" >> $env:GITHUB_OUTPUT
           Write-Host "Installer: $($installer.Name)"
           Write-Host "Size: $sizeMb MB"
           Write-Host "SHA256: $sha256"
+          Write-Host "Authenticode status: $($signature.Status)"
+          if ($env:CSC_LINK -and $signature.Status -ne "Valid") {
+            throw "A signing certificate was configured, but the generated installer signature is not valid."
+          }
 
       - name: Save setup EXE as a workflow artifact
         uses: actions/upload-artifact@v4
@@ -119,7 +144,7 @@ jobs:
           } elseif ("${{ github.ref_type }}" -eq "tag") {
             $tag = "${{ github.ref_name }}"
           } else {
-            $tag = "v0.1.1-build-${{ github.run_number }}"
+            $tag = "v0.2.0-build-${{ github.run_number }}"
           }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "name=Rmango $tag" >> $env:GITHUB_OUTPUT
