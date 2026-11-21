@@ -156,7 +156,7 @@ export async function POST(request: Request) {
     hasDocument: hasDocumentAttachment,
     recentContext: recentUserContext,
   });
-  const workflow = buildAgentWorkflowContext({ profile, prompt: latestUserPrompt });
+  const workflow = buildAgentWorkflowContext({ profile, prompt: [recentUserContext, latestUserPrompt].filter(Boolean).join("\n") });
   const systemPrompt = [SYSTEM_PROMPT, skills.systemText, workflow.systemText].filter(Boolean).join("\n\n");
   let choice;
   try {
@@ -485,6 +485,7 @@ export async function POST(request: Request) {
     await recordAgentEvent("started", "Started a coordinated Roblox development task.", {
       profile,
       domains: workflow.domains,
+      intent: workflow.intent,
       projectId: selectedProjectId || null,
     });
   }
