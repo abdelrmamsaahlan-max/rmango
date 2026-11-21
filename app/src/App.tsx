@@ -10,12 +10,12 @@ import {
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectCheckpoint,
   CloudProjectChange,
-  AgentActivity, CloudProfile, CloudState, CloudUsage, GitWorkspaceDiff, GitWorkspaceState, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
+  AgentActivity, CloudProfile, CloudState, CloudUsage, GitWorkspaceDiff, GitWorkspaceState, IntelligenceLevelSetting, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
 type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
-type PendingFollowup = { id: string; content: string; profile: CloudProfile; attachments: PendingAttachment[]; queuedAt: string };
+type PendingFollowup = { id: string; content: string; profile: CloudProfile; intelligenceLevel: IntelligenceLevelSetting; attachments: PendingAttachment[]; queuedAt: string };
 type ProjectDialogState = { mode: 'create' | 'rename'; projectId?: string; name: string; description: string } | null;
 type SettingsSection = 'general' | 'appearance' | 'ai' | 'usage' | 'account' | 'privacy' | 'notifications' | 'updates' | 'advanced';
 
@@ -115,7 +115,8 @@ function App() {
   const [cloudState, setCloudState] = useState<CloudState | null>(null);
   const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
   const [cloudUsage, setCloudUsage] = useState<CloudUsage | null>(null);
-  const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
+  const [cloudProfile, setCloudProfile] = useState<CloudProfile>('auto');
+  const [intelligenceLevel, setIntelligenceLevel] = useState<IntelligenceLevelSetting>('auto');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
   const [cloudTasks, setCloudTasks] = useState<CloudAgentTask[]>([]);
@@ -276,7 +277,8 @@ function App() {
         setSendOnEnter(state.sendOnEnter !== false);
         setDesktopNotifications(Boolean(state.desktopNotifications));
         setAutoUpdatesEnabled(state.autoUpdatesEnabled !== false);
-        setCloudProfile(state.defaultCloudProfile || 'developer');
+        setCloudProfile(state.defaultCloudProfile || 'auto');
+        setIntelligenceLevel(state.intelligenceLevel || 'auto');
         setSaveLocalChatHistory(state.saveLocalChatHistory !== false);
         setShowInspectorByDefault(state.showInspectorByDefault !== false);
         setRightPanelOpen(state.showInspectorByDefault !== false);
@@ -554,7 +556,7 @@ function App() {
       const conversation = await window.rmango.createCloudConversation({
         title: 'New chat',
         projectId: cloudProjectId,
-        modelProfile: cloudProfile,
+        modelProfile: cloudProfile === 'auto' ? 'developer' : cloudProfile,
       });
       setConversationId(conversation.id);
       setCloudState(current => current ? { ...current, currentConversationId: conversation.id } : current);
@@ -744,6 +746,12 @@ function App() {
     const previous = cloudProfile;
     setCloudProfile(profile);
     if (!await savePreferences({ defaultCloudProfile: profile })) setCloudProfile(previous);
+  }
+
+  async function handleIntelligenceLevelChange(level: IntelligenceLevelSetting) {
+    const previous = intelligenceLevel;
+    setIntelligenceLevel(level);
+    if (!await savePreferences({ intelligenceLevel: level })) setIntelligenceLevel(previous);
   }
 
   async function handleLocalHistoryChange(enabled: boolean) {
@@ -1150,7 +1158,7 @@ function App() {
     }
   }
 
-  async function sendMessage(content = input, selectedProfile?: CloudProfile, attachmentOverride?: PendingAttachment[], fromQueue = false) {
+  async function sendMessage(content = input, selectedProfile?: CloudProfile, attachmentOverride?: PendingAttachment[], fromQueue = false, selectedLevel?: IntelligenceLevelSetting) {
     const trimmed = content.trim();
     const pending = attachmentOverride ? [...attachmentOverride] : [...attachments];
     if (!trimmed && pending.length === 0) return;
@@ -1176,6 +1184,7 @@ function App() {
         id: crypto.randomUUID(),
         content: trimmed || 'Please inspect the attached files and images.',
         profile: selectedProfile || cloudProfile,
+        intelligenceLevel: selectedLevel || intelligenceLevel,
         attachments: pending,
         queuedAt: timeNow(),
       };
@@ -1225,6 +1234,7 @@ function App() {
         messages: nextMessages.map(({ role, content: text }) => ({ role, content: text })),
         attachments: pending.map(({ name, mimeType, kind, size, data }) => ({ name, mimeType, kind, size, data })),
         profile: selectedProfile || cloudProfile,
+        intelligenceLevel: selectedLevel || intelligenceLevel,
         conversationId,
         projectId: cloudProjectId,
         requestId,
@@ -1291,7 +1301,7 @@ function App() {
     const remaining = followupQueueRef.current.slice(1);
     followupQueueRef.current = remaining;
     setFollowupQueue(remaining);
-    void sendMessage(next.content, next.profile, next.attachments, true);
+    void sendMessage(next.content, next.profile, next.attachments, true, next.intelligenceLevel);
   }, [busy, cloudState?.configured, cloudState?.serviceReady, cloudState?.signedIn, followupQueue.length]);
 
   function removeFollowup(id: string) {
@@ -1772,6 +1782,7 @@ function App() {
               <div className="composer-footer">
                 <div className="composer-left">
                   <select className="profile-select" value={cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Cloud AI profile" disabled={!cloudState?.signedIn || busy}>
+                    <option value="auto">Auto · choose for each task</option>
                     <option value="fast">Rmango Fast</option>
                     <option value="developer">Rmango Developer</option>
                     <option value="think">Rmango Think</option>
@@ -2261,6 +2272,7 @@ function App() {
                     <label className="settings-select-row settings-default-profile">
                       <span><strong>New conversation profile</strong><small>This is a routing preset, not a separate model or a model-training setting.</small></span>
                       <select className="settings-input" value={cloudProfile} onChange={event => void handleDefaultProfileChange(event.target.value as CloudProfile)}>
+                        <option value="auto">Auto · choose for each task</option>
                         <option value="fast">Fast · quick responses</option>
                         <option value="developer">Developer · Roblox coding</option>
                         <option value="think">Think · deeper reasoning</option>
@@ -2268,6 +2280,25 @@ function App() {
                         <option value="agent">Agent · multi-step tasks</option>
                       </select>
                     </label>
+                  </section>
+
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><SlidersHorizontal size={17}/></div>
+                      <div><h3>Intelligence level</h3><p>Controls investigation depth, context budget, tool access and verification effort. Auto adapts this to the task.</p></div>
+                    </div>
+                    <label className="settings-select-row settings-default-profile">
+                      <span><strong>Reasoning and investigation</strong><small>This is not an IQ score or a separate trained model. Higher levels use larger task budgets and may take longer or consume more tokens.</small></span>
+                      <select className="settings-input" value={intelligenceLevel} onChange={event => void handleIntelligenceLevelChange(event.target.value as IntelligenceLevelSetting)}>
+                        <option value="auto">Auto · adapt to the request</option>
+                        <option value="instant">Instant · simple questions</option>
+                        <option value="focused">Focused · normal coding</option>
+                        <option value="advanced">Advanced · multi-file work</option>
+                        <option value="deep">Deep Engineering · complex systems</option>
+                        <option value="research">Research & Verification · evidence-heavy tasks</option>
+                      </select>
+                    </label>
+                    {intelligenceLevel === 'research' && <div className="settings-hint">Research mode increases investigation and verification effort. Live external documentation search is not currently enabled in the cloud engine.</div>}
                   </section>
 
                   <section className="settings-card">

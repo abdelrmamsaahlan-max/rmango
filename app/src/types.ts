@@ -1,4 +1,5 @@
-export type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+export type CloudProfile = 'auto' | 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+export type IntelligenceLevelSetting = 'auto' | 'instant' | 'focused' | 'advanced' | 'deep' | 'research';
 
 export type AppPreferences = {
   appearance: 'dark' | 'light' | 'system';
@@ -10,6 +11,7 @@ export type AppPreferences = {
   desktopNotifications: boolean;
   autoUpdatesEnabled: boolean;
   defaultCloudProfile: CloudProfile;
+  intelligenceLevel: IntelligenceLevelSetting;
   saveLocalChatHistory: boolean;
   showInspectorByDefault: boolean;
 };
@@ -279,6 +281,7 @@ declare global {
         messages: Array<{ role: 'user' | 'assistant'; content: string }>;
         attachments?: AttachmentPayload[];
         profile: CloudProfile;
+        intelligenceLevel: IntelligenceLevelSetting;
         projectId?: string;
         conversationId?: string;
         requestId?: string;

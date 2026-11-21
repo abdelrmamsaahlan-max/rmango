@@ -12,7 +12,8 @@ import electronUpdater from 'electron-updater';
 
 const { autoUpdater } = electronUpdater;
 
-type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+type CloudProfile = 'auto' | 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+type IntelligenceLevelSetting = 'auto' | 'instant' | 'focused' | 'advanced' | 'deep' | 'research';
 type ChatMessage = {
   id?: string;
   role: 'user' | 'assistant';
@@ -68,6 +69,7 @@ type SettingsFile = {
   desktopNotifications: boolean;
   autoUpdatesEnabled: boolean;
   defaultCloudProfile: CloudProfile;
+  intelligenceLevel: IntelligenceLevelSetting;
   saveLocalChatHistory: boolean;
   showInspectorByDefault: boolean;
 };
@@ -146,7 +148,8 @@ const DEFAULT_SETTINGS: SettingsFile = {
   sendOnEnter: true,
   desktopNotifications: false,
   autoUpdatesEnabled: true,
-  defaultCloudProfile: 'developer',
+  defaultCloudProfile: 'auto',
+  intelligenceLevel: 'auto',
   saveLocalChatHistory: true,
   showInspectorByDefault: true,
 };
@@ -163,7 +166,8 @@ function normaliseSettings(value: Partial<SettingsFile> | null | undefined): Set
     sendOnEnter: typeof input.sendOnEnter === 'boolean' ? input.sendOnEnter : DEFAULT_SETTINGS.sendOnEnter,
     desktopNotifications: typeof input.desktopNotifications === 'boolean' ? input.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
     autoUpdatesEnabled: typeof input.autoUpdatesEnabled === 'boolean' ? input.autoUpdatesEnabled : DEFAULT_SETTINGS.autoUpdatesEnabled,
-    defaultCloudProfile: input.defaultCloudProfile === 'fast' || input.defaultCloudProfile === 'developer' || input.defaultCloudProfile === 'think' || input.defaultCloudProfile === 'vision' || input.defaultCloudProfile === 'agent' ? input.defaultCloudProfile : DEFAULT_SETTINGS.defaultCloudProfile,
+    defaultCloudProfile: input.defaultCloudProfile === 'auto' || input.defaultCloudProfile === 'fast' || input.defaultCloudProfile === 'developer' || input.defaultCloudProfile === 'think' || input.defaultCloudProfile === 'vision' || input.defaultCloudProfile === 'agent' ? input.defaultCloudProfile : DEFAULT_SETTINGS.defaultCloudProfile,
+    intelligenceLevel: input.intelligenceLevel === 'auto' || input.intelligenceLevel === 'instant' || input.intelligenceLevel === 'focused' || input.intelligenceLevel === 'advanced' || input.intelligenceLevel === 'deep' || input.intelligenceLevel === 'research' ? input.intelligenceLevel : DEFAULT_SETTINGS.intelligenceLevel,
     saveLocalChatHistory: typeof input.saveLocalChatHistory === 'boolean' ? input.saveLocalChatHistory : DEFAULT_SETTINGS.saveLocalChatHistory,
     showInspectorByDefault: typeof input.showInspectorByDefault === 'boolean' ? input.showInspectorByDefault : DEFAULT_SETTINGS.showInspectorByDefault,
   };
@@ -635,6 +639,7 @@ async function sendCloudMessage(payload: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   attachments?: Attachment[];
   profile: CloudProfile;
+  intelligenceLevel: IntelligenceLevelSetting;
   projectId?: string;
   conversationId?: string;
   requestId?: string;
@@ -2058,12 +2063,15 @@ handleIpc('cloud:send', async (_event, payload: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   attachments?: Attachment[];
   profile: CloudProfile;
+  intelligenceLevel?: IntelligenceLevelSetting;
   projectId?: string;
   conversationId?: string;
   requestId?: string;
 }) => {
-  const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
-  if (!payload || !Array.isArray(payload.messages) || !allowedProfiles.includes(payload.profile)) {
+  const allowedProfiles: CloudProfile[] = ['auto', 'fast', 'developer', 'think', 'vision', 'agent'];
+  const allowedLevels: IntelligenceLevelSetting[] = ['auto', 'instant', 'focused', 'advanced', 'deep', 'research'];
+  if (!payload || !Array.isArray(payload.messages) || !allowedProfiles.includes(payload.profile) ||
+      (payload.intelligenceLevel !== undefined && !allowedLevels.includes(payload.intelligenceLevel))) {
     throw new Error('The cloud request is invalid.');
   }
   if (payload.messages.length < 1 || payload.messages.length > 30) {
@@ -2078,6 +2086,7 @@ handleIpc('cloud:send', async (_event, payload: {
     messages,
     attachments,
     profile: payload.profile,
+    intelligenceLevel: payload.intelligenceLevel || 'auto',
     projectId: payload.projectId,
     conversationId: payload.conversationId,
     requestId: payload.requestId,
