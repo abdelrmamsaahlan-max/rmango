@@ -448,14 +448,14 @@ async function executeTaskWorkflow(
     temperature: 0.1,
     maxOutputTokens: reservation.maxOutputTokens,
     experimental_onStart: async () => {
-      await appendTaskEventStep(taskId, ownerId, "model_started", "The cloud model started the implementation agent.", {
+      await appendTaskEventStep(taskId, ownerId, "model_started", "RMango started the implementation agent.", {
         modelId: actualModelId,
         modelProfile: profile,
       });
     },
     experimental_onStepStart: async ({ steps }) => {
       const stepNumber = steps.length;
-      await appendTaskEventStep(taskId, ownerId, "model_step_started", "Agent reasoning step " + (stepNumber + 1) + " started.", {
+      await appendTaskEventStep(taskId, ownerId, "model_step_started", "RMango reasoning step " + (stepNumber + 1) + " started.", {
         stepNumber,
         modelId: actualModelId,
       });
@@ -493,7 +493,7 @@ async function executeTaskWorkflow(
       const outputTokens = Number(usage?.outputTokens || 0);
       totalInputTokens += inputTokens;
       totalOutputTokens += outputTokens;
-      await appendTaskEventStep(taskId, ownerId, "model_step_completed", "A model reasoning step completed.", {
+      await appendTaskEventStep(taskId, ownerId, "model_step_completed", "RMango completed a reasoning step.", {
         modelId: actualModelId,
         inputTokens,
         outputTokens,
@@ -743,7 +743,7 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
     result = (task.result || result) as unknown as TaskResult;
     if (!result.plan) {
       if (!task.project_id || !result.indexSummary) throw new Error("A project must be indexed before planning can start.");
-      await appendTaskEventStep(taskId, ownerId, "planning_started", "Preparing an implementation plan from the source index, memories and task requirements.");
+      await appendTaskEventStep(taskId, ownerId, "planning_started", "RMango is preparing an implementation plan from the source index, memories and task requirements.");
       const planned = await planTaskStep(taskId, ownerId, task.project_id, task.task_text, profile, result.indexSummary);
       result = {
         ...result,
@@ -753,7 +753,7 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
         usage: { inputTokens: planned.inputTokens, outputTokens: planned.outputTokens },
       };
       await updateTaskResultStep(taskId, ownerId, runToken, result);
-      await appendTaskEventStep(taskId, ownerId, "planning_completed", "The implementation plan is ready.", {
+      await appendTaskEventStep(taskId, ownerId, "planning_completed", "RMango's implementation plan is ready.", {
         modelId: planned.modelId,
         inputTokens: planned.inputTokens,
         outputTokens: planned.outputTokens,
