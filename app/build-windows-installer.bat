@@ -26,6 +26,10 @@ if not exist node_modules (
   if errorlevel 1 goto :fail
 )
 
+echo [INFO] Generating the mango app icon...
+powershell -NoProfile -ExecutionPolicy Bypass -File build\generate-icon.ps1
+if errorlevel 1 goto :fail
+
 echo [INFO] Building the Windows NSIS setup executable...
 call npm run dist:win
 if errorlevel 1 goto :fail
