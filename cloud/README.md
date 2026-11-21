@@ -130,7 +130,11 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 - The Windows client still has a local-folder picker and local Roblox Studio MCP transport. These are for file selection and Studio control only, not AI inference.
 - Studio tool calls are synchronous within a bounded chat route and can time out. A durable WorkflowAgent/queue worker for tasks that outlive a web request is not complete yet.
 - Admin usage reports/policy editing UI is not complete. Policies can be managed in the database for now.
-- PDF/DOCX parsing, embeddings/vector RAG, project-wide dependency indexing, diff viewer for proposed file content, and automated Luau test runners are not complete.
+- PDF and DOCX text extraction are now supported for bounded attachments (5 MB input cap, 25-page PDF cap, bounded DOCX archive inspection, and 60,000 extracted characters). Scanned PDFs without selectable text still need to be provided as page screenshots.
+- Versioned Roblox specialist skills now cover Luau, gameplay architecture, security/DataStores, UI/UX, worldbuilding/3D assets, animation, audio, performance and testing. The selector loads up to four relevant skills without an extra inference call.
+- Image attachments automatically route to the Vision model profile.
+- While a response is running, the desktop accepts up to six follow-up messages with files and submits them in order as subsequent turns in the same conversation after the current response. They do not interrupt or alter the already-running generation; the queue is currently in-memory and is not crash-persistent.
+- Embeddings/vector RAG, project-wide dependency indexing, diff viewer for proposed file content, durable agent workflow workers and automated Luau test runners are still not complete.
 - The Supabase project is provisioned, but full account signup, authenticated project storage, Studio bridge and ZIP-export end-to-end tests remain pending. The server-only service-role secret is not yet configured in Vercel.
 - Paid model inference is deliberately disabled and has not been tested. Do not enable it without a separately approved budget.
 
@@ -144,3 +148,6 @@ You must configure a separate test Supabase project and a secure Vercel OIDC/dev
 Selected-project context uses an owner-scoped metadata query with a bounded manifest. Source contents are fetched only when the agent calls the authorized file-read tool. Project names, descriptions, paths, uploaded documents, retrieved content and tool outputs are untrusted data; runtime ownership and tool permissions are the security boundary.
 
 See [the Phase 2 audit and architecture plan](../docs/PHASE2-AUDIT.md) for current findings, design choices, research links and the uncompleted roadmap.
+
+
+Roblox Studio operations use the allowlisted tool categories supplied by the connected official Studio MCP: script editing, scene generation, procedural models, meshes, materials, textures, animations, asset search/insertion, and playtest/Output inspection where supported. All mutating operations retain user approval. The current connector does not synthesize completed music files; RMango can build AudioPlayer/Emitter/Listener/Wire/effects systems and search for permitted Creator Store audio assets.
