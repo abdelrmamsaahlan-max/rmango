@@ -92,3 +92,31 @@ test("ranks earlier attachment extracts by the active follow-up request", () => 
 
   assert.equal(ranked[0].name, "PlayerDataNotes.docx");
 });
+
+
+test("BM25 rewards rare, discriminative file-name terms over generic repeated words", async () => {
+  const { rankProjectItemsWithEvidence } = await import("../project-relevance.ts");
+  const files = [
+    { path: "ServerScriptService/InventoryService.luau", text: "inventory inventory inventory service player items" },
+    { path: "StarterGui/ShopPanel.luau", text: "inventory button inventory button inventory button shop" },
+    { path: "ServerScriptService/DataStoreAdapter.luau", text: "player data save datastore profile" },
+  ];
+  const ranked = rankProjectItemsWithEvidence(files, "InventoryService AddItem", { getText: item => item.path + " " + item.text });
+  assert.equal(ranked[0].item.path, "ServerScriptService/InventoryService.luau");
+  assert.ok(ranked[0].matchedTerms.includes("inventoryservice"));
+  assert.equal(ranked[0].retrievalMethod, "bm25");
+});
+
+test("supports bounded relevance boosts without allowing recency to dominate a strong match", async () => {
+  const { rankProjectItemsWithEvidence } = await import("../project-relevance.ts");
+  const items = [
+    { id: "match", text: "inventory service add item player" },
+    { id: "recent", text: "unrelated audio music ambience" },
+  ];
+  const ranked = rankProjectItemsWithEvidence(items, "inventory service", {
+    getText: item => item.text,
+    boost: item => item.id === "recent" ? 0.75 : 0,
+    updatedAt: item => item.id === "recent" ? new Date().toISOString() : "2020-01-01T00:00:00Z",
+  });
+  assert.equal(ranked[0].item.id, "match");
+});

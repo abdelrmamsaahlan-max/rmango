@@ -1,7 +1,15 @@
 export type ProjectRelevanceOptions<T> = {
   getText: (item: T) => string;
   updatedAt?: (item: T) => string | null | undefined;
+  boost?: (item: T) => number;
   nowMs?: number;
+};
+
+export type ProjectRelevanceEvidence<T> = {
+  item: T;
+  score: number;
+  matchedTerms: string[];
+  retrievalMethod: "bm25";
 };
 
 const STOP_WORDS = new Set([
@@ -35,37 +43,90 @@ function recencyScore(updatedAt: string | null | undefined, nowMs: number): numb
   const timestamp = Date.parse(updatedAt);
   if (!Number.isFinite(timestamp)) return 0;
   const ageDays = Math.max(0, (nowMs - timestamp) / 86_400_000);
-  return 0.5 * Math.exp(-ageDays / 45);
+  return 0.18 * Math.exp(-ageDays / 60);
 }
 
 /**
- * Deterministic lexical ranking for project metadata and memories.
- * Scores only metadata text; file contents are still read on demand via tools.
- * Input order is preserved as the tie-breaker (callers normally supply
- * alphabetically ordered file metadata or newest-first memories).
+ * BM25 ranks bounded project metadata and memory text. It is lexical retrieval,
+ * not vector/semantic search; callers retain source IDs and must read source
+ * files before treating metadata hits as implementation evidence.
  */
-function scoreWithPreparedQuery(terms: string[], normalizedQuery: string, candidateText: string): number {
-  if (!terms.length) return 0;
-
-  const candidate = normalize(candidateText);
-  const candidateTokens = new Set(candidate.split(/\s+/).filter(Boolean));
-  let score = 0;
-  for (const term of terms) {
-    if (candidateTokens.has(term)) score += 1;
-    else if (term.length >= 4 && candidate.includes(term)) score += 0.45;
+export function rankProjectItemsWithEvidence<T>(
+  items: T[],
+  query: string,
+  options: ProjectRelevanceOptions<T>,
+): ProjectRelevanceEvidence<T>[] {
+  const boundedQuery = query.slice(-24_000);
+  const terms = tokenizeProjectQuery(boundedQuery);
+  if (!terms.length) {
+    return items.map(item => ({
+      item,
+      score: 0,
+      matchedTerms: [],
+      retrievalMethod: "bm25" as const,
+    }));
   }
 
-  if (normalizedQuery.length >= 5 && candidate.includes(normalizedQuery)) score += 2;
-  return score;
+  const normalizedQuery = normalize(boundedQuery);
+  const docs = items.map(item => {
+    const normalizedText = normalize(options.getText(item));
+    const tokens = normalizedText.split(/\s+/).filter(Boolean);
+    const frequencies = new Map<string, number>();
+    for (const token of tokens) frequencies.set(token, (frequencies.get(token) || 0) + 1);
+    return { item, normalizedText, tokens, frequencies };
+  });
+  const documentFrequency = new Map<string, number>();
+  for (const term of terms) {
+    documentFrequency.set(term, docs.reduce(
+      (count, doc) => count + (doc.frequencies.has(term) ? 1 : 0),
+      0,
+    ));
+  }
+  const averageLength = docs.length
+    ? docs.reduce((sum, doc) => sum + doc.tokens.length, 0) / docs.length
+    : 0;
+  const safeAverageLength = Math.max(1, averageLength);
+  const nowMs = options.nowMs ?? Date.now();
+
+  return docs.map(doc => {
+    let score = 0;
+    const matchedTerms: string[] = [];
+    for (const term of terms) {
+      const frequency = doc.frequencies.get(term) || 0;
+      if (!frequency) continue;
+      matchedTerms.push(term);
+      const df = documentFrequency.get(term) || 0;
+      const inverseDocumentFrequency = Math.log(
+        1 + (docs.length - df + 0.5) / (df + 0.5),
+      );
+      const k1 = 1.2;
+      const b = 0.75;
+      const lengthNormalization = frequency + k1 * (
+        1 - b + b * (doc.tokens.length / safeAverageLength)
+      );
+      score += inverseDocumentFrequency * (frequency * (k1 + 1)) / lengthNormalization;
+    }
+
+    if (normalizedQuery.length >= 5 && doc.normalizedText.includes(normalizedQuery)) score += 1.25;
+    const recency = options.updatedAt ? recencyScore(options.updatedAt(doc.item), nowMs) : 0;
+    const customBoost = Math.max(-0.25, Math.min(0.75, Number(options.boost?.(doc.item) || 0)));
+    score += recency + customBoost;
+
+    return {
+      item: doc.item,
+      score,
+      matchedTerms,
+      retrievalMethod: "bm25" as const,
+    };
+  }).sort((a, b) => b.score - a.score);
 }
 
 export function scoreProjectRelevance(query: string, candidateText: string): number {
-  const boundedQuery = query.slice(-24_000);
-  return scoreWithPreparedQuery(
-    tokenizeProjectQuery(boundedQuery),
-    normalize(boundedQuery),
-    candidateText,
-  );
+  return rankProjectItemsWithEvidence(
+    [candidateText],
+    query,
+    { getText: item => item },
+  )[0]?.score || 0;
 }
 
 export function rankProjectItems<T>(
@@ -73,23 +134,9 @@ export function rankProjectItems<T>(
   query: string,
   options: ProjectRelevanceOptions<T>,
 ): T[] {
-  // Tokenize and normalize once, not once per file/memory candidate. This keeps
-  // indexing cost proportional to one query plus the bounded metadata corpus.
-  const boundedQuery = query.slice(-24_000);
-  const terms = tokenizeProjectQuery(boundedQuery);
-  if (!terms.length) return items.slice();
-  const normalizedQuery = normalize(boundedQuery);
-
-  const nowMs = options.nowMs ?? Date.now();
-  return items
-    .map((item, index) => {
-      const score = scoreWithPreparedQuery(terms, normalizedQuery, options.getText(item)) +
-        recencyScore(options.updatedAt?.(item), nowMs);
-      return { item, index, score };
-    })
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(entry => entry.item);
+  return rankProjectItemsWithEvidence(items, query, options).map(result => result.item);
 }
+
 /**
  * Memory rows are fetched newest-first. Keep the newest version of each
  * project/type/title note so duplicate saves don't consume the context budget.
