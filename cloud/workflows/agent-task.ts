@@ -461,12 +461,12 @@ async function executeTaskWorkflow(
         modelId: actualModelId,
       });
     },
-    onToolExecutionStart: async ({ toolCall, stepNumber }) => {
+    onToolExecutionStart: async ({ toolCall, callId }) => {
       usedTools.add(toolCall.toolName);
       await appendTaskEventStep(taskId, ownerId, "tool_started", "Calling " + toolCall.toolName + ".", {
         toolName: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        stepNumber,
+        callId,
         inputPreview: compactText(toolCall.input, 1_600),
       });
     },
