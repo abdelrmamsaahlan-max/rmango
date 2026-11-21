@@ -31,7 +31,7 @@ No hosted model request or paid inference has been run from this code. No cloud 
 
 1. Authorize the Rmango Vercel team/project scope.
 2. Create a dedicated Supabase project for Rmango. Do not reuse an unrelated app database.
-3. Apply migrations in order: `202611210001_rmango_cloud.sql`, `202611220001_rmango_agent_workspace.sql`, then `202611230001_rmango_learning_loop.sql`.
+3. Apply migrations in order: `202611210001_rmango_cloud.sql`, `202611220001_rmango_agent_workspace.sql`, `202611230001_rmango_learning_loop.sql`, then `202611230002_rmango_project_index_v2.sql`.
 4. Enable **Anonymous Sign-Ins** in Supabase Auth for the dedicated RMango project.
 5. Create a Vercel project from this repository with Root Directory set to `cloud`.
 6. Enable Vercel OIDC for the Vercel project.
@@ -109,7 +109,7 @@ Current source-file import is limited to 120 files, 512 KB per file and supporte
 - The Vercel cloud app and dedicated Supabase project are not provisioned yet; automatic guest creation and real hosted chat cannot run until the operator completes deployment.
 - Model profiles are dynamically selected from Gateway catalogue metadata. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
 - The desktop and cloud backend have CI build checks; live anonymous guest creation, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
-- The Agent Workspace supports durable plan/implementation tasks with saved events, pause/resume/cancel/retry and an incremental source index. Normal chat Studio calls remain synchronous and bounded by request timeouts.
+- The Agent Workspace supports durable plan/implementation tasks with saved events, pause/resume/cancel/retry and an incremental source index. Index v2 also extracts DataStore/MemoryStore names, remote method references, common UI Instance.new classes/names and literal Roblox asset IDs from Luau source. These are source-level hints with confidence scores, not proof of the live Studio hierarchy or runtime behavior. Normal chat Studio calls remain synchronous and bounded by request timeouts.
 - The Lead agent can request up to three metered, read-only specialist reviews per task (Luau, gameplay, UI/UX, world, assets/animation, QA, performance, security and constrained research analysis). Formal conflict-resolution records, parallel sibling-agent runs, agent-level cost dashboards and external web research are still future work.
 - Admin usage dashboard, admin model-routing editor, PDF/DOCX parsing, vector RAG, parser-backed/full semantic project indexing and binary Roblox project import are not complete.
 - Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. A separate Vercel AI Gateway budget is still required.
