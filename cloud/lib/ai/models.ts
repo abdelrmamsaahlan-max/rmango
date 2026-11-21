@@ -120,6 +120,15 @@ function supports(model: GatewayModel, capability: string) {
   return capabilityTags(model).includes(capability);
 }
 
+function supportsProfile(model: GatewayModel, profile: ModelProfile) {
+  const inputs = model.modalities?.input || [];
+  if (!inputs.includes("text")) return false;
+  if (profile === "vision" && !inputs.includes("image")) return false;
+  if (profile === "think" && !supports(model, "reasoning")) return false;
+  if ((profile === "agent" || profile === "developer") && !supports(model, "tool-use")) return false;
+  return true;
+}
+
 function pickCandidate(models: GatewayModel[], profile: ModelProfile): GatewayModel | undefined {
   let candidates = models.filter(model =>
     (model.modalities?.input || []).includes("text") && Number.isFinite(scoreCost(model))
@@ -153,8 +162,11 @@ export async function resolveProfile(profile: ModelProfile, requestOidcToken?: s
   const modelMap = new Map(catalog.map(model => [model.id, model]));
   const configured = optionalEnv(PROFILE_ENV[profile]);
   const primary = configured ? modelMap.get(configured) : pickCandidate(catalog, profile);
-  if (!primary) {
-    throw new Error("No currently available model supports the " + PROFILE_LABELS[profile] + " profile. Ask an administrator to configure a model.");
+  if (!primary || !supportsProfile(primary, profile)) {
+    throw new Error(
+      "No currently available compatible model supports the " + PROFILE_LABELS[profile] +
+      " profile. Check the administrator-selected model's text, vision, reasoning and tool capabilities."
+    );
   }
 
   const noMoreExpensive = (candidate: GatewayModel) => {
@@ -166,25 +178,17 @@ export async function resolveProfile(profile: ModelProfile, requestOidcToken?: s
       && Number.isFinite(candidateInput) && Number.isFinite(candidateOutput)
       && candidateInput <= primaryInput && candidateOutput <= primaryOutput;
   };
-  const supportsProfile = (candidate: GatewayModel) => {
-    const inputs = candidate.modalities?.input || [];
-    if (!inputs.includes("text")) return false;
-    if (profile === "vision" && !inputs.includes("image")) return false;
-    if (profile === "think" && !supports(candidate, "reasoning")) return false;
-    if ((profile === "agent" || profile === "developer") && !supports(candidate, "tool-use")) return false;
-    return true;
-  };
   const configuredFallbacks = (optionalEnv(FALLBACK_ENV[profile]) || "")
     .split(",")
     .map(value => value.trim())
     .filter(Boolean)
     .map(id => modelMap.get(id))
     .filter((model): model is GatewayModel => Boolean(model))
-    .filter(model => model.id !== primary.id && supportsProfile(model) && noMoreExpensive(model))
+    .filter(model => model.id !== primary.id && supportsProfile(model, profile) && noMoreExpensive(model))
     .map(model => model.id);
 
   const automaticFallback = pickCandidate(
-    catalog.filter(model => model.id !== primary.id && supportsProfile(model) && noMoreExpensive(model)),
+    catalog.filter(model => model.id !== primary.id && supportsProfile(model, profile) && noMoreExpensive(model)),
     profile,
   );
   const fallbacks = configuredFallbacks.length
@@ -205,7 +209,7 @@ export async function getModelProfiles(requestOidcToken?: string | null) {
       const selected = configured
         ? catalog.find(model => model.id === configured)
         : pickCandidate(catalog, profile);
-      return selected ? normalise(selected, profile) : null;
+      return selected && supportsProfile(selected, profile) ? normalise(selected, profile) : null;
     })
     .filter((value): value is ModelChoice => Boolean(value));
 
