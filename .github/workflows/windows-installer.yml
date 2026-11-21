@@ -164,12 +164,9 @@ jobs:
           }
 
           $package.version = $version
-          if ($env:RMANGO_HAS_SIGNING_CERT -eq "true") {
-            $package.build.win.verifyUpdateCodeSignature = $true
-          } else {
-            # Current public builds are unsigned. SHA-512 metadata and HTTPS are still checked.
-            $package.build.win.verifyUpdateCodeSignature = $false
-          }
+          # Installed applications only accept updates signed by the trusted publisher.
+          # CI may still create an unsigned artifact for manual testing, but it is never published.
+          $package.build.win.verifyUpdateCodeSignature = $true
           Set-Content -LiteralPath $packagePath -Value ($package | ConvertTo-Json -Depth 100) -Encoding utf8
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
@@ -194,17 +191,17 @@ jobs:
           RMANGO_CLOUD_CONFIGURED: ${{ steps.cloud-config.outputs.configured }}
         shell: pwsh
         run: |
-          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
-            # electron-updater verifies the HTTPS release metadata and SHA-512 file hash.
-            # Authenticode signing is preferred, but it is optional because the app's
-            # update configuration explicitly permits unsigned publisher builds.
+          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true" -and $env:RMANGO_HAS_SIGNING_CERT -eq "true") {
+            # Publish only when the updater can verify both the release checksum and
+            # the trusted Windows publisher signature.
             npm run dist:win:publish
-            if ($env:RMANGO_HAS_SIGNING_CERT -ne "true") {
-              Write-Warning "Published an unsigned update. Windows may show an unknown-publisher SmartScreen warning; configure the signing certificate for publisher identity."
-            }
           } else {
             npm run dist:win
-            Write-Warning "Cloud URL is missing, so this installer is CI-only and cannot be discovered by the in-app updater."
+            if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
+              Write-Warning "No trusted publisher certificate is configured. This installer is a CI artifact only; it will not be published to the auto-update feed."
+            } else {
+              Write-Warning "Cloud URL is missing, so this installer is CI-only and cannot be discovered by the in-app updater."
+            }
           }
 
       - name: Verify setup executable and update manifest
@@ -221,7 +218,7 @@ jobs:
           $configured = "${{ steps.cloud-config.outputs.configured }}"
           $signed = "${{ steps.signing.outputs.has_certificate }}"
           $manifest = Join-Path "app-src/release" "latest.yml"
-          if ($configured -eq "true") {
+          if ($configured -eq "true" -and $signed -eq "true") {
             if (-not (Test-Path $manifest)) {
               throw "Missing latest.yml. The auto-update feed would not work."
             }
@@ -232,7 +229,7 @@ jobs:
             }
             Write-Host "Auto-update manifest: $manifest"
           } else {
-            Write-Warning "The cloud endpoint is not configured. This build will be saved as a CI artifact only; no public update feed can be published."
+            Write-Warning "A signed update feed is not configured. This build will be saved as a CI artifact only; no public update feed can be published."
           }
 
           $sizeMb = [math]::Round($installer.Length / 1MB, 2)
@@ -251,7 +248,7 @@ jobs:
           }
 
       - name: Verify public GitHub Release contains the update feed
-        if: steps.cloud-config.outputs.configured == 'true'
+        if: steps.cloud-config.outputs.configured == 'true' && steps.signing.outputs.has_certificate == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
