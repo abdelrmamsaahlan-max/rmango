@@ -1,9 +1,9 @@
 {
   "name": "rmango",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "A local-first AI workspace for Roblox Studio development.",
+  "description": "Local-first mango-themed Roblox Studio AI agent with Ollama and approval-gated MCP tools.",
   "main": "dist-electron/main.js",
   "author": "Rmango",
   "license": "UNLICENSED",
@@ -14,7 +14,7 @@
     "build": "npm run build:electron && vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "start": "electron .",
-    "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "dist:win": "powershell -NoProfile -ExecutionPolicy Bypass -File build/generate-icon.ps1 && npm run build && electron-builder --win nsis --x64 --publish never",
     "clean": "node -e \"for (const p of ['dist','dist-electron','release']) require('node:fs').rmSync(p,{recursive:true,force:true})\""
   },
   "dependencies": {
