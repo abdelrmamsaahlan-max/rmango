@@ -651,7 +651,7 @@ function App() {
         name: wasCancelled ? 'Generation stopped' : 'Request failed',
         detail: wasCancelled ? 'Stopped by the user.' : failureMessage,
         ok: false,
-        status: wasCancelled ? 'cancelled' : 'failed',
+        status: wasCancelled ? 'cancelled' as const : 'failed' as const,
       }].slice(-80));
       if (wasCancelled) {
         setMessages(current => current.map(item => {
