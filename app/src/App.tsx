@@ -177,6 +177,9 @@ function MessageContent({ content }: { content: string }) {
     /^\s*[-*+]\s+/.test(line) ||
     /^\s*\d+[.)]\s+/.test(line) ||
     /^\s*(?:---+|\*\*\*+)\s*$/.test(line);
+  const isTableDivider = (line: string) => /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  const splitTableCells = (line: string) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(cell => cell.trim());
+
 
   while (index < lines.length) {
     const line = lines[index];
@@ -222,6 +225,29 @@ function MessageContent({ content }: { content: string }) {
         index += 1;
       }
       blocks.push(<blockquote key={"quote-" + blockKey++}>{renderInlineMarkdown(quote.join(" "), "q-" + blockKey)}</blockquote>);
+      continue;
+    }
+
+    if (line.includes("|") && index + 1 < lines.length && isTableDivider(lines[index + 1])) {
+      const headers = splitTableCells(line);
+      index += 2;
+      const rows: string[][] = [];
+      while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+        rows.push(splitTableCells(lines[index]));
+        index += 1;
+      }
+      blocks.push(
+        <div className="chat-table-wrap" key={"table-" + blockKey++}>
+          <table className="chat-markdown-table">
+            <thead><tr>{headers.map((header, cellIndex) => <th key={"th-" + cellIndex}>{renderInlineMarkdown(header, "th-" + blockKey + "-" + cellIndex)}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) =>
+              <tr key={"tr-" + rowIndex}>
+                {headers.map((_, cellIndex) => <td key={"td-" + rowIndex + "-" + cellIndex}>{renderInlineMarkdown(row[cellIndex] || "", "td-" + blockKey + "-" + rowIndex + "-" + cellIndex)}</td>)}
+              </tr>
+            )}</tbody>
+          </table>
+        </div>
+      );
       continue;
     }
 
