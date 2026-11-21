@@ -568,7 +568,10 @@ async function createCloudConversation(payload: { title?: string; projectId?: st
   }, true);
   const session = await readCloudSession();
   if (session) {
-    await writeCloudSession({ ...session, currentConversationId: result.conversation.id });
+    const updatedSession = { ...session, currentConversationId: result.conversation.id };
+    if (payload.projectId) updatedSession.currentProjectId = payload.projectId;
+    else delete updatedSession.currentProjectId;
+    await writeCloudSession(updatedSession);
   }
   return result.conversation;
 }
