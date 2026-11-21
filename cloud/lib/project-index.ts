@@ -119,9 +119,38 @@ export function indexLuauSource(relativePath: string, source: string, projectPat
     addDependency("remote_reference", match[0], name, start);
   }
 
-  const requirePattern = /require\s*\(\s*([^)]+?)\s*\)/g;
-  for (const match of source.matchAll(requirePattern)) {
-    const expression = match[1] || "";
+  const requireStart = /\brequire\s*\(/g;
+  for (const match of source.matchAll(requireStart)) {
+    const expressionStart = (match.index || 0) + match[0].length;
+    let cursor = expressionStart;
+    let depth = 1;
+    let quote: "'" | '"' | "`" | null = null;
+    let escaped = false;
+
+    for (; cursor < source.length; cursor++) {
+      const character = source[cursor];
+      if (quote) {
+        if (escaped) {
+          escaped = false;
+        } else if (character === "\\") {
+          escaped = true;
+        } else if (character === quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (character === "'" || character === '"' || character === "`") {
+        quote = character;
+      } else if (character === "(") {
+        depth++;
+      } else if (character === ")") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+
+    if (depth !== 0) continue;
+    const expression = source.slice(expressionStart, cursor).trim();
     const childName = [...expression.matchAll(/WaitForChild\s*\(\s*["']([^"']+)["']\s*\)/g)].at(-1)?.[1];
     const dotName = expression.match(/\.([A-Za-z_]\w*)\s*$/)?.[1];
     const name = childName || dotName || null;
