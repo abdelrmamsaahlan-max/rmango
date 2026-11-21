@@ -869,6 +869,14 @@ function App() {
             {cloudState?.message && <div className="secure-note"><AlertCircle size={13}/><span>{cloudState.message}</span></div>}
           </section>
 
+          {cloudProjectId && <section className="inspector-section memory-section">
+            <div className="section-title"><span>PROJECT MEMORY</span><span className="live-indicator live">ACTIVE</span></div>
+            <div className="memory-note">
+              <span className="memory-icon"><Sparkles size={16}/></span>
+              <div><strong>Context that carries forward</strong><span>Rmango can remember confirmed project decisions and coding conventions between chats. This improves context; it does not retrain the hosted model.</span></div>
+            </div>
+          </section>}
+
           <section className="inspector-section">
             <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioConnected ? 'live' : '')}>{studioConnected ? 'CONNECTED' : 'OFFLINE'}</span></div>
             <div className="studio-status-card">

@@ -48,7 +48,7 @@ let selectedStudioId: string | undefined;
 let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
-const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
 let appUpdateState: AppUpdateState = {
   status: 'idle',
@@ -320,9 +320,25 @@ function createWindow() {
       sandbox: true,
     },
   });
+  // Keep renderer navigation inside the trusted app origin. External links must use
+  // the validated app:open-external IPC handler instead of opening an embedded page.
+  const developmentUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (!app.isPackaged) {
+      try {
+        if (new URL(navigationUrl).origin === new URL(developmentUrl).origin) return;
+      } catch {
+        // Block malformed URLs below.
+      }
+    }
+    event.preventDefault();
+  });
+  mainWindow.webContents.on('will-attach-webview', event => event.preventDefault());
+
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   if (!app.isPackaged) {
-    void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173');
+    void mainWindow.loadURL(developmentUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -925,7 +941,7 @@ function initializeAutoUpdates() {
     });
   });
 
-  // Check once shortly after launch and then every four hours.
+  // Check shortly after launch, then every five minutes.
   const startupTimer = setTimeout(() => { void checkForAppUpdates(); }, 8_000);
   startupTimer.unref();
   const updateTimer = setInterval(() => { void checkForAppUpdates(); }, UPDATE_CHECK_INTERVAL_MS);

@@ -37,7 +37,11 @@ Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) 
 
 The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
 
-Installed Windows builds check GitHub Releases after startup and every four hours. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+Installed Windows builds check GitHub Releases shortly after startup and every five minutes. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+
+## Windows SmartScreen and code signing
+
+The Windows workflow supports Authenticode signing when a trusted publisher certificate is provided through the repository secrets \`RMANGO_SIGNING_PFX_BASE64\` and \`RMANGO_SIGNING_PFX_PASSWORD\`. Without a certificate, the workflow can build an unsigned installer; Windows may show an Unknown publisher or SmartScreen reputation warning. The application does not disable or bypass Windows security controls. A trusted code-signing certificate is the correct way to establish publisher reputation; do not turn off Defender or SmartScreen to run an installer.
 
 ## Automatic updates
 
@@ -93,6 +97,10 @@ Setup: in Roblox Studio open **Assistant → … → Manage MCP Servers**, enabl
 7. Download the approved cloud project as a ZIP.
 
 Current source-file import is limited to 120 files, 512 KB per file and supported text formats. Binary `.rbxl` / `.rbxm` projects are not parsed by this version.
+
+## Project memory and model training
+
+Rmango can keep durable, project-scoped notes about confirmed architecture decisions, coding conventions and known issues, then load those notes into later chats. This helps the hosted model maintain project context; it is not continuous model training and does not modify the model provider's weights. Users should never save credentials, API keys or private personal information as project memory.
 
 ## Current limitations
 
