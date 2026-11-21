@@ -336,7 +336,7 @@ export async function POST(request: Request) {
     contentParts[0].text = String(contentParts[0].text || "") + previousAttachmentContextText;
   }
 
-  const estimatedText = systemPrompt + JSON.stringify(body.messages) + selectedProjectContextText + "\\n" + textAttachmentSections.join("\\n");
+  const estimatedText = systemPrompt + JSON.stringify(body.messages) + selectedProjectContextText + previousAttachmentContextText + "\\n" + textAttachmentSections.join("\\n");
   const imageTokenReserve = attachmentParts.length * 20_000;
   const estimateInputTokens = Math.ceil(estimateTokens(estimatedText) * 1.25) + imageTokenReserve;
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
