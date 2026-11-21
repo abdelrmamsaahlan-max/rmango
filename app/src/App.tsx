@@ -572,7 +572,7 @@ function App() {
       document.getElementById('rmango-email')?.focus();
       return;
     }
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setAuthResetError('Enter a valid email address.');
       document.getElementById('rmango-email')?.focus();
       return;
@@ -640,7 +640,7 @@ function App() {
     event.preventDefault();
     if (authBusy || googleAuthBusy) return;
     const email = authEmail.trim().toLowerCase();
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setToast('Enter a valid email address.');
       return;
     }
