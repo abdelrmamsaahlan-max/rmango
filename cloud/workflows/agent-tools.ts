@@ -287,7 +287,7 @@ function assertMemoryContainsNoSecrets(title: string, content: string, sourceRef
   }
 }
 
-async function getProjectLearningSignalsStep(context: ProjectAgentContext) {
+export async function getProjectLearningSignalsStep(context: ProjectAgentContext) {
   "use step";
   await assertCurrentTaskStep(context, true);
   const admin = createAdminClient();
