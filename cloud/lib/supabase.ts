@@ -7,6 +7,20 @@ export type AuthContext = {
   user: User;
 };
 
+export function createAdminClient() {
+  return createClient(
+    requiredEnv("SUPABASE_URL"),
+    requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+    },
+  );
+}
+
 export function createAuthClient(accessToken?: string) {
   const url = requiredEnv("SUPABASE_URL");
   const key = requiredEnv("SUPABASE_PUBLISHABLE_KEY");
