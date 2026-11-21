@@ -61,11 +61,17 @@ export default function ResetPasswordForm({ supabaseUrl, publishableKey }: Props
           }
         } else {
           if (tokenHash && linkType === "recovery") {
-            const { error } = await supabase.auth.verifyOtp({
+            const { data: verifiedSession, error } = await supabase.auth.verifyOtp({
               token_hash: tokenHash,
               type: "recovery",
             });
-            if (error) throw error;
+            if (error || !verifiedSession.session) {
+              throw new Error("This recovery link is invalid or expired. Request a new password reset email from RMango.");
+            }
+            const { data: verified, error: verifyError } = await supabase.auth.getUser();
+            if (verifyError || !verified.user) {
+              throw new Error("This recovery link is invalid or expired. Request a new password reset email from RMango.");
+            }
           } else {
             const { data, error } = await supabase.auth.getSession();
             if (error || !data.session) {
