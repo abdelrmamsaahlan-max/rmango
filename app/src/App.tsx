@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModelProfile, CloudModels, CloudProjectChange,
-  AgentActivity, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
+  AgentActivity, CloudConversation, CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
@@ -88,6 +88,9 @@ function App() {
   const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
+  const [chatReady, setChatReady] = useState(false);
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
   const [cloudProjectChanges, setCloudProjectChanges] = useState<CloudProjectChange[]>([]);
   const [projectChangesOpen, setProjectChangesOpen] = useState(false);
@@ -188,6 +191,7 @@ function App() {
         setAutoUpdatesEnabled(state.autoUpdatesEnabled !== false);
         setProjectFiles(state.projectFiles || []);
         setCloudState(cloud);
+        setConversationId(cloud.currentConversationId || undefined);
         if (cloud.currentProjectId) {
           setCloudProjectId(cloud.currentProjectId);
           try {
@@ -195,12 +199,23 @@ function App() {
             setCloudProjectChanges(changeList.changes || []);
           } catch { /* Existing cloud project may no longer be accessible. */ }
         }
-        setMessages(savedMessages || []);
+        let restoredMessages = savedMessages || [];
         if (state.studioConnected) void refreshMcpState();
         if (cloud.signedIn && cloud.serviceReady) {
-          try { setCloudModels(await window.rmango.getCloudModels()); }
-          catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models.'); }
+          try {
+            setCloudModels(await window.rmango.getCloudModels());
+            setCloudConversations(await window.rmango.getCloudConversations());
+            if (!restoredMessages.length && cloud.currentConversationId) {
+              const restored = await window.rmango.loadCloudConversation(cloud.currentConversationId);
+              restoredMessages = restored.messages || [];
+              if (restored.conversation.project_id) setCloudProjectId(restored.conversation.project_id);
+            }
+          } catch (error) {
+            setToast(error instanceof Error ? error.message : 'Could not restore cloud chat history.');
+          }
         }
+        setMessages(restoredMessages);
+        setChatReady(true);
       })
       .catch(() => setToast('Could not load Rmango cloud state. Check the backend configuration.'))
       .finally(() => setCloudLoading(false));
@@ -227,12 +242,12 @@ function App() {
   // Persist at most once per second while tokens stream, rather than writing the
   // complete chat history for every network chunk.
   useEffect(() => {
-    if (!messages.length || chatSaveTimerRef.current !== null) return;
+    if (!chatReady || chatSaveTimerRef.current !== null) return;
     chatSaveTimerRef.current = window.setTimeout(() => {
       chatSaveTimerRef.current = null;
       void window.rmango.saveMessages(latestMessagesRef.current);
     }, 1000);
-  }, [messages]);
+  }, [messages, chatReady]);
 
   useEffect(() => () => {
     if (chatSaveTimerRef.current !== null) {
@@ -264,12 +279,73 @@ function App() {
     const state = await window.rmango.getCloudState();
     setCloudState(state);
     if (state.signedIn && state.serviceReady) {
-      try { setCloudModels(await window.rmango.getCloudModels()); }
-      catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models.'); }
+      setConversationId(state.currentConversationId || undefined);
+      try {
+        const [models, conversations] = await Promise.all([
+          window.rmango.getCloudModels(),
+          window.rmango.getCloudConversations(),
+        ]);
+        setCloudModels(models);
+        setCloudConversations(conversations);
+      } catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models or conversations.'); }
     } else {
       setCloudModels(null);
+      setCloudConversations([]);
     }
     return state;
+  }
+
+  async function handleNewConversation() {
+    if (busy || loadingConversationId) return;
+    if (!cloudState?.signedIn || !cloudState.serviceReady) {
+      setSettingsOpen(true);
+      setToast('Sign in to Rmango Cloud before starting a new cloud conversation.');
+      return;
+    }
+    try {
+      const conversation = await window.rmango.createCloudConversation({
+        title: 'New chat',
+        projectId: cloudProjectId,
+        modelProfile: cloudProfile,
+      });
+      setConversationId(conversation.id);
+      setCloudState(current => current ? { ...current, currentConversationId: conversation.id } : current);
+      setMessages([]);
+      setActivities([]);
+      setFollowupQueue([]);
+      followupQueueRef.current = [];
+      await window.rmango.setCurrentConversationId(conversation.id);
+      setCloudConversations(current => [conversation, ...current.filter(item => item.id !== conversation.id)].slice(0, 50));
+      setToast('Started a new conversation' + (cloudProjectId ? ' in this project.' : '.'));
+      composerRef.current?.focus();
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not create a new conversation.');
+    }
+  }
+
+  async function handleSelectConversation(id: string) {
+    if (busy || loadingConversationId || id === conversationId) return;
+    setLoadingConversationId(id);
+    try {
+      const loaded = await window.rmango.loadCloudConversation(id);
+      await window.rmango.setCurrentConversationId(id);
+      setConversationId(id);
+      setCloudState(current => current ? { ...current, currentConversationId: id } : current);
+      setCloudProjectId(loaded.conversation.project_id || undefined);
+      setMessages(loaded.messages || []);
+      setActivities([]);
+      setFollowupQueue([]);
+      followupQueueRef.current = [];
+      setCloudConversations(current => [
+        loaded.conversation,
+        ...current.filter(item => item.id !== loaded.conversation.id),
+      ]);
+      setToast('Resumed "' + loaded.conversation.title + '".');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not resume this conversation.');
+    } finally {
+      setLoadingConversationId(null);
+    }
   }
 
   async function handleAuth(event: FormEvent) {
@@ -634,7 +710,14 @@ function App() {
       });
       completedRequestsRef.current.add(requestId);
       pendingDeltasRef.current.delete(requestId);
-      if (result.conversationId) setConversationId(result.conversationId);
+      if (result.conversationId) {
+        setConversationId(result.conversationId);
+        setCloudState(current => current ? { ...current, currentConversationId: result.conversationId } : current);
+        void window.rmango.setCurrentConversationId(result.conversationId).catch(() => undefined);
+        void window.rmango.getCloudConversations(cloudProjectId)
+          .then(setCloudConversations)
+          .catch(() => undefined);
+      }
       if (result.activity?.length) setActivities(current => [...current.filter(item => item.requestId !== requestId), ...result.activity.map(item => ({ ...item, requestId }))].slice(-80));
       setMessages(current => current.map(message =>
         message.id === requestId ? { ...message, content: result.content, modelProfile: result.profile } : message
@@ -911,6 +994,32 @@ function App() {
               {filteredFiles.length === 0 && <div className="small-empty">No matching files</div>}
             </div>
           </>}
+          <div className="conversation-section">
+            <div className="conversation-section-heading">
+              <span>RECENT CHATS</span>
+              <button type="button" title="New conversation" onClick={() => void handleNewConversation()} disabled={!cloudState?.signedIn || !cloudReady || busy}><Plus size={13}/></button>
+            </div>
+            {!cloudState?.signedIn
+              ? <div className="conversation-empty">Sign in to sync chat history.</div>
+              : cloudConversations.length === 0
+                ? <div className="conversation-empty">Your cloud conversations will appear here.</div>
+                : <div className="conversation-list">
+                  {cloudConversations.slice(0, 20).map(item =>
+                    <button
+                      type="button"
+                      className={'conversation-item ' + (item.id === conversationId ? 'active' : '')}
+                      key={item.id}
+                      disabled={Boolean(loadingConversationId) || busy}
+                      onClick={() => void handleSelectConversation(item.id)}
+                      title={item.title}
+                    >
+                      <MessageSquare size={12}/>
+                      <span>{item.title || 'New chat'}</span>
+                      {loadingConversationId === item.id ? <LoaderCircle size={11} className="spin"/> : null}
+                    </button>
+                  )}
+                </div>}
+          </div>
           <div className="sidebar-bottom">
             <div className="section-row"><span>CONNECTIONS</span><span className={'tiny-status ' + (studioConnected ? 'on' : '')}/></div>
             <div className="integration-row">
@@ -930,6 +1039,7 @@ function App() {
           <div className="main-toolbar">
             <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">CLOUD AI</span></div>
             <div className="toolbar-actions">
+              <button type="button" className="new-chat-button" onClick={() => void handleNewConversation()} disabled={!cloudState?.signedIn || !cloudReady || busy} title="Start a new conversation"><Plus size={13}/> New chat</button>
               <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Cloud model'}</span>
               <button className="subtle-icon" title="Toggle inspector" onClick={() => setRightPanelOpen(value => !value)}><Menu size={16}/></button>
             </div>
