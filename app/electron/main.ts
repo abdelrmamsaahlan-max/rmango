@@ -1535,7 +1535,8 @@ function formatReleaseNotes(value: unknown): string {
 
 function isNewerStableVersion(candidate: string, current: string): boolean {
   const parse = (version: string) => {
-    const cleaned = version.trim().replace(/^v/i, '').split('-')[0];
+    const cleaned = version.trim().replace(/^v/i, '');
+    // Reject prereleases and malformed version strings rather than treating them as stable.
     if (!/^\d+(?:\.\d+){1,3}$/.test(cleaned)) return null;
     const parts = cleaned.split('.').map(part => Number(part));
     return parts.every(Number.isSafeInteger) ? parts : null;
@@ -1618,10 +1619,12 @@ async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
 
 function initializeAutoUpdates() {
   if (!app.isPackaged || process.platform !== 'win32') {
-    broadcastUpdateState({
-      status: 'unsupported',
-      message: 'Updates are checked by the installed Windows version of Rmango.',
-    });
+    const message = process.platform === 'darwin'
+      ? 'macOS updates require an Apple-signed and notarized release. Download the matching DMG from GitHub Releases.'
+      : process.platform === 'linux'
+        ? 'Linux updates require a signed update manifest. Download the latest AppImage or DEB from GitHub Releases.'
+        : 'Automatic updates require a packaged, publisher-signed Windows installation.';
+    broadcastUpdateState({ status: 'unsupported', message });
     return;
   }
 
