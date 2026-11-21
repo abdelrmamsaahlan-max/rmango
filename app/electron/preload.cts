@@ -29,6 +29,14 @@ const api = {
   },
   respondToolApproval: (requestId: string, approved: boolean) =>
     ipcRenderer.invoke('studio:approval-result', { requestId, approved }),
+  getUpdateState: () => ipcRenderer.invoke('updates:get-state'),
+  checkForUpdates: () => ipcRenderer.invoke('updates:check'),
+  installUpdate: () => ipcRenderer.invoke('updates:install'),
+  onUpdateStatus: (callback: (state: any) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: any) => callback(state);
+    ipcRenderer.on('updates:status', listener);
+    return () => ipcRenderer.removeListener('updates:status', listener);
+  },
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
 };
 
