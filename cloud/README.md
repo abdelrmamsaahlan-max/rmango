@@ -7,22 +7,40 @@ This folder is the hosted backend for the Rmango Windows desktop client. **All l
 - Next.js App Router API hosted on Vercel.
 - Vercel AI Gateway for model routing, capability catalogue, live model prices, and fallback models.
 - Vercel OIDC for Gateway authentication. Production does not use AI_GATEWAY_API_KEY or provider API keys.
-- Supabase Auth, Postgres and private Storage for accounts, projects, messages, file metadata, proposals, tasks and usage.
+- Supabase Auth, Postgres and private Storage for automatic anonymous guest identities, projects, messages, file metadata, proposals, tasks and usage.
 - Windows desktop client connects over HTTPS.
 - Optional Roblox Studio MCP bridge runs locally only as a secure tool-transport process. It does not load or run a language model; AI inference remains in the cloud.
 
 ## Deployment status
 
-The backend source and database migration are committed in this repository. They are **not yet deployed** and the migration has **not yet been applied to a Supabase project**. No paid model inference request has been made.
+The backend source, migrations and guest-auth API are committed in this repository. They are **not yet deployed** and the migrations have **not yet been applied to a dedicated Supabase project**. No paid model inference request has been made.
 
 Deployment requires:
 1. An approved Vercel project in the account/team that owns the Rmango domain and release.
 2. A new dedicated Supabase project for Rmango. Do not reuse unrelated projects.
 3. Vercel OIDC enabled for the cloud project.
 4. Apply the base database migration, then the incremental workspace/index migration, then the project learning/evaluation migration.
-5. Server-only environment variables configured in Vercel.
-6. An HTTPS deployment URL added as the GitHub repository variable RMANGO_CLOUD_API_URL.
-7. An administrator explicitly authorizing the cloud Gateway budget/spend policy before model-generation requests are enabled.
+5. Enable **Anonymous Sign-Ins** in Supabase Auth.
+6. Configure CAPTCHA/abuse protection for anonymous signup before a broad public launch.
+7. Set server-only environment variables in Vercel.
+8. Add the HTTPS deployment URL as the GitHub repository variable RMANGO_CLOUD_API_URL.
+9. Have an administrator explicitly authorize the cloud Gateway budget/spend policy before model-generation requests are enabled.
+
+## Automatic guest access
+
+The Windows desktop performs guest creation automatically when `/api/health` reports the hosted service ready:
+
+1. It requests `/api/public/config`.
+2. That endpoint returns only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. It must never return `SUPABASE_SERVICE_ROLE_KEY`, Vercel OIDC tokens or model-provider secrets.
+3. The desktop validates that the Supabase URL is a public HTTPS origin, then calls Supabase Auth's anonymous signup endpoint directly using the public publishable key.
+4. It verifies that Supabase returned `user.is_anonymous === true`.
+5. It persists the access/refresh tokens only through Electron `safeStorage`.
+
+Creating the identity directly from the desktop allows Supabase to apply its normal per-client-IP anonymous-sign-in rate limits. The guest identity is an authenticated Supabase user and existing owner-scoped row-level security policies continue to bind projects, chats, files, memories and tasks to `auth.uid()`.
+
+Guest identities are not recoverable accounts in this implementation. Local encrypted session data normally survives restarts on the same Windows profile, but deleting RMango app data or switching computers can lose access. Account linking and cross-device recovery are future work.
+
+Enable Anonymous Sign-Ins in Supabase Authentication for this dedicated project. Supabase recommends CAPTCHA or Cloudflare Turnstile protection for public anonymous signup; test and enforce that abuse protection before promoting the service to a broad public audience. Do not disable provider rate limits.
 
 ## Vercel setup
 
@@ -114,7 +132,8 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 ## Current endpoints
 
 - `/api/health` — non-secret backend readiness state.
-- `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out` — Rmango accounts.
+- `/api/public/config` — public Supabase URL and publishable key only, for automatic guest creation.
+- `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out` — optional email-account endpoints; the desktop's first-launch guest flow uses Supabase Auth directly.
 - `/api/models` — live model profiles and capability/price metadata.
 - `/api/chat` — authenticated streaming cloud chat and cloud agent tools.
 - `/api/projects` — account-owned cloud project index/create.
