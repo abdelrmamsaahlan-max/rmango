@@ -1830,224 +1830,439 @@ function App() {
         </div>
       </div>}
 
-      {settingsOpen && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
-        <div className="settings-modal cloud-settings-modal">
-          <div className="modal-header">
-            <div>
-              <div className="modal-kicker">PREFERENCES & ACCOUNT</div>
-              <h2>RMango settings</h2>
-              <p>Personalize your workspace and manage your hosted AI account.</p>
-            </div>
-            <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button>
-          </div>
-
-          <section className="appearance-panel">
-            <div className="field-label">APPEARANCE</div>
-            <p className="settings-explainer">Choose how RMango looks. Device follows your Windows appearance preference.</p>
-            <div className="theme-options" role="group" aria-label="Application appearance">
-              <button type="button" className={'theme-option ' + (theme === 'dark' ? 'selected' : '')} onClick={() => void handleThemeChange('dark')}><span className="theme-preview theme-preview-dark"><i/><i/><i/></span><strong>Dark</strong><small>Graphite</small></button>
-              <button type="button" className={'theme-option ' + (theme === 'light' ? 'selected' : '')} onClick={() => void handleThemeChange('light')}><span className="theme-preview theme-preview-light"><i/><i/><i/></span><strong>Light</strong><small>Clean white</small></button>
-              <button type="button" className={'theme-option ' + (theme === 'system' ? 'selected' : '')} onClick={() => void handleThemeChange('system')}><span className="theme-preview theme-preview-system"><i/><i/><i/></span><strong>Device</strong><small>Follow Windows</small></button>
-            </div>
-          </section>
-
-          <section className="preferences-panel">
-            <div className="preferences-heading">
-              <div><div className="field-label">WORKSPACE BEHAVIOUR</div><p className="settings-explainer">These preferences are saved locally on this Windows account.</p></div>
-              <span className="preferences-saved"><Check size={11}/> LOCAL</span>
-            </div>
-            <div className="preference-select-grid">
-              <label className="preference-select-row">
-                <span><strong>Interface density</strong><small>Choose how much space panels and rows use.</small></span>
-                <select className="settings-input" value={density} onChange={event => { const value = event.target.value as 'comfortable' | 'compact'; setDensity(value); void savePreferences({ density: value }); }}>
-                  <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
-                </select>
-              </label>
-              <label className="preference-select-row">
-                <span><strong>Text size</strong><small>Adjust chat and workspace text.</small></span>
-                <select className="settings-input" value={fontSize} onChange={event => { const value = event.target.value as 'small' | 'medium' | 'large'; setFontSize(value); void savePreferences({ fontSize: value }); }}>
-                  <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option>
-                </select>
-              </label>
-            </div>
-            <div className="preference-switch-list">
-              <div className="preference-switch-row">
-                <span><strong>Interface animations</strong><small>Transitions, subtle pulses and motion effects.</small></span>
-                <button type="button" role="switch" aria-checked={animationsEnabled} className={'preference-switch ' + (animationsEnabled ? 'on' : '')} onClick={() => { const value = !animationsEnabled; setAnimationsEnabled(value); void savePreferences({ animationsEnabled: value }); }}><i/></button>
-              </div>
-              <div className="preference-switch-row">
-                <span><strong>Reduced motion</strong><small>Minimize movement and transitions, independently of system settings.</small></span>
-                <button type="button" role="switch" aria-checked={reducedMotion} className={'preference-switch ' + (reducedMotion ? 'on' : '')} onClick={() => { const value = !reducedMotion; setReducedMotion(value); void savePreferences({ reducedMotion: value }); }}><i/></button>
-              </div>
-              <div className="preference-switch-row">
-                <span><strong>Enter to send</strong><small>Turn off to type freely; use Ctrl + Enter to send.</small></span>
-                <button type="button" role="switch" aria-checked={sendOnEnter} className={'preference-switch ' + (sendOnEnter ? 'on' : '')} onClick={() => { const value = !sendOnEnter; setSendOnEnter(value); void savePreferences({ sendOnEnter: value }); }}><i/></button>
-              </div>
-              <div className="preference-switch-row">
-                <span><strong>Desktop notifications</strong><small>Notify when a response finishes while RMango is in the background.</small></span>
-                <button type="button" role="switch" aria-checked={desktopNotifications} className={'preference-switch ' + (desktopNotifications ? 'on' : '')} onClick={() => { const value = !desktopNotifications; setDesktopNotifications(value); void savePreferences({ desktopNotifications: value }); }}><i/></button>
-              </div>
-              <div className="preference-switch-row">
-                <span><strong>Automatic updates</strong><small>Check for stable releases every five minutes. Install only when you choose.</small></span>
-                <button type="button" role="switch" aria-checked={autoUpdatesEnabled} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
+      {settingsOpen && <div className="modal-backdrop settings-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
+        <section className="settings-modal settings-center" role="dialog" aria-modal="true" aria-label="Rmango settings">
+          <header className="settings-center-header">
+            <div className="settings-center-brand">
+              <div className="settings-center-mark"><MangoMark size={25}/></div>
+              <div>
+                <div className="settings-center-kicker">RMANGO PREFERENCES</div>
+                <strong>Settings</strong>
               </div>
             </div>
-          </section>
-
-          {cloudState?.configured && <section className="cloud-health-panel">
-            <div className="cloud-health-heading">
-              <div><div className="field-label">HOSTED AI DIAGNOSTICS</div><strong>{cloudState.serviceReady ? 'Cloud service ready' : 'Cloud service needs setup'}</strong></div>
-              <span className={'health-state ' + (cloudState.serviceReady ? 'ready' : 'blocked')}>{cloudState.serviceReady ? 'READY' : 'BLOCKED'}</span>
+            <div className="settings-center-header-right">
+              <span className="settings-autosave"><CheckCircle2 size={13}/> Saved automatically</span>
+              <button type="button" className="icon-button" aria-label="Close settings" onClick={() => setSettingsOpen(false)}><X size={17}/></button>
             </div>
-            <p>{cloudState.message || (cloudState.serviceReady ? 'The cloud backend is responding.' : 'The cloud backend has not completed its readiness checks.')}</p>
-            {cloudState.message?.includes('SUPABASE_SECRET_KEY') && <div className="cloud-setup-instructions">
-              <strong>One required server-side setting is missing</strong>
-              <span>In Vercel → rmango-cloud → Settings → Environment Variables, add <code>SUPABASE_SECRET_KEY</code> using the server secret from your Supabase project. Select Production, Preview and Development, then redeploy.</span>
-              <span>Never add this key to RMango's desktop app, GitHub source code, or a chat message. A legacy <code>SUPABASE_SERVICE_ROLE_KEY</code> is also supported.</span>
-              <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://vercel.com/abdelrmamsaahlan-3675s-projects/rmango-cloud/settings/environment-variables')}><ExternalLink size={13}/> Open Vercel environment settings</button>
-            </div>}
-            {/spend|budget|inference.*disabled/i.test(cloudState.message || '') && <div className="cloud-budget-note"><ShieldCheck size={14}/><span>Inference is intentionally disabled until an administrator authorizes an explicit daily and monthly usage budget. No model request is started while this protection is active.</span></div>}
-            <button type="button" className="outline-action health-refresh" disabled={cloudRefreshing} onClick={() => void handleRefreshCloud()}>{cloudRefreshing ? <LoaderCircle size={13} className="spin"/> : <RefreshCw size={13}/>} Test cloud connection</button>
-          </section>}
+          </header>
 
-          {!cloudState?.configured && <div className="local-setup-panel">
-            <div className="local-setup-status"><AlertCircle size={14}/> Cloud backend not configured</div>
-            <p>The desktop build is waiting for the Rmango Cloud URL and server-side services. No Ollama installation or AI provider key is required on this computer.</p>
-          </div>}
-
-          {cloudState?.configured && !cloudState.signedIn && <>
-            <div className="field-label">RMANGO ACCOUNT</div>
-            <div className="provider-options">
-              <button type="button" className={'provider-option ' + (authMode === 'sign-in' ? 'selected' : '')} onClick={() => setAuthMode('sign-in')}>
-                <span className="provider-symbol local-symbol"><LockKeyhole size={15}/></span><span><strong>Sign in</strong><small>Existing account</small></span>
-              </button>
-              <button type="button" className={'provider-option ' + (authMode === 'sign-up' ? 'selected' : '')} onClick={() => setAuthMode('sign-up')}>
-                <span className="provider-symbol local-symbol"><Plus size={15}/></span><span><strong>Create account</strong><small>New Rmango account</small></span>
-              </button>
-            </div>
-            <form onSubmit={handleAuth}>
-              {authMode === 'sign-up' && <>
-                <label className="field-label" htmlFor="rmango-display-name">DISPLAY NAME</label>
-                <input id="rmango-display-name" className="settings-input" value={authDisplayName} onChange={event => setAuthDisplayName(event.target.value)} placeholder="Your name" maxLength={60}/>
-              </>}
-              <label className="field-label" htmlFor="rmango-email">EMAIL</label>
-              <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => { setAuthEmail(event.target.value); setAuthResetSent(false); }} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
-              <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
-              <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
-              {authMode === 'sign-in' && <div className="password-recovery-row">
-                <button type="button" className="password-recovery-link" onClick={() => void handlePasswordReset()} disabled={authResetBusy || !authEmail.trim()}>
-                  {authResetBusy ? <LoaderCircle size={13} className="spin"/> : <LockKeyhole size={13}/>}
-                  {authResetBusy ? 'Sending recovery email…' : 'Forgot password? Send a reset link'}
-                </button>
-                {authResetSent && <p className="password-recovery-note">If an account exists for this email, a recovery link has been sent. Open it in your browser, choose a new password, then return here to sign in.</p>}
-              </div>}
-              <div className="secure-note"><LockKeyhole size={13}/><span>These are your Rmango account credentials, not an AI provider API key. AI provider credentials stay on the cloud server.</span></div>
-              <div className="modal-footer">
-                <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
-                <button type="submit" className="save-button" disabled={authBusy || !authEmail.trim() || !authPassword}>
-                  {authBusy ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={14}/>}
-                  {authMode === 'sign-in' ? 'Sign in' : 'Create account'}
-                </button>
+          <div className="settings-center-body">
+            <aside className="settings-nav">
+              {['WORKSPACE', 'AI', 'ACCOUNT', 'APP'].map(group => (
+                <div className="settings-nav-group" key={group}>
+                  <div className="settings-nav-group-title">{group}</div>
+                  {SETTINGS_NAVIGATION.filter(item => item.group === group).map(item => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        type="button"
+                        key={item.id}
+                        className={'settings-nav-item ' + (settingsSection === item.id ? 'active' : '')}
+                        onClick={() => setSettingsSection(item.id)}
+                        aria-current={settingsSection === item.id ? 'page' : undefined}
+                      >
+                        <Icon size={16}/>
+                        <span className="settings-nav-item-copy">
+                          <strong>{item.label}</strong>
+                          <small>{item.description}</small>
+                        </span>
+                        {settingsSection === item.id && <span className="settings-nav-indicator"/>}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+              <div className="settings-nav-footer">
+                <span className="settings-nav-version">RMANGO DESKTOP</span>
+                <strong>v{appState?.appVersion || '—'}</strong>
+                <small>Windows workspace</small>
               </div>
-            </form>
-          </>}
+            </aside>
 
-          {cloudState?.signedIn && <>
-            <div className="account-card">
-              <div className="account-avatar"><MangoMark size={27}/></div>
-              <div className="account-copy">
-                <strong>{cloudState.displayName || cloudState.email || 'Rmango account'}</strong>
-                <span>{cloudState.email || 'Account email unavailable'}</span>
-                <span>{cloudState.accountVerified
-                  ? (cloudState.emailVerified ? 'Account verified · email confirmed' : 'Account verified · email not confirmed')
-                  : 'Saved session · account verification unavailable'}</span>
-                <span>{cloudState.serviceReady ? 'Cloud services online' : 'Account connected · cloud services need attention'}</span>
-              </div>
-              <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
-            </div>
-
-            <section className="account-usage-card">
-              <div className="account-usage-heading">
+            <main className="settings-main">
+              <div className="settings-page-heading">
                 <div>
-                  <div className="field-label">ACCOUNT PLAN</div>
-                  <strong>{cloudUsage?.planLabel || 'Plan information unavailable'}</strong>
+                  <div className="settings-page-eyebrow">{SETTINGS_NAVIGATION.find(item => item.id === settingsSection)?.group || 'WORKSPACE'}</div>
+                  <h2>{SETTINGS_NAVIGATION.find(item => item.id === settingsSection)?.label || 'General'}</h2>
+                  <p>{SETTINGS_NAVIGATION.find(item => item.id === settingsSection)?.description || 'Manage your Rmango workspace.'}</p>
                 </div>
-                <span className={'account-plan-pill ' + (cloudUsage?.unlimitedAccount ? 'admin' : '')}>
-                  {cloudUsage?.unlimitedAccount ? 'ADMIN' : cloudUsage ? 'ACTIVE PLAN' : 'LOADING'}
-                </span>
+                <span className="settings-page-save"><Check size={12}/> Changes save as you make them</span>
               </div>
-              {cloudUsage ? <>
-                <div className="account-usage-grid">
-                  <div>
-                    <small>REQUESTS TODAY</small>
-                    <strong>{cloudUsage.usage.dailyRequests.toLocaleString()}</strong>
-                    <span>{cloudUsage.unlimitedAccount ? 'No personal limit' : 'of ' + cloudUsage.limits.dailyRequests!.toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <small>REQUESTS THIS MONTH</small>
-                    <strong>{cloudUsage.usage.monthlyRequests.toLocaleString()}</strong>
-                    <span>{cloudUsage.unlimitedAccount ? 'No personal limit' : 'of ' + cloudUsage.limits.monthlyRequests!.toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <small>TOKENS TODAY</small>
-                    <strong>{cloudUsage.usage.dailyTokens.toLocaleString()}</strong>
-                    <span>{cloudUsage.unlimitedAccount ? 'No personal limit' : 'of ' + cloudUsage.limits.dailyTokens!.toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <small>TOKENS THIS MONTH</small>
-                    <strong>{cloudUsage.usage.monthlyTokens.toLocaleString()}</strong>
-                    <span>{cloudUsage.unlimitedAccount ? 'No personal limit' : 'of ' + cloudUsage.limits.monthlyTokens!.toLocaleString()}</span>
-                  </div>
-                </div>
-                <p className="account-usage-note">
-                  {cloudUsage.unlimitedAccount
-                    ? 'Administrator access has no personal daily or monthly request/token quota. The global service spend guard still applies.'
-                    : 'Usage resets daily and monthly. The service also enforces a global spend safety limit.'}
-                </p>
-              </> : <p className="account-usage-note">Usage details could not be loaded. Refresh the account state to try again.</p>}
-            </section>
 
-            <div className="field-label">CLOUD MODEL PROFILES</div>
-            <p className="settings-explainer">Choose a managed profile. Rmango routes requests to a compatible hosted model and uses fallbacks when configured.</p>
-            {!cloudModels?.profiles.length
-              ? <div className="tools-empty"><Cpu size={18}/><span>Cloud model catalogue unavailable. The administrator must configure Vercel AI Gateway.</span></div>
-              : <div className="cloud-model-list">
-                {cloudModels.profiles.map((profile: CloudModelProfile) =>
-                  <button type="button" className={'cloud-model-card ' + (cloudProfile === profile.profile ? 'selected' : '')} key={profile.profile} onClick={() => setCloudProfile(profile.profile)}>
-                    <span className="cloud-model-check">{cloudProfile === profile.profile ? <CheckCircle2 size={17}/> : <span/>}</span>
-                    <span className="cloud-model-copy">
-                      <strong>{profile.profileLabel}</strong>
-                      <small>{profile.name}</small>
-                      <span>{profile.description || 'Hosted model profile selected by the Rmango administrator.'}</span>
-                      <span className="cloud-capabilities">
-                        {profile.contextWindow ? <i>{profile.contextWindow.toLocaleString()} context</i> : null}
-                        {profile.capabilities.includes('reasoning') ? <i>Reasoning</i> : null}
-                        {profile.capabilities.includes('vision') || profile.inputModalities.includes('image') ? <i>Vision</i> : null}
-                        {profile.capabilities.includes('tool-use') ? <i>Tools</i> : null}
-                      </span>
-                      <span className="cloud-pricing">
-                        {profile.inputUsdPerMillionTokens !== null
-                          ? 'Input $' + profile.inputUsdPerMillionTokens.toFixed(3) + '/M'
-                          : 'Input pricing unavailable'}
-                        {' · '}
-                        {profile.outputUsdPerMillionTokens !== null
-                          ? 'Output $' + profile.outputUsdPerMillionTokens.toFixed(3) + '/M'
-                          : 'Output pricing unavailable'}
-                      </span>
-                    </span>
-                  </button>
-                )}
-              </div>}
-            <div className="secure-note"><ShieldCheck size={13}/><span>Profile labels are Rmango routing presets, not separate models trained by Rmango. Capability and price details come from the live Gateway catalogue. No benchmark scores are fabricated.</span></div>
-          </>}
+              <div className="settings-page-scroll">
+                {settingsSection === 'general' && <>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Keyboard size={17}/></div>
+                      <div><h3>Keyboard & composer</h3><p>Choose how messages are sent from the chat box.</p></div>
+                    </div>
+                    <div className="settings-row">
+                      <div><strong>Enter to send</strong><small>Press Enter to send. Turn this off to use Enter for a new line.</small></div>
+                      <button type="button" role="switch" aria-checked={sendOnEnter} className={'preference-switch ' + (sendOnEnter ? 'on' : '')} onClick={() => { const value = !sendOnEnter; setSendOnEnter(value); void savePreferences({ sendOnEnter: value }); }}><i/></button>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Open Settings</strong><small>Open this panel from anywhere in Rmango.</small></div>
+                      <kbd>Ctrl</kbd><span>+</span><kbd>,</kbd>
+                    </div>
+                  </section>
 
-          <div className="modal-footer">
-            <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
-            {cloudState?.signedIn && <button type="button" className="save-button" onClick={() => void refreshCloudState()}><RefreshCw size={13}/> Refresh cloud status</button>}
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><PanelRight size={17}/></div>
+                      <div><h3>Workspace layout</h3><p>Choose which supporting panels appear when Rmango starts.</p></div>
+                    </div>
+                    <div className="settings-row">
+                      <div><strong>Open inspector by default</strong><small>Remember the right-side activity and Studio panel as your startup layout.</small></div>
+                      <button type="button" role="switch" aria-checked={showInspectorByDefault} className={'preference-switch ' + (showInspectorByDefault ? 'on' : '')} onClick={() => void handleInspectorDefaultChange(!showInspectorByDefault)}><i/></button>
+                    </div>
+                  </section>
+
+                  <section className="settings-tip">
+                    <Info size={16}/>
+                    <div><strong>Your settings are saved automatically</strong><p>Changes are stored locally on this Windows account. You do not need to press a Save button.</p></div>
+                  </section>
+                </>}
+
+                {settingsSection === 'appearance' && <>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Palette size={17}/></div>
+                      <div><h3>Color theme</h3><p>Choose the look that feels comfortable in your workspace.</p></div>
+                    </div>
+                    <div className="theme-options settings-theme-options" role="group" aria-label="Application appearance">
+                      <button type="button" className={'theme-option ' + (theme === 'dark' ? 'selected' : '')} onClick={() => void handleThemeChange('dark')}>
+                        <span className="theme-preview theme-preview-dark"><i/><i/><i/></span><strong>Dark</strong><small>Graphite and mango</small>
+                      </button>
+                      <button type="button" className={'theme-option ' + (theme === 'light' ? 'selected' : '')} onClick={() => void handleThemeChange('light')}>
+                        <span className="theme-preview theme-preview-light"><i/><i/><i/></span><strong>Light</strong><small>Bright and clean</small>
+                      </button>
+                      <button type="button" className={'theme-option ' + (theme === 'system' ? 'selected' : '')} onClick={() => void handleThemeChange('system')}>
+                        <span className="theme-preview theme-preview-system"><i/><i/><i/></span><strong>System</strong><small>Follow Windows</small>
+                      </button>
+                    </div>
+                  </section>
+
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><SlidersHorizontal size={17}/></div>
+                      <div><h3>Layout & readability</h3><p>Adjust spacing and text without changing your project files.</p></div>
+                    </div>
+                    <label className="settings-select-row">
+                      <span><strong>Interface density</strong><small>Comfortable gives rows more room. Compact fits more on screen.</small></span>
+                      <select className="settings-input" value={density} onChange={event => { const value = event.target.value as 'comfortable' | 'compact'; setDensity(value); void savePreferences({ density: value }); }}>
+                        <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
+                      </select>
+                    </label>
+                    <label className="settings-select-row">
+                      <span><strong>Text size</strong><small>Change the size of chat and workspace text.</small></span>
+                      <select className="settings-input" value={fontSize} onChange={event => { const value = event.target.value as 'small' | 'medium' | 'large'; setFontSize(value); void savePreferences({ fontSize: value }); }}>
+                        <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option>
+                      </select>
+                    </label>
+                  </section>
+
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Sparkles size={17}/></div>
+                      <div><h3>Motion</h3><p>Control transitions and animated interface details.</p></div>
+                    </div>
+                    <div className="settings-row">
+                      <div><strong>Interface animations</strong><small>Enable subtle transitions and interactive motion.</small></div>
+                      <button type="button" role="switch" aria-checked={animationsEnabled} className={'preference-switch ' + (animationsEnabled ? 'on' : '')} onClick={() => { const value = !animationsEnabled; setAnimationsEnabled(value); void savePreferences({ animationsEnabled: value }); }}><i/></button>
+                    </div>
+                    <div className="settings-row">
+                      <div><strong>Reduced motion</strong><small>Reduce movement and transitions, including when animations are enabled.</small></div>
+                      <button type="button" role="switch" aria-checked={reducedMotion} className={'preference-switch ' + (reducedMotion ? 'on' : '')} onClick={() => { const value = !reducedMotion; setReducedMotion(value); void savePreferences({ reducedMotion: value }); }}><i/></button>
+                    </div>
+                  </section>
+                </>}
+
+                {settingsSection === 'ai' && <>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Cpu size={17}/></div>
+                      <div><h3>Default AI profile</h3><p>Choose the hosted profile Rmango selects for new conversations. You can still change it in the chat composer.</p></div>
+                    </div>
+                    <label className="settings-select-row settings-default-profile">
+                      <span><strong>New conversation profile</strong><small>This is a routing preset, not a separate model or a model-training setting.</small></span>
+                      <select className="settings-input" value={cloudProfile} onChange={event => void handleDefaultProfileChange(event.target.value as CloudProfile)}>
+                        <option value="fast">Fast · quick responses</option>
+                        <option value="developer">Developer · Roblox coding</option>
+                        <option value="think">Think · deeper reasoning</option>
+                        <option value="vision">Vision · image understanding</option>
+                        <option value="agent">Agent · multi-step tasks</option>
+                      </select>
+                    </label>
+                  </section>
+
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Layers3 size={17}/></div>
+                      <div><h3>Available cloud profiles</h3><p>Live profiles and capabilities supplied by the Rmango Cloud model catalogue.</p></div>
+                    </div>
+                    {!cloudState?.signedIn
+                      ? <div className="settings-empty"><LockKeyhole size={17}/><div><strong>Sign in to view your available profiles</strong><small>Your cloud model access appears here after you connect your account.</small></div><button type="button" className="settings-inline-button" onClick={() => setSettingsSection('account')}>Go to Account</button></div>
+                      : !cloudModels?.profiles.length
+                        ? <div className="settings-empty"><Cpu size={17}/><div><strong>Model catalogue unavailable</strong><small>The server has not returned any model profiles yet. Existing settings are preserved.</small></div></div>
+                        : <div className="cloud-model-list settings-cloud-model-list">
+                          {cloudModels.profiles.map((profile: CloudModelProfile) =>
+                            <button type="button" className={'cloud-model-card ' + (cloudProfile === profile.profile ? 'selected' : '')} key={profile.profile} onClick={() => void handleDefaultProfileChange(profile.profile)}>
+                              <span className="cloud-model-check">{cloudProfile === profile.profile ? <CheckCircle2 size={17}/> : <span/>}</span>
+                              <span className="cloud-model-copy">
+                                <strong>{profile.profileLabel}</strong>
+                                <small>{profile.name}</small>
+                                <span>{profile.description || 'Hosted model profile selected by the Rmango administrator.'}</span>
+                                <span className="cloud-capabilities">
+                                  {profile.contextWindow ? <i>{profile.contextWindow.toLocaleString()} context</i> : null}
+                                  {profile.capabilities.includes('reasoning') ? <i>Reasoning</i> : null}
+                                  {profile.capabilities.includes('vision') || profile.inputModalities.includes('image') ? <i>Vision</i> : null}
+                                  {profile.capabilities.includes('tool-use') ? <i>Tools</i> : null}
+                                </span>
+                                <span className="cloud-pricing">
+                                  {profile.inputUsdPerMillionTokens !== null ? 'Input $' + profile.inputUsdPerMillionTokens.toFixed(3) + '/M' : 'Input pricing unavailable'}
+                                  {' · '}
+                                  {profile.outputUsdPerMillionTokens !== null ? 'Output $' + profile.outputUsdPerMillionTokens.toFixed(3) + '/M' : 'Output pricing unavailable'}
+                                </span>
+                              </span>
+                            </button>
+                          )}
+                        </div>}
+                    <p className="settings-card-footnote">Profile availability, model names, capabilities and prices are controlled by the cloud service. Rmango does not invent benchmark scores.</p>
+                  </section>
+                </>}
+
+                {settingsSection === 'usage' && <>
+                  {cloudUsage ? <>
+                    <section className="settings-card settings-plan-card">
+                      <div className="settings-plan-top">
+                        <div><div className="settings-page-eyebrow">CURRENT PLAN</div><h3>{cloudUsage.planLabel}</h3><p>{cloudUsage.unlimitedAccount ? 'Administrator account · unlimited personal quotas' : 'Your current Rmango account allowance'}</p></div>
+                        <span className={'account-plan-pill ' + (cloudUsage.unlimitedAccount ? 'admin' : '')}>{cloudUsage.unlimitedAccount ? 'ADMIN' : cloudUsage.plan.toUpperCase()}</span>
+                      </div>
+                    </section>
+                    <div className="settings-usage-grid">
+                      {[
+                        { label: 'Requests today', value: cloudUsage.usage.dailyRequests, limit: cloudUsage.limits.dailyRequests },
+                        { label: 'Requests this month', value: cloudUsage.usage.monthlyRequests, limit: cloudUsage.limits.monthlyRequests },
+                        { label: 'Tokens today', value: cloudUsage.usage.dailyTokens, limit: cloudUsage.limits.dailyTokens },
+                        { label: 'Tokens this month', value: cloudUsage.usage.monthlyTokens, limit: cloudUsage.limits.monthlyTokens },
+                      ].map(metric => (
+                        <div className="settings-usage-metric" key={metric.label}>
+                          <span>{metric.label}</span>
+                          <strong>{metric.value.toLocaleString()}</strong>
+                          <small>{metric.limit === null ? 'No personal limit' : 'of ' + metric.limit.toLocaleString()}</small>
+                          {metric.limit !== null && <div className="settings-usage-meter"><i style={{ width: Math.min(100, metric.value / Math.max(1, metric.limit) * 100) + '%' }}/></div>}
+                        </div>
+                      ))}
+                    </div>
+                    <section className="settings-card settings-spend-card">
+                      <div className="settings-card-heading">
+                        <div className="settings-card-icon"><ShieldCheck size={17}/></div>
+                        <div><h3>Service spending protection</h3><p>The shared cloud budget protects the service across all accounts, including administrators.</p></div>
+                      </div>
+                      <p className="settings-card-footnote">Unlimited personal token quotas do not remove the service-wide spending guard or per-response output safety limits.</p>
+                    </section>
+                    <button type="button" className="settings-secondary-button" disabled={cloudRefreshing} onClick={() => void handleRefreshUsage()}>
+                      {cloudRefreshing ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>} Refresh usage
+                    </button>
+                  </> : <section className="settings-card">
+                    <div className="settings-empty"><Gauge size={20}/><div><strong>Usage is not available yet</strong><small>Sign in to see your plan, requests, and token usage.</small></div><button type="button" className="settings-inline-button" onClick={() => setSettingsSection('account')}>Open Account</button></div>
+                  </section>}
+                  <p className="settings-card-footnote">Usage reflects recorded requests and active reservations from the cloud service. It is not a live estimate of provider invoices.</p>
+                </>}
+
+                {settingsSection === 'account' && <>
+                  {cloudState?.signedIn ? <>
+                    <section className="settings-card">
+                      <div className="settings-card-heading">
+                        <div className="settings-card-icon"><UserRound size={17}/></div>
+                        <div><h3>Your Rmango account</h3><p>Identity and current cloud connection.</p></div>
+                      </div>
+                      <div className="account-card settings-account-card">
+                        <div className="account-avatar"><MangoMark size={27}/></div>
+                        <div className="account-copy">
+                          <strong>{cloudState.displayName || cloudState.email || 'Rmango account'}</strong>
+                          <span>{cloudState.email || 'Account email unavailable'}</span>
+                          <span>{cloudState.accountVerified
+                            ? (cloudState.emailVerified ? 'Email confirmed' : 'Email not confirmed')
+                            : 'Verification status unavailable'}</span>
+                          <span>{cloudState.serviceReady ? 'Cloud services online' : 'Connected · cloud services need attention'}</span>
+                        </div>
+                        <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
+                      </div>
+                      <div className="settings-inline-status">
+                        <span className={'health-state ' + (cloudState.serviceReady ? 'ready' : 'blocked')}>{cloudState.serviceReady ? 'CLOUD READY' : 'CLOUD NEEDS ATTENTION'}</span>
+                        <span>{cloudState.apiHost || 'Cloud endpoint status unavailable'}</span>
+                      </div>
+                    </section>
+                  </> : <>
+                    <section className="settings-card">
+                      <div className="settings-card-heading">
+                        <div className="settings-card-icon"><LockKeyhole size={17}/></div>
+                        <div><h3>Connect your account</h3><p>Sign in to use hosted AI, projects, and account-based conversation history.</p></div>
+                      </div>
+                      <div className="provider-options">
+                        <button type="button" className={'provider-option ' + (authMode === 'sign-in' ? 'selected' : '')} onClick={() => { setAuthMode('sign-in'); setAuthResetSent(false); }}>
+                          <span className="provider-symbol local-symbol"><LockKeyhole size={15}/></span><span><strong>Sign in</strong><small>Existing account</small></span>
+                        </button>
+                        <button type="button" className={'provider-option ' + (authMode === 'sign-up' ? 'selected' : '')} onClick={() => { setAuthMode('sign-up'); setAuthResetSent(false); }}>
+                          <span className="provider-symbol local-symbol"><Plus size={15}/></span><span><strong>Create account</strong><small>New Rmango account</small></span>
+                        </button>
+                      </div>
+                      <form className="settings-auth-form" onSubmit={handleAuth}>
+                        {authMode === 'sign-up' && <>
+                          <label className="field-label" htmlFor="rmango-display-name">DISPLAY NAME</label>
+                          <input id="rmango-display-name" className="settings-input" value={authDisplayName} onChange={event => setAuthDisplayName(event.target.value)} placeholder="Your name" maxLength={60}/>
+                        </>}
+                        <label className="field-label" htmlFor="rmango-email">EMAIL</label>
+                        <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => { setAuthEmail(event.target.value); setAuthResetSent(false); }} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
+                        <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
+                        <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
+                        {authMode === 'sign-in' && <div className="password-recovery-row">
+                          <button type="button" className="password-recovery-link" onClick={() => void handlePasswordReset()} disabled={authResetBusy || !authEmail.trim()}>
+                            {authResetBusy ? <LoaderCircle size={13} className="spin"/> : <LockKeyhole size={13}/>}
+                            {authResetBusy ? 'Sending recovery email…' : 'Forgot password? Send a reset link'}
+                          </button>
+                          {authResetSent && <p className="password-recovery-note">If an account exists for this email, a recovery link has been sent. Open it in your browser, choose a new password, then return here to sign in.</p>}
+                        </div>}
+                        <div className="secure-note"><LockKeyhole size={13}/><span>These are your Rmango account credentials, not an AI provider API key. Provider credentials stay on the cloud server.</span></div>
+                        <div className="settings-form-actions">
+                          <button type="submit" className="save-button" disabled={authBusy || !authEmail.trim() || !authPassword}>
+                            {authBusy ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={14}/>}
+                            {authMode === 'sign-in' ? 'Sign in' : 'Create account'}
+                          </button>
+                        </div>
+                      </form>
+                    </section>
+                  </>}
+                  {cloudState?.configured && <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Activity size={17}/></div>
+                      <div><h3>Cloud connection</h3><p>Check whether the hosted services are responding.</p></div>
+                    </div>
+                    <div className="settings-connection-row">
+                      <span className={'health-state ' + (cloudState.serviceReady ? 'ready' : 'blocked')}>{cloudState.serviceReady ? 'READY' : 'NEEDS ATTENTION'}</span>
+                      <span>{cloudState.message || (cloudState.serviceReady ? 'Cloud backend is responding.' : 'Cloud readiness check did not pass.')}</span>
+                    </div>
+                    {cloudState.message?.includes('SUPABASE_SECRET_KEY') && <div className="cloud-setup-instructions">
+                      <strong>Server setup is incomplete</strong>
+                      <span>Open Vercel → rmango-cloud → Settings → Environment Variables and configure <code>SUPABASE_SECRET_KEY</code>. Keep it on the cloud server; never add it to the desktop app or source code.</span>
+                      <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://vercel.com/abdelrmamsaahlan-3675s-projects/rmango-cloud/settings/environment-variables')}><ExternalLink size={13}/> Open Vercel settings</button>
+                    </div>}
+                    <button type="button" className="settings-secondary-button" disabled={cloudRefreshing} onClick={() => void handleRefreshCloud()}>
+                      {cloudRefreshing ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>} Test cloud connection
+                    </button>
+                  </section>}
+                  {!cloudState?.configured && <section className="settings-tip warning">
+                    <AlertCircle size={16}/><div><strong>Cloud backend not configured</strong><p>This build does not have a cloud endpoint yet. Local AI is not started as a fallback.</p></div>
+                  </section>}
+                </>}
+
+                {settingsSection === 'privacy' && <>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><HardDrive size={17}/></div>
+                      <div><h3>Local chat cache</h3><p>Control whether Rmango keeps a small encrypted message cache on this PC.</p></div>
+                    </div>
+                    <div className="settings-row">
+                      <div><strong>Save recent messages on this device</strong><small>Stores up to the most recent 100 messages in the Windows app data folder, encrypted using Windows secure storage.</small></div>
+                      <button type="button" role="switch" aria-checked={saveLocalChatHistory} className={'preference-switch ' + (saveLocalChatHistory ? 'on' : '')} onClick={() => void handleLocalHistoryChange(!saveLocalChatHistory)}><i/></button>
+                    </div>
+                    <div className="settings-privacy-detail">
+                      <span className="privacy-state">{saveLocalChatHistory ? 'LOCAL CACHE ON' : 'LOCAL CACHE OFF'}</span>
+                      <p>{saveLocalChatHistory
+                        ? 'Turning this off removes the local cache and prevents Rmango from writing new local copies.'
+                        : 'New local cache writes are disabled. Existing cloud conversations remain available when you sign in.'}</p>
+                      <button type="button" className="settings-secondary-button" disabled={!saveLocalChatHistory || messages.length === 0} onClick={() => void handleClearLocalChatCache()}>
+                        <Trash2 size={14}/> Clear local chat cache
+                      </button>
+                    </div>
+                  </section>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><ShieldCheck size={17}/></div>
+                      <div><h3>Roblox Studio safety</h3><p>Actions that change your Studio project continue to use an approval step.</p></div>
+                    </div>
+                    <div className="settings-security-line"><CheckCircle2 size={15}/><span>Write and destructive Studio tools require approval in the app before they run.</span></div>
+                    <div className="settings-security-line"><LockKeyhole size={15}/><span>Your cloud session is stored using Windows secure storage, not as a plain-text password.</span></div>
+                    <p className="settings-card-footnote">These safety checks cannot be disabled from Settings.</p>
+                  </section>
+                </>}
+
+                {settingsSection === 'notifications' && <>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Bell size={17}/></div>
+                      <div><h3>Desktop notifications</h3><p>Choose when Rmango is allowed to show a Windows notification.</p></div>
+                    </div>
+                    <div className="settings-row">
+                      <div><strong>Notify when a response finishes</strong><small>Only appears when Rmango is in the background, minimized, or not focused.</small></div>
+                      <button type="button" role="switch" aria-checked={desktopNotifications} className={'preference-switch ' + (desktopNotifications ? 'on' : '')} onClick={() => { const value = !desktopNotifications; setDesktopNotifications(value); void savePreferences({ desktopNotifications: value }); }}><i/></button>
+                    </div>
+                  </section>
+                  <section className="settings-tip"><Info size={16}/><div><strong>Windows notification permissions</strong><p>Windows may also control whether notifications from Rmango are shown. This switch controls Rmango's own notification behavior.</p></div></section>
+                </>}
+
+                {settingsSection === 'updates' && <>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Download size={17}/></div>
+                      <div><h3>Stable releases</h3><p>Keep Rmango up to date without installing updates automatically.</p></div>
+                    </div>
+                    <div className="settings-version-row">
+                      <div><span>CURRENT VERSION</span><strong>{appState?.appVersion || '—'}</strong></div>
+                      <div><span>PLATFORM</span><strong>{appState?.platform || '—'}</strong></div>
+                    </div>
+                    <div className="settings-row">
+                      <div><strong>Automatic update checks</strong><small>Check for stable releases every five minutes. Updates are downloaded in the background and install only when you choose.</small></div>
+                      <button type="button" role="switch" aria-checked={autoUpdatesEnabled} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
+                    </div>
+                    <div className="settings-update-status">
+                      <span className={'health-state ' + (updateState?.status === 'error' ? 'blocked' : updateState?.status === 'downloaded' || updateState?.status === 'not-available' ? 'ready' : '')}>{(updateState?.status || 'idle').replace('-', ' ').toUpperCase()}</span>
+                      <p>{updateState?.message || 'Update status is not available yet.'}</p>
+                      {updateState?.error && <p className="settings-error-text">{updateState.error}</p>}
+                      {typeof updateState?.progress === 'number' && updateState.status === 'downloading' && <div className="settings-usage-meter"><i style={{ width: Math.max(0, Math.min(100, updateState.progress)) + '%' }}/></div>}
+                    </div>
+                    {updateState?.releaseNotes && <details className="settings-release-notes"><summary>Release notes</summary><p>{updateState.releaseNotes}</p></details>}
+                    <div className="settings-form-actions">
+                      <button type="button" className="settings-secondary-button" onClick={() => void handleCheckUpdates()} disabled={updateState?.status === 'checking' || updateState?.status === 'downloading'}>
+                        {updateState?.status === 'checking' ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>} Check now
+                      </button>
+                      {updateState?.status === 'downloaded' && <button type="button" className="save-button" onClick={() => void handleInstallUpdate()}><Download size={14}/> Install and restart</button>}
+                    </div>
+                  </section>
+                </>}
+
+                {settingsSection === 'advanced' && <>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><Wrench size={17}/></div>
+                      <div><h3>Roblox Studio diagnostics</h3><p>Inspect the connected Studio bridge and its available read-only checks.</p></div>
+                    </div>
+                    <button type="button" className="settings-secondary-button" onClick={() => void handleDiagnostics()} disabled={diagnosing || !appState?.studioConnected}>
+                      {diagnosing ? <LoaderCircle size={14} className="spin"/> : <Activity size={14}/>} {diagnosing ? 'Running diagnostics…' : 'Run Studio diagnostics'}
+                    </button>
+                    {!appState?.studioConnected && <p className="settings-card-footnote">Connect the Roblox Studio bridge first to run these checks.</p>}
+                    {diagnosticResult && <pre className="settings-diagnostic-output">{diagnosticResult}</pre>}
+                  </section>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><RefreshCw size={17}/></div>
+                      <div><h3>Reset preferences</h3><p>Restore appearance, workspace, model default, notifications and update preferences.</p></div>
+                    </div>
+                    <p className="settings-card-footnote">This does not delete your Rmango account, cloud conversations, projects, or Roblox Studio files.</p>
+                    <button type="button" className="settings-danger-quiet" onClick={() => void handleResetPreferences()}><RefreshCw size={14}/> Reset all preferences</button>
+                  </section>
+                  <section className="settings-tip"><Info size={16}/><div><strong>Need more details?</strong><p>Use the Inspector in the main workspace for live task activity, Studio connection state, and operation details.</p></div></section>
+                </>}
+              </div>
+            </main>
           </div>
-        </div>
+          <footer className="settings-center-footer">
+            <span>Press <kbd>Ctrl</kbd> + <kbd>,</kbd> to open Settings</span>
+            <button type="button" className="settings-footer-close" onClick={() => setSettingsOpen(false)}>Done</button>
+          </footer>
+        </section>
       </div>}
-
       {toast && <div className="toast"><CheckCircle2 size={15}/>{toast}</div>}
     </div>
   );
