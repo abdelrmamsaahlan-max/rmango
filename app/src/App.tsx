@@ -1,11 +1,11 @@
-import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
   LockKeyhole, MailCheck, Eye, EyeOff, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square,
-  Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info
+  Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info, Copy
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
@@ -96,6 +96,164 @@ function FileGlyph({ file }: { file: ProjectFile }) {
   if (['lua', 'luau', 'ts', 'tsx', 'js'].includes(ext || '')) return <FileCode2 size={14} className="file-icon code-icon" />;
   if (ext === 'json') return <FileJson size={14} className="file-icon json-icon" />;
   return <FileText size={14} className="file-icon" />;
+}
+
+
+type MarkdownBlockNode = ReactNode;
+
+function renderInlineMarkdown(value: string, keyPrefix: string): ReactNode[] {
+  const pattern = /(\*\*[^*]+\*\*|\*[^*\n]+\*|~~[^~]+~~|\x60[^\x60]+\x60|\[([^\]]+)\]\((https:\/\/[^)\s]+)\))/g;
+  const output: ReactNode[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let part = 0;
+
+  while ((match = pattern.exec(value)) !== null) {
+    if (match.index > cursor) output.push(value.slice(cursor, match.index));
+    const token = match[0];
+    if (token.startsWith("**")) {
+      output.push(<strong key={keyPrefix + "-b-" + part}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("~~")) {
+      output.push(<del key={keyPrefix + "-d-" + part}>{token.slice(2, -2)}</del>);
+    } else if (token.startsWith("*")) {
+      output.push(<em key={keyPrefix + "-i-" + part}>{token.slice(1, -1)}</em>);
+    } else if (token.charCodeAt(0) === 96) {
+      output.push(<code className="inline-code" key={keyPrefix + "-c-" + part}>{token.slice(1, -1)}</code>);
+    } else {
+      const label = match[2] || token;
+      const url = match[3];
+      output.push(
+        <a
+          href={url}
+          key={keyPrefix + "-a-" + part}
+          onClick={event => { event.preventDefault(); void window.rmango.openExternal(url); }}
+          rel="noreferrer noopener"
+          title={url}
+        >{label}</a>
+      );
+    }
+    cursor = match.index + token.length;
+    part += 1;
+  }
+  if (cursor < value.length) output.push(value.slice(cursor));
+  return output;
+}
+
+function MessageCodeBlock({ code, language }: { code: string; language: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copyCode() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <div className="chat-code-block">
+      <div className="chat-code-header">
+        <span>{language || "code"}</span>
+        <button type="button" onClick={() => void copyCode()} title="Copy code" aria-label="Copy code">
+          {copied ? <Check size={12}/> : <Copy size={12}/>}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre><code>{code}</code></pre>
+    </div>
+  );
+}
+
+function MessageContent({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: MarkdownBlockNode[] = [];
+  let index = 0;
+  let blockKey = 0;
+  const fence = String.fromCharCode(96).repeat(3);
+  const isBlockStart = (line: string) =>
+    line.trimStart().startsWith(fence) ||
+    /^#{1,4}\s+/.test(line) ||
+    /^\s*>/.test(line) ||
+    /^\s*[-*+]\s+/.test(line) ||
+    /^\s*\d+[.)]\s+/.test(line) ||
+    /^\s*(?:---+|\*\*\*+)\s*$/.test(line);
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) { index += 1; continue; }
+
+    const trimmed = line.trim();
+    if (trimmed.startsWith(fence)) {
+      const language = trimmed.slice(3).trim().split(/\s+/)[0] || "";
+      index += 1;
+      const codeLines: string[] = [];
+      while (index < lines.length && !lines[index].trim().startsWith(fence)) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(<MessageCodeBlock key={"code-" + blockKey++} code={codeLines.join("\n")} language={language}/>);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      const level = Math.min(4, heading[1].length);
+      const children = renderInlineMarkdown(heading[2], "h-" + blockKey);
+      const key = "heading-" + blockKey++;
+      if (level === 1) blocks.push(<h2 key={key}>{children}</h2>);
+      else if (level === 2) blocks.push(<h3 key={key}>{children}</h3>);
+      else if (level === 3) blocks.push(<h4 key={key}>{children}</h4>);
+      else blocks.push(<h5 key={key}>{children}</h5>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line)) {
+      blocks.push(<hr key={"hr-" + blockKey++}/>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*>/.test(line)) {
+      const quote: string[] = [];
+      while (index < lines.length && /^\s*>/.test(lines[index])) {
+        quote.push(lines[index].replace(/^\s*>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(<blockquote key={"quote-" + blockKey++}>{renderInlineMarkdown(quote.join(" "), "q-" + blockKey)}</blockquote>);
+      continue;
+    }
+
+    const unordered = /^\s*[-*+]\s+/.test(line);
+    const ordered = /^\s*\d+[.)]\s+/.test(line);
+    if (unordered || ordered) {
+      const items: string[] = [];
+      const matcher = unordered ? /^\s*[-*+]\s+(.*)$/ : /^\s*\d+[.)]\s+(.*)$/;
+      while (index < lines.length && matcher.test(lines[index])) {
+        items.push(lines[index].replace(matcher, "$1"));
+        index += 1;
+      }
+      const listItems = items.map((item, itemIndex) => <li key={"li-" + itemIndex}>{renderInlineMarkdown(item, "li-" + blockKey + "-" + itemIndex)}</li>);
+      blocks.push(unordered
+        ? <ul key={"ul-" + blockKey++}>{listItems}</ul>
+        : <ol key={"ol-" + blockKey++}>{listItems}</ol>);
+      continue;
+    }
+
+    const paragraph: string[] = [];
+    while (index < lines.length && lines[index].trim() && !isBlockStart(lines[index])) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    if (!paragraph.length) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    blocks.push(<p key={"p-" + blockKey++}>{renderInlineMarkdown(paragraph.join(" "), "p-" + blockKey)}</p>);
+  }
+
+  return <div className="message-markdown">{blocks}</div>;
 }
 
 function encodeTextBase64(value: string) {
@@ -1269,6 +1427,16 @@ function App() {
     }
   }
 
+  async function copyTextToClipboard(value: string) {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(value);
+      setToast('Copied to clipboard.');
+    } catch {
+      setToast('Could not access the clipboard in this window.');
+    }
+  }
+
   function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey && (sendOnEnter || event.ctrlKey || event.metaKey)) {
       event.preventDefault();
@@ -1595,6 +1763,7 @@ function App() {
                           <strong>{message.role === 'assistant' ? 'Rmango' : 'You'}</strong>
                           <span>{displayTime(message.createdAt)}</span>
                           {message.role === 'assistant' && <span className="agent-tag"><Sparkles size={10}/> {(message.modelProfile || 'cloud').toUpperCase()}</span>}
+                          {message.role === 'assistant' && Boolean(message.content) && <button type="button" className="message-copy-button" title="Copy response" aria-label="Copy response" onClick={() => void copyTextToClipboard(message.content)}><Copy size={12}/></button>}
                         </div>
                         {message.attachments?.length ? <div className="message-attachments">
                           {message.attachments.map(attachment =>
@@ -1606,7 +1775,7 @@ function App() {
                             </div>
                           )}
                         </div> : null}
-                        <div className="message-content">{message.content}</div>
+                        <div className="message-content"><MessageContent content={message.content}/></div>
                       </div>
                     </div>
                   )}
