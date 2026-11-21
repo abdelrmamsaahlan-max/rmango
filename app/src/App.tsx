@@ -41,7 +41,7 @@ const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 function GitDiffPreview({ text }: { text: string }) {
-  return <pre className="git-diff-preview"><code>{text.split(/\\r?\\n/).map((line, index) => (
+  return <pre className="git-diff-preview"><code>{text.split(/\r?\n/).map((line, index) => (
     <span key={index} className={line.startsWith("@@") || line.startsWith("diff --git") ? "git-line-meta" : line.startsWith("+") ? "git-line-added" : line.startsWith("-") ? "git-line-removed" : ""}>{line || " "}</span>
   ))}</code></pre>;
 }
