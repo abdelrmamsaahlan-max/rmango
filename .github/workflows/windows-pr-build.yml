@@ -1,6 +1,12 @@
 name: Verify Rmango Windows Desktop
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - ".github/workflows/windows-pr-build.yml"
   pull_request:
     branches:
       - main
@@ -13,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rmango-windows-pr-${{ github.event.pull_request.number }}
+  group: rmango-windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -55,7 +61,7 @@ jobs:
       - name: Upload pull-request installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rmango-Windows-PR-${{ github.event.pull_request.number }}
+          name: Rmango-Windows-Build-${{ github.run_number }}
           path: app/release/Rmango-Setup-*-x64.exe
           if-no-files-found: error
           retention-days: 7
