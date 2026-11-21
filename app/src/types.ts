@@ -53,6 +53,21 @@ export type CloudProjectChange = {
   created_at: string;
 };
 
+export type GitWorkspaceChange = {
+  path: string; status: string; staged: boolean; unstaged: boolean;
+  untracked: boolean; conflicted: boolean; renamed: boolean;
+};
+export type GitWorkspaceState = {
+  available: boolean; branch: string; ahead: number; behind: number;
+  staged: number; unstaged: number; untracked: number; conflicted: number;
+  changes: GitWorkspaceChange[]; listingTruncated: boolean; reason: string | null;
+};
+export type GitWorkspaceDiff = {
+  unstaged: { text: string; truncated: boolean };
+  staged: { text: string; truncated: boolean };
+  note: string;
+};
+
 export type CloudProjectCheckpoint = {
   id: string;
   label: string;
@@ -241,6 +256,8 @@ declare global {
       createCloudConversation: (payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => Promise<CloudConversation>;
       setCurrentConversationId: (conversationId?: string | null) => Promise<{ ok: boolean }>;
       openProject: () => Promise<{ canceled?: boolean; path?: string; files?: ProjectFile[] }>;
+      getGitWorkspaceState: () => Promise<GitWorkspaceState>;
+      getGitWorkspaceDiff: () => Promise<GitWorkspaceDiff>;
       clearProject: () => Promise<any>;
       uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; unchanged: number; removed: number; skipped: Array<{ name: string; reason: string }> }>;
       getCloudProjectChanges: (projectId: string) => Promise<{ project: { id: string; name: string }; changes: CloudProjectChange[] }>;

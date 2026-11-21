@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { boundGitDiff, parseGitStatus } from "./git-workspace.js";
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import electronUpdater from 'electron-updater';
@@ -1209,6 +1210,110 @@ async function projectFiles(root: string, depth = 0): Promise<Array<{ name: stri
   return result;
 }
 
+type GitCommandOutput = { text: string; truncated: boolean };
+
+function runFixedGit(root: string, args: string[], maxBytes: number): Promise<GitCommandOutput> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: root,
+      windowsHide: true,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: "0",
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+      },
+    });
+    const stdout: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderr = "";
+    let truncated = false;
+    let settled = false;
+    const timer = setTimeout(() => {
+      child.kill();
+      if (!settled) {
+        settled = true;
+        reject(new Error("Git inspection timed out after 12 seconds."));
+      }
+    }, 12_000);
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (stdoutBytes >= maxBytes) { truncated = true; return; }
+      const remaining = maxBytes - stdoutBytes;
+      const part = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+      stdout.push(part);
+      stdoutBytes += part.length;
+      if (part.length < chunk.length) truncated = true;
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderr.length < 2_000) stderr += chunk.toString("utf8").slice(0, 2_000 - stderr.length);
+    });
+    child.on("error", error => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    child.on("close", code => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || "Git inspection failed with exit code " + String(code) + "."));
+        return;
+      }
+      resolve({ text: Buffer.concat(stdout).toString("utf8"), truncated });
+    });
+  });
+}
+
+async function selectedGitRoot(): Promise<string> {
+  const settings = await readSettings();
+  if (!settings.projectPath) throw new Error("Open a local project folder before inspecting Git.");
+  const root = await fs.realpath(settings.projectPath);
+  const info = await fs.stat(root);
+  if (!info.isDirectory()) throw new Error("The selected project path is not a directory.");
+  return root;
+}
+
+async function getGitWorkspaceState() {
+  try {
+    const root = await selectedGitRoot();
+    const result = await runFixedGit(root, [
+      "-c", "core.fsmonitor=false",
+      "status", "--porcelain=v1", "--branch", "--untracked-files=all",
+    ], 48_000);
+    return { available: true, ...parseGitStatus(result.text), listingTruncated: result.truncated, reason: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not inspect Git.";
+    const reason = /not a git repository/i.test(message)
+      ? "This folder is not a Git repository yet."
+      : /ENOENT|not recognized|not found/i.test(message)
+        ? "Git was not found on this device. Install Git and reopen RMango."
+        : message.slice(0, 300);
+    return {
+      available: false, branch: "", ahead: 0, behind: 0, staged: 0,
+      unstaged: 0, untracked: 0, conflicted: 0, changes: [],
+      listingTruncated: false, reason,
+    };
+  }
+}
+
+async function getGitWorkspaceDiff() {
+  const root = await selectedGitRoot();
+  const [unstaged, staged] = await Promise.all([
+    runFixedGit(root, ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", "--unified=3", "--no-color"], 60_000),
+    runFixedGit(root, ["-c", "core.fsmonitor=false", "diff", "--cached", "--no-ext-diff", "--no-textconv", "--unified=3", "--no-color"], 60_000),
+  ]);
+  return {
+    unstaged: boundGitDiff(unstaged.text),
+    staged: boundGitDiff(staged.text),
+    note: "Read-only preview. Untracked files do not appear in git diff until staged. RMango does not stage, commit, switch branches or push.",
+  };
+}
+
 function insideRoot(root: string, target: string) {
   const rel = path.relative(path.resolve(root), path.resolve(target));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
@@ -1756,6 +1861,9 @@ handleIpc('cloud:conversations:create', (_event, payload: { title?: string; proj
 });
 handleIpc('cloud:project:set-active', (_event, projectId?: string | null) => setCurrentCloudProject(projectId));
 handleIpc('cloud:conversation:set-active', (_event, conversationId?: string | null) => setCurrentCloudConversation(conversationId));
+
+handleIpc('git:status', () => getGitWorkspaceState());
+handleIpc('git:diff', () => getGitWorkspaceDiff());
 
 handleIpc('project:open', async () => {
   const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });

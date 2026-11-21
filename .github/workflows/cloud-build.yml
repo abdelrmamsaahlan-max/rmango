@@ -75,5 +75,8 @@ jobs:
       - name: Type-check renderer and Electron
         run: npm run typecheck
 
+      - name: Run deterministic Git workspace tests
+        run: npm run test:git
+
       - name: Build desktop renderer and Electron process
         run: npm run build
