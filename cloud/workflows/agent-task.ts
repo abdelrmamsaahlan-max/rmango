@@ -1091,6 +1091,7 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
     result = (task.result || result) as unknown as TaskResult;
     if (!result.output) {
       if (!task.project_id) throw new Error("This agent task is not attached to a cloud project.");
+      if (!result.indexSummary) throw new Error("The project index checkpoint is missing. Retry indexing before agent execution.");
       const executed = await executeTaskWorkflow(
         taskId,
         ownerId,
