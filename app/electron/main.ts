@@ -653,6 +653,77 @@ async function readProjectFile(root: string, relativePath: string) {
   return fs.readFile(realTarget, 'utf8');
 }
 
+async function uploadCloudProject() {
+  const settings = await readSettings();
+  if (!settings.projectPath) throw new Error("Open a local project folder before uploading it to Rmango Cloud.");
+  const session = await getValidCloudSession();
+  const root = await fs.realpath(settings.projectPath);
+  const projectName = path.basename(root) || "Roblox Project";
+  const created = await cloudApiRequest<any>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({
+      name: projectName,
+      description: "Source files imported from " + projectName + " using Rmango Desktop.",
+    }),
+  });
+
+  const projectId = created.project?.id;
+  if (typeof projectId !== "string") throw new Error("The cloud service did not return a project ID.");
+
+  const entries = (await projectFiles(root)).filter(item => item.kind === "file").slice(0, 120);
+  const uploaded: string[] = [];
+  const skipped: Array<{ name: string; reason: string }> = [];
+
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index];
+    const relativePath = path.relative(root, entry.path);
+    try {
+      const content = await readProjectFile(root, relativePath);
+      const extension = path.extname(entry.name).toLowerCase();
+      const mimeType = extension === ".json" ? "application/json" : extension === ".csv" ? "text/csv" : "text/plain";
+      const bytes = Buffer.from(content, "utf8");
+      await cloudApiRequest("/api/projects/" + projectId + "/files", {
+        method: "POST",
+        body: JSON.stringify({
+          relativePath: relativePath.split(path.sep).join("/"),
+          fileName: entry.name,
+          mimeType,
+          sizeBytes: bytes.length,
+          dataBase64: bytes.toString("base64"),
+        }),
+      });
+      uploaded.push(relativePath);
+    } catch (error) {
+      skipped.push({
+        name: relativePath,
+        reason: error instanceof Error ? error.message : "File could not be uploaded.",
+      });
+    }
+
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send("project:upload-progress", {
+          projectId,
+          completed: index + 1,
+          total: entries.length,
+          uploaded: uploaded.length,
+          skipped: skipped.length,
+          currentFile: relativePath,
+        });
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    projectId,
+    projectName,
+    totalFiles: entries.length,
+    uploaded: uploaded.length,
+    skipped,
+  };
+}
+
 async function runDiagnostics() {
   if (!mcpClient) return { ok: false, error: 'Connect Roblox Studio first.' };
   const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
@@ -844,6 +915,7 @@ ipcMain.handle('project:open', async () => {
   await writeSettings({ ...settings, projectPath: root });
   return { canceled: false, path: root, files: await projectFiles(root) };
 });
+ipcMain.handle('project:upload-cloud', () => uploadCloudProject());
 ipcMain.handle('project:clear', async () => {
   const settings = await readSettings();
   delete settings.projectPath;
