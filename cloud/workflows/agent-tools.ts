@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { tool } from "ai";
+import { tool, type ToolSet } from "ai";
 import { createHook, sleep } from "workflow";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase";
@@ -468,8 +468,8 @@ async function callStudioToolWorkflow(
   return result.result ?? { ok: true };
 }
 
-export function createProjectAgentTools(context: ProjectAgentContext, studioTools: StudioToolInfo[]) {
-  const tools: Record<string, ReturnType<typeof tool>> = {
+export function createProjectAgentTools(context: ProjectAgentContext, studioTools: StudioToolInfo[]): ToolSet {
+  const tools: ToolSet = {
     list_project_files: tool({
       description: "List all indexed files in the current Roblox project. Use search to narrow by filename.",
       inputSchema: z.object({ search: z.string().trim().max(120).optional() }),
