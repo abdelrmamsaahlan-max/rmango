@@ -12,7 +12,7 @@ export function optionalEnv(name: string): string | undefined {
 export function publicApiStatus() {
   return {
     deployment: process.env.VERCEL_ENV || "self-hosted",
-    gatewayConfigured: Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY),
+    gatewayConfigured: Boolean(process.env.VERCEL_OIDC_TOKEN),
     databaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY),
   };
 }
