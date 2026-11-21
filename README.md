@@ -8,12 +8,20 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 - **Vercel AI Gateway** routes hosted models and exposes live model capability/pricing metadata.
 - **Vercel OIDC** authenticates AI Gateway requests from Vercel deployments. No static AI Gateway key or provider key is configured in production.
 - **Supabase Auth, Postgres and private Storage** hold user accounts, projects, conversations, messages, uploaded source files, project proposals and usage events.
-- The Windows desktop connects over HTTPS and stores only the user's Rmango account session encrypted with Windows secure storage.
+- The Windows desktop automatically creates a private anonymous guest identity when the managed service is available. Its refresh session is encrypted with Windows secure storage; users do not create an account or enter AI-provider credentials.
 - A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is a tool bridge only; it does not run any AI model.
+
+## First launch: no account or AI setup
+
+When the managed RMango service is deployed, the desktop automatically creates a private guest workspace on first launch. You do not enter an email address, create a password, paste an API key, install Ollama, download model weights, or choose a model provider. The app routes your chats through RMango's hosted AI service.
+
+Guest chat history and project data are scoped to the generated guest identity. The session is saved encrypted with Windows secure storage, so it survives normal app restarts on the same Windows profile. It is not a recoverable account: signing out, deleting RMango's local app data, reinstalling in a way that removes that data, or switching computers can make the guest workspace inaccessible. Keep the same Windows profile and app data if you need to keep that history.
+
+This is automatic for end users, but not infrastructure-free: the RMANGO maintainer must deploy the hosted backend, provision its dedicated database, enable Supabase Anonymous Sign-Ins, and authorize the server-side AI usage budget once. No provider secret is shipped to users.
 
 ## Important deployment status
 
-The cloud backend source, migration and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** The desktop currently shows “Cloud not configured” until an administrator provisions the cloud service and sets the public URL.
+The cloud backend source, migration and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** Chat will become automatic once the service operator completes the one-time deployment and sets the public URL. Users will not need to configure anything on their PCs.
 
 No hosted model request or paid inference has been run from this code. No cloud project or provider spend has been activated by this change.
 
@@ -21,7 +29,7 @@ No hosted model request or paid inference has been run from this code. No cloud 
 
 1. Authorize the Rmango Vercel team/project scope.
 2. Create a dedicated Supabase project for Rmango. Do not reuse an unrelated app database.
-3. Apply `cloud/supabase/migrations/202611210001_rmango_cloud.sql`.
+3. Apply `cloud/supabase/migrations/202611210001_rmango_cloud.sql` and enable **Anonymous Sign-Ins** in Supabase Auth for the Rmango project.
 4. Create a Vercel project from this repository with Root Directory set to `cloud`.
 5. Enable Vercel OIDC for the Vercel project.
 6. Add the server-only environment variables described in [cloud/README.md](cloud/README.md).
@@ -88,8 +96,7 @@ Setup: in Roblox Studio open **Assistant → … → Manage MCP Servers**, enabl
 
 ## Cloud project workflow
 
-1. Sign in to a Rmango account.
-2. Open a local Roblox source folder in Rmango.
+1. Open a local Roblox source folder in Rmango. A private guest workspace is created automatically when the cloud is online.
 3. Explicitly choose **Upload project to Cloud**.
 4. Supported text/source files upload into the user's private cloud workspace.
 5. Ask Rmango Agent to inspect files or propose a change.
