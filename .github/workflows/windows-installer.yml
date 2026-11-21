@@ -122,7 +122,32 @@ jobs:
             throw "A public release requires RMANGO_SIGNING_PFX_BASE64, RMANGO_SIGNING_PFX_PASSWORD, and RMANGO_SIGNING_PUBLISHER_NAME. Unsigned releases are blocked."
           }
 
-          if ($encoded -and $env:RMANGO_SIGNING_PFX_PASSWORD -and $encoded -match '^[A-Za-z0-9+/]+={0,2}
+          if ($encoded -and $env:RMANGO_SIGNING_PFX_PASSWORD -and $encoded -match '^[A-Za-z0-9+/]+={0,2}$') {
+            try {
+              $bytes = [Convert]::FromBase64String($encoded)
+              if ($bytes.Length -eq 0) { throw "Signing certificate is empty." }
+              $certificatePath = Join-Path $env:RUNNER_TEMP "rmango-signing.pfx"
+              [System.IO.File]::WriteAllBytes($certificatePath, $bytes)
+              "WIN_CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
+              "WIN_CSC_KEY_PASSWORD=$env:RMANGO_SIGNING_PFX_PASSWORD" >> $env:GITHUB_ENV
+              "RMANGO_SIGNING_PUBLISHER_NAME=$env:RMANGO_SIGNING_PUBLISHER_NAME" >> $env:GITHUB_ENV
+              $hasCertificate = $true
+              Write-Host "Windows signing certificate loaded into the isolated build runner."
+            } catch {
+              if ($isPublicRelease) { throw }
+              Write-Warning "Non-release test artifact has no usable signing certificate; it will remain unsigned."
+            }
+          } elseif ($isPublicRelease) {
+            throw "The public-release signing certificate could not be loaded."
+          } else {
+            Write-Warning "Non-release test artifact will be unsigned and must not be distributed as a public installer."
+          }
+
+          if ($hasCertificate) {
+            "RMANGO_HAS_SIGNING_CERT=true" >> $env:GITHUB_ENV
+          } else {
+            "RMANGO_HAS_SIGNING_CERT=false" >> $env:GITHUB_ENV
+          }
 
       - name: Set release version
         id: version
@@ -269,186 +294,6 @@ jobs:
             }
           } elseif ($signature.Status -eq "Valid") {
             Write-Host "Test artifact is signed; it is not a public release."
-          }
-
-      - name: Verify public GitHub Release contains the update feed
-        if: steps.cloud-config.outputs.configured == 'true'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag = "${{ steps.version.outputs.tag }}"
-          $uri = "https://api.github.com/repos/abdelrmamsaahlan-max/rmango/releases/tags/$tag"
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = "application/vnd.github+json"
-            "X-GitHub-Api-Version" = "2022-11-28"
-          }
-          $release = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
-          $assetNames = @($release.assets | ForEach-Object { $_.name })
-          $expectedInstaller = "Rmango-Setup-${{ steps.version.outputs.version }}-x64.exe"
-          if ($assetNames -notcontains $expectedInstaller) {
-            throw "The GitHub Release does not contain $expectedInstaller."
-          }
-          if ($assetNames -notcontains "latest.yml") {
-            throw "The GitHub Release does not contain latest.yml; installed apps cannot find updates."
-          }
-          Write-Host "Published release $tag with installer and latest.yml."
-          Write-Host "Release URL: $($release.html_url)"
-
-      - name: Save setup EXE as a workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Rmango-Windows-Setup-${{ steps.version.outputs.version }}
-          path: ${{ steps.verify.outputs.installer_path }}
-          if-no-files-found: error
-          retention-days: 14
-) {
-            try {
-              $bytes = [Convert]::FromBase64String($encoded)
-              if ($bytes.Length -eq 0) { throw "Signing certificate is empty." }
-              $certificatePath = Join-Path $env:RUNNER_TEMP "rmango-signing.pfx"
-              [System.IO.File]::WriteAllBytes($certificatePath, $bytes)
-              "WIN_CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
-              "WIN_CSC_KEY_PASSWORD=$env:RMANGO_SIGNING_PFX_PASSWORD" >> $env:GITHUB_ENV
-              "RMANGO_SIGNING_PUBLISHER_NAME=$env:RMANGO_SIGNING_PUBLISHER_NAME" >> $env:GITHUB_ENV
-              $hasCertificate = $true
-              Write-Host "Windows signing certificate loaded into the isolated build runner."
-            } catch {
-              if ($isPublicRelease) { throw }
-              Write-Warning "Non-release test artifact has no usable signing certificate; it will remain unsigned."
-            }
-          } elseif ($isPublicRelease) {
-            throw "The public-release signing certificate could not be loaded."
-          } else {
-            Write-Warning "Non-release test artifact will be unsigned and must not be distributed as a public installer."
-          }
-
-          if ($hasCertificate) {
-            "RMANGO_HAS_SIGNING_CERT=true" >> $env:GITHUB_ENV
-          } else {
-            "RMANGO_HAS_SIGNING_CERT=false" >> $env:GITHUB_ENV
-          }
-
-      - name: Set release version
-        id: version
-        shell: pwsh
-        run: |
-          $packagePath = "app-src/package.json"
-          $package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
-          $requestedTag = "${{ inputs.tag_name }}".Trim()
-          $refType = "${{ github.ref_type }}"
-          $refName = "${{ github.ref_name }}"
-
-          if ($requestedTag) {
-            $version = $requestedTag -replace '^v', ''
-          } elseif ($refType -eq "tag") {
-            $version = $refName -replace '^v', ''
-          } else {
-            $base = [regex]::Match($package.version, '^(?<major>\d+)\.(?<minor>\d+)\.\d+')
-            if (-not $base.Success) {
-              throw "The base package version '$($package.version)' is not a valid major.minor.patch version."
-            }
-            # Each build receives a monotonically increasing patch number within the minor line.
-            $publishedPatch = 0
-            try {
-              $headers = @{ Accept = "application/vnd.github+json" }
-              $tags = Invoke-RestMethod -Uri "https://api.github.com/repos/abdelrmamsaahlan-max/rmango/releases?per_page=100" -Headers $headers
-              foreach ($release in $tags) {
-                $pattern = '^v?' + [regex]::Escape($base.Groups['major'].Value) + '\.' + [regex]::Escape($base.Groups['minor'].Value) + '\.(\d+)'
-                $match = [regex]::Match([string]$release.tag_name, $pattern)
-                if ($match.Success) {
-                  $publishedPatch = [math]::Max($publishedPatch, [int]$match.Groups[1].Value)
-                }
-              }
-            } catch {
-              Write-Warning "Could not read published release versions; falling back to the package patch version."
-            }
-            $nextPatch = [math]::Max([int]$base.Groups['patch'].Value, $publishedPatch) + 1
-            $version = "$($base.Groups['major'].Value).$($base.Groups['minor'].Value).$nextPatch"
-          }
-
-          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-            throw "Invalid release version '$version'. Use semantic versioning, for example 0.3.0."
-          }
-
-          $package.version = $version
-          if ($env:RMANGO_HAS_SIGNING_CERT -eq "true") {
-            $package.build.win.verifyUpdateCodeSignature = $true
-          } else {
-            # Current public builds are unsigned. SHA-512 metadata and HTTPS are still checked.
-            $package.build.win.verifyUpdateCodeSignature = $false
-          }
-          Set-Content -LiteralPath $packagePath -Value ($package | ConvertTo-Json -Depth 100) -Encoding utf8
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "tag=v$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Building Rmango $version"
-          Write-Host "Publisher-signing configured: $env:RMANGO_HAS_SIGNING_CERT"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: app-src/package.json
-
-      - name: Install dependencies
-        working-directory: app-src
-        run: npm install --no-audit --no-fund
-
-      - name: Build and optionally publish Windows installer
-        working-directory: app-src
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RMANGO_CLOUD_CONFIGURED: ${{ steps.cloud-config.outputs.configured }}
-        shell: pwsh
-        run: |
-          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
-            npm run dist:win:publish
-          } else {
-            npm run dist:win
-          }
-
-      - name: Verify setup executable and update manifest
-        id: verify
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $installerPattern = "Rmango-Setup-$version-x64.exe"
-          $installer = Get-ChildItem -Path "app-src/release" -Filter $installerPattern -File | Select-Object -First 1
-          if (-not $installer) {
-            throw "Build did not produce $installerPattern."
-          }
-
-          $configured = "${{ steps.cloud-config.outputs.configured }}"
-          $manifest = Join-Path "app-src/release" "latest.yml"
-          if ($configured -eq "true") {
-            if (-not (Test-Path $manifest)) {
-              throw "Missing latest.yml. The auto-update feed would not work."
-            }
-
-            $manifestText = Get-Content -LiteralPath $manifest -Raw
-            if ($manifestText -notmatch "(?m)^version:\s*$([regex]::Escape($version))\s*$") {
-              throw "latest.yml does not describe this build version ($version)."
-            }
-            Write-Host "Auto-update manifest: $manifest"
-          } else {
-            Write-Warning "Cloud URL is not configured, so this unsigned/local-config build is an artifact only and is not release-published."
-          }
-
-          $sizeMb = [math]::Round($installer.Length / 1MB, 2)
-          $sha256 = (Get-FileHash -Path $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
-          "installer_path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
-          "installer_name=$($installer.Name)" >> $env:GITHUB_OUTPUT
-          "installer_sha256=$sha256" >> $env:GITHUB_OUTPUT
-          "signature_status=$($signature.Status)" >> $env:GITHUB_OUTPUT
-          Write-Host "Installer: $($installer.Name)"
-          Write-Host "Size: $sizeMb MB"
-          Write-Host "SHA256: $sha256"
-          Write-Host "Authenticode status: $($signature.Status)"
-          if ($env:RMANGO_HAS_SIGNING_CERT -eq "true" -and $signature.Status -ne "Valid") {
-            throw "A signing certificate was configured, but the installer signature is not valid."
           }
 
       - name: Verify public GitHub Release contains the update feed
