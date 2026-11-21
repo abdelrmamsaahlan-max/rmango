@@ -1,0 +1,66 @@
+name: Build Windows Installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to create (example: v0.1.1)"
+        required: true
+        default: "v0.1.1"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    name: Build Rmango Setup EXE
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract Rmango source bundle
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "source/Rmango-source.zip")) {
+            throw "Source bundle missing: source/Rmango-source.zip"
+          }
+          Expand-Archive -Path "source/Rmango-source.zip" -DestinationPath "app-src" -Force
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: app-src
+        run: npm install --no-audit --no-fund
+
+      - name: Build and package NSIS installer
+        working-directory: app-src
+        run: npm run dist:win
+
+      - name: Verify installer output
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path "app-src/release" -Filter "Rmango-Setup-*.exe" -File | Select-Object -First 1
+          if (-not $installer) { throw "No Rmango Setup EXE was produced." }
+          Write-Host "Created installer: $($installer.FullName)"
+          Write-Host "Size: $([math]::Round($installer.Length / 1MB, 2)) MB"
+
+      - name: Publish GitHub Release with direct EXE download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          target_commitish: main
+          name: Rmango ${{ inputs.tag_name || github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: app-src/release/Rmango-Setup-*.exe
