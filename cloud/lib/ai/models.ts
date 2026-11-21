@@ -156,11 +156,16 @@ function modelCapabilityScore(model: GatewayModel, profile: ModelProfile): numbe
     score += contextBonus * 0.65 + outputBonus * 0.5;
     score -= costPenalty * 0.3;
   } else if (profile === "agent") {
+    // An agent must use tools, but multi-step reasoning is the second key capability.
+    // A missing reasoning tag is a penalty rather than a hard exclusion because
+    // Gateway metadata can be incomplete for otherwise capable models.
     if (has("tool-use")) score += 8;
-    if (has("reasoning")) score += 4;
-    if (has("structured-outputs") || has("json-mode")) score += 1;
-    score += contextBonus * 0.75 + outputBonus * 0.6;
-    score -= costPenalty * 0.35;
+    if (has("reasoning")) score += 8;
+    else score -= 3;
+    if (has("structured-outputs") || has("json-mode")) score += 1.5;
+    if (/\b(code|coder|coding|developer|programming)\b/.test(text)) score += 1.5;
+    score += contextBonus * 0.9 + outputBonus * 0.75;
+    score -= costPenalty * 0.3;
   } else {
     if ((model.modalities?.input || []).includes("image")) score += 8;
     if (has("reasoning")) score += 2;
