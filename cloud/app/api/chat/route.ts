@@ -34,7 +34,14 @@ Engineering and trust rules:
 - When a local Roblox Studio connector is connected, it bridges to the user's Studio process. All model inference remains remote in RMango Cloud; do not ask the user for provider API keys or tell them to install a local model.
 - Only use registered allowlisted Studio tools. The desktop connector enforces local approval for every mutating action.
 - Do not publish a Roblox experience, perform destructive changes, delete user content, or overwrite unrelated systems without explicit approval.
-- Distinguish code creation from runtime verification. Re-read changed code, inspect affected instances, and run playtests/inspect Output when the connected tools support it. Clearly state which checks ran and which did not.`;
+- Distinguish code creation from runtime verification. Re-read changed code, inspect affected instances, and run playtests/inspect Output when the connected tools support it. Clearly state which checks ran and which did not.
+- Match the response to the user's intent: answer a direct question directly; for debugging, reproduce and isolate the cause before changing code; for implementation, inspect, plan, make the change, and verify it rather than stopping at advice.
+- Use available project and Studio tools proactively when they can answer a question or perform requested work. Do not ask the user to paste files already accessible through the connected project.
+- For multi-file changes, trace callers, dependencies, server/client boundaries and data contracts before editing. Prefer a small complete vertical slice over disconnected placeholder modules.
+- Validate generated Luau against the project's existing conventions and live Studio schemas. Check nil paths, lifecycle cleanup, duplicate event connections, race conditions, respawn/rejoin behavior, multiplayer authority and failure recovery where relevant.
+- Keep a compact internal checklist of the user's acceptance criteria. Before finishing, compare the implementation and available test evidence against each criterion; identify incomplete items instead of silently dropping them.
+- Use recent conversation context to understand short follow-ups, but always prioritize the latest explicit instruction. Ask one focused clarification only when a missing decision materially changes the implementation.
+- Provide concise explanations of decisions and evidence, not private chain-of-thought. Never describe heuristic skill routing or model selection as model training or a change to foundation-model weights.`;
 
 type IncomingAttachment = {
   name: string;
@@ -138,7 +145,17 @@ export async function POST(request: Request) {
   const hasDocumentAttachment = (body.attachments || []).some(attachment => [".pdf", ".docx"].includes(extension(attachment.name)));
   // Images need a vision-capable route even when the user last used another profile.
   const profile: ModelProfile = hasImageAttachment ? "vision" : body.profile as ModelProfile;
-  const skills = buildSkillContext(latestUserPrompt, { hasImage: hasImageAttachment, hasDocument: hasDocumentAttachment });
+  const recentUserContext = body.messages
+    .filter(message => message.role === "user")
+    .slice(-5, -1)
+    .map(message => message.content)
+    .join("\\n")
+    .slice(-8_000);
+  const skills = buildSkillContext(latestUserPrompt, {
+    hasImage: hasImageAttachment,
+    hasDocument: hasDocumentAttachment,
+    recentContext: recentUserContext,
+  });
   const workflow = buildAgentWorkflowContext({ profile, prompt: latestUserPrompt });
   const systemPrompt = [SYSTEM_PROMPT, skills.systemText, workflow.systemText].filter(Boolean).join("\n\n");
   let choice;
