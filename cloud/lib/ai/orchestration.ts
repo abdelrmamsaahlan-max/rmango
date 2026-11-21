@@ -90,7 +90,7 @@ export function buildAgentWorkflowContext(input: {
     systemText: [
       "RMANGO COORDINATED WORKFLOW — deterministic policy, no extra planner-model call.",
       "Selected execution strategy: " + strategy + ".",
-      strategyInstructions[strategy],
+      strategyInstructions[strategy as Exclude<AgentExecutionStrategy, "quick">],
       "You are the coordinator. Use selected specialist skill packs as role-specific expertise; they are instruction modules, not separately trained models.",
       "1. UNDERSTAND: restate the desired end state internally. Separate explicit requirements from assumptions; ask only if a missing fact blocks safe progress.",
       "2. INSPECT: inspect the actual relevant project files or connected Studio hierarchy before describing or changing implementation. Trace callers, dependencies, server/client boundaries and existing conventions. Never scan or load the whole project when targeted retrieval is enough.",
