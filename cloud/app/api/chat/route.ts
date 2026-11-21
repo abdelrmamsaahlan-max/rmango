@@ -886,11 +886,15 @@ export async function POST(request: Request) {
           .from("rmango-files").download(file.storage_path);
         if (storageError || !blob) throw new Error("Could not retrieve the project file.");
         const source = await blob.text();
-        let graphIndex = {
+        let graphIndex: {
+          indexed: boolean;
+          symbolCount: number;
+          edgeCount: number;
+          reason?: string;
+        } = {
           indexed: Boolean(file.indexed_at),
           symbolCount: 0,
           edgeCount: 0,
-          reason: undefined as string | undefined,
         };
         if (!file.indexed_at) {
           graphIndex = await indexCloudProjectFile(supabase, file.id, file.relative_path, source);
