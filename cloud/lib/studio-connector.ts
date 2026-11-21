@@ -5,15 +5,15 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 export const STUDIO_READ_ONLY_TOOLS = new Set([
   "list_roblox_studios", "get_studio_state", "script_read", "script_search",
   "script_grep", "search_game_tree", "inspect_instance", "get_console_output",
-  "screen_capture", "http_get", "skill", "list_skills", "search_asset", "wait_job_finished",
+  "screen_capture", "http_get", "skill", "list_skills", "search_asset", "wait_job_finished", "store_image",
 ]);
 
 export const STUDIO_APPROVAL_TOOLS = new Set([
   "multi_edit", "execute_luau", "generate_mesh", "generate_material", "generate_texture",
   "generate_procedural_model", "generate_scene", "generate_animation", "generate_avatar",
-  "auto_setup_avatar", "segment_mesh", "store_image", "insert_asset", "upload_image",
+  "auto_setup_avatar", "segment_mesh", "insert_asset", "upload_image",
   "start_stop_play", "character_navigation", "user_keyboard_input", "user_mouse_input",
-  "save_place",
+  "save_place", "subagent", "open_cloud_invoke", "create_skill", "edit_skill",
 ]);
 
 export function isAllowedStudioTool(name: string) {
