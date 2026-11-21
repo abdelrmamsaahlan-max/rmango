@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { start } from "workflow/api";
 import { z } from "zod";
 import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
-import { isModelProfile, type ModelProfile } from "@/lib/ai/models";
+import type { ModelProfile } from "@/lib/ai/models";
 import { runAgentTask } from "@/workflows/agent-task";
 
 export const runtime = "nodejs";
