@@ -275,6 +275,79 @@ async function proposeProjectFileChangeStep(
   return { proposalId: proposal.id, relativePath: safePath, status: "pending", sha256: proposedHash };
 }
 
+function assertMemoryContainsNoSecrets(title: string, content: string, sourceRef?: string) {
+  const combined = [title, content, sourceRef || ""].join("\n");
+  const secretPatterns = [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/i,
+    /\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|password)\s*[:=]\s*["']?[^\s"'\u0060,;]{6,}/i,
+    /\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{15,})\b/i,
+  ];
+  if (secretPatterns.some(pattern => pattern.test(combined))) {
+    throw new Error("Project memories cannot contain passwords, API keys, access tokens, or private-key material.");
+  }
+}
+
+export async function getProjectLearningSignalsStep(context: ProjectAgentContext) {
+  "use step";
+  await assertCurrentTaskStep(context, true);
+  const admin = createAdminClient();
+  const { data: evaluations, error } = await admin.from("agent_learning_events")
+    .select("task_id,signal_data,created_at")
+    .eq("project_id", context.projectId)
+    .eq("owner_id", context.ownerId)
+    .eq("signal_type", "task_evaluated")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw new Error("Could not load prior task evaluation signals.");
+
+  const rows = evaluations || [];
+  if (!rows.length) {
+    return {
+      sampleSize: 0,
+      runtimeVerifiedRate: null,
+      playtestPassRate: null,
+      cleanConsoleRate: null,
+      failedStudioToolRate: null,
+      userFeedbackCount: 0,
+      helpfulRate: null,
+    };
+  }
+
+  const taskIds = rows.map(row => row.task_id);
+  const { data: ratings, error: ratingError } = await admin.from("agent_learning_events")
+    .select("task_id,signal_data")
+    .eq("project_id", context.projectId)
+    .eq("owner_id", context.ownerId)
+    .eq("signal_type", "user_feedback")
+    .in("task_id", taskIds);
+  if (ratingError) throw new Error("Could not load prior task feedback.");
+
+  const attemptedPlaytests = rows.filter(row => row.signal_data?.playtestAttempted === true);
+  const inspectedConsoles = rows.filter(row => row.signal_data?.consoleInspected === true);
+  const studioCalls = rows.reduce((sum, row) => sum + Math.max(0, Number(row.signal_data?.studioToolCount) || 0), 0);
+  const studioFailures = rows.reduce((sum, row) => sum + Math.max(0, Number(row.signal_data?.failedStudioToolCount) || 0), 0);
+  const ratingRows = ratings || [];
+  const helpfulCount = ratingRows.filter(row => row.signal_data?.helpful === true).length;
+
+  return {
+    sampleSize: rows.length,
+    runtimeVerifiedRate: Number((rows.filter(row => row.signal_data?.runtimeVerified === true).length / rows.length).toFixed(3)),
+    playtestPassRate: attemptedPlaytests.length
+      ? Number((attemptedPlaytests.filter(row => row.signal_data?.playtestPassed === true).length / attemptedPlaytests.length).toFixed(3))
+      : null,
+    cleanConsoleRate: inspectedConsoles.length
+      ? Number((inspectedConsoles.filter(row => row.signal_data?.consoleClean === true).length / inspectedConsoles.length).toFixed(3))
+      : null,
+    failedStudioToolRate: studioCalls
+      ? Number((studioFailures / studioCalls).toFixed(3))
+      : null,
+    userFeedbackCount: ratingRows.length,
+    helpfulRate: ratingRows.length
+      ? Number((helpfulCount / ratingRows.length).toFixed(3))
+      : null,
+  };
+}
+
 async function saveProjectMemoryStep(
   context: ProjectAgentContext,
   memoryType: "decision" | "architecture" | "bug" | "constraint" | "preference" | "status" | "other",
@@ -284,6 +357,11 @@ async function saveProjectMemoryStep(
 ) {
   "use step";
   await assertCurrentTaskStep(context);
+  if (!title.trim() || title.length > 180 || !content.trim() || content.length > 4_000) {
+    throw new Error("Project memories need a title (max 180 characters) and concise content (max 4,000 characters).");
+  }
+  if (sourceRef && sourceRef.length > 240) throw new Error("Memory source reference exceeds the allowed length.");
+  assertMemoryContainsNoSecrets(title, content, sourceRef);
   const admin = createAdminClient();
   const { data: existing } = await admin.from("project_memories")
     .select("id")
@@ -499,6 +577,11 @@ export function createProjectAgentTools(context: ProjectAgentContext, studioTool
       description: "Retrieve durable confirmed project decisions, architecture facts, constraints, bugs and preferences.",
       inputSchema: z.object({ search: z.string().trim().max(160).optional() }),
       execute: ({ search }) => listProjectMemoriesStep(context, search),
+    }),
+    get_project_learning_signals: tool({
+      description: "Retrieve privacy-limited aggregate success, playtest, console, Studio-tool and user-rating trends from this project. These are historical quality signals, not model-training data.",
+      inputSchema: z.object({}),
+      execute: () => getProjectLearningSignalsStep(context),
     }),
     propose_project_file_change: tool({
       description: "Create a pending cloud source-file proposal. The user must approve it before the cloud copy is changed.",

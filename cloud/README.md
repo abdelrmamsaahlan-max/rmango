@@ -19,7 +19,7 @@ Deployment requires:
 1. An approved Vercel project in the account/team that owns the Rmango domain and release.
 2. A new dedicated Supabase project for Rmango. Do not reuse unrelated projects.
 3. Vercel OIDC enabled for the cloud project.
-4. Apply the base database migration, then the incremental workspace/index migration.
+4. Apply the base database migration, then the incremental workspace/index migration, then the project learning/evaluation migration.
 5. Server-only environment variables configured in Vercel.
 6. An HTTPS deployment URL added as the GitHub repository variable RMANGO_CLOUD_API_URL.
 7. An administrator explicitly authorizing the cloud Gateway budget/spend policy before model-generation requests are enabled.
@@ -46,9 +46,10 @@ The two migrations create:
 - Per-user usage reservations and usage events.
 - A global admin-managed usage policy with daily and monthly request/token limits.
 - A versioned source index with Luau symbols, dependency edges and index-run history.
+- Compact project task-evaluation signals and optional helpful/not-helpful feedback; these are context/evaluation data, not foundation-model training.
 - A private `rmango-files` storage bucket and owner-only row/object policies.
 
-Apply `supabase/migrations/202611210001_rmango_cloud.sql` first, followed by `supabase/migrations/202611220001_rmango_agent_workspace.sql`. The second migration is incremental and expects the base project tables to exist.
+Apply `supabase/migrations/202611210001_rmango_cloud.sql` first, followed by `supabase/migrations/202611220001_rmango_agent_workspace.sql`. The second migration is incremental and expects the base project tables to exist. Apply `supabase/migrations/202611230001_rmango_learning_loop.sql` third; it adds owner-scoped task evaluation and optional feedback records.
 
 The service-role key is only used in cloud server code for atomic usage accounting. Never add it to the desktop app, any `NEXT_PUBLIC_*` variable or a public GitHub Actions variable.
 

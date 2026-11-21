@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, safeStorage, session, shell, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -12,7 +12,7 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 
 type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
-type ChatMessage = { role: 'user' | 'assistant'; content: string; createdAt?: string };
+type ChatMessage = { id?: string; role: 'user' | 'assistant'; content: string; createdAt?: string; modelProfile?: CloudProfile; attachments?: Array<{ id: string; name: string; mimeType: string; kind: 'image' | 'file'; size: number }> };
 type Attachment = { name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string };
 type SettingsFile = { projectPath?: string };
 type CloudSession = {
@@ -48,7 +48,7 @@ let selectedStudioId: string | undefined;
 let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
-const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
 let appUpdateState: AppUpdateState = {
   status: 'idle',
@@ -58,7 +58,8 @@ let appUpdateState: AppUpdateState = {
 
 const userData = () => app.getPath('userData');
 const settingsPath = () => path.join(userData(), 'settings.json');
-const sessionPath = () => path.join(userData(), 'session.json');
+const legacySessionPath = () => path.join(userData(), 'session.json');
+const chatHistoryPath = () => path.join(userData(), 'chat-history.enc');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
 
 async function readSettings(): Promise<SettingsFile> {
@@ -76,14 +77,33 @@ async function writeSettings(settings: SettingsFile) {
 }
 
 async function getCloudApiBaseUrl(): Promise<string> {
-  const fromEnvironment = process.env.RMANGO_CLOUD_API_URL?.trim();
-  if (fromEnvironment) return fromEnvironment.replace(/\/+$/, '');
+  let candidate = process.env.RMANGO_CLOUD_API_URL?.trim() || '';
+  if (!candidate) {
+    try {
+      const configPath = path.join(app.getAppPath(), 'cloud-config.json');
+      const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as { apiBaseUrl?: string };
+      candidate = typeof config.apiBaseUrl === 'string' ? config.apiBaseUrl.trim() : '';
+    } catch {
+      return '';
+    }
+  }
+  if (!candidate) return '';
   try {
-    const configPath = path.join(app.getAppPath(), 'cloud-config.json');
-    const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as { apiBaseUrl?: string };
-    return typeof config.apiBaseUrl === 'string' ? config.apiBaseUrl.trim().replace(/\/+$/, '') : '';
-  } catch {
-    return '';
+    const parsed = new URL(candidate);
+    if (
+      parsed.protocol !== 'https:' ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash ||
+      ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname.toLowerCase())
+    ) {
+      throw new Error('Rmango Cloud must use a public HTTPS origin without credentials or query parameters.');
+    }
+    return parsed.origin + parsed.pathname.replace(/\/+$/, '');
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'The configured Rmango Cloud URL is invalid.');
   }
 }
 
@@ -304,6 +324,65 @@ async function sendCloudMessage(payload: {
   };
 }
 
+function isTrustedRendererUrl(rawUrl: string): boolean {
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (!app.isPackaged) {
+      const devUrl = new URL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173');
+      const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(devUrl.hostname);
+      return loopback && parsed.origin === devUrl.origin && parsed.protocol === 'http:';
+    }
+    if (parsed.protocol !== 'file:') return false;
+    return path.resolve(fileURLToPath(parsed)) === path.resolve(path.join(__dirname, '../dist/index.html'));
+  } catch {
+    return false;
+  }
+}
+
+function registerTrustedIpcHandler(
+  channel: string,
+  handler: (event: IpcMainInvokeEvent, ...args: any[]) => unknown,
+) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (event.senderFrame !== event.sender.mainFrame || !isTrustedRendererUrl(event.senderFrame?.url || '')) {
+      throw new Error('Blocked an IPC request from an untrusted renderer.');
+    }
+    return handler(event, ...args);
+  });
+}
+
+function installRendererSecurityPolicies() {
+  const csp = [
+    "default-src 'self'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data:",
+    "connect-src 'self' https: wss: ws://127.0.0.1:5173",
+  ].join('; ');
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (!isTrustedRendererUrl(details.url)) {
+      callback({ responseHeaders: details.responseHeaders });
+      return;
+    }
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+        'X-Content-Type-Options': ['nosniff'],
+        'Referrer-Policy': ['no-referrer'],
+        'X-Frame-Options': ['DENY'],
+      },
+    });
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1600,
@@ -318,8 +397,16 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
     },
   });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isTrustedRendererUrl(url)) event.preventDefault();
+  });
+  mainWindow.webContents.on('will-attach-webview', event => event.preventDefault());
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   if (!app.isPackaged) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173');
@@ -745,6 +832,16 @@ async function controlAgentTask(payload: { taskId: string; action: "pause" | "re
   });
 }
 
+async function submitAgentFeedback(payload: { taskId: string; helpful: boolean }) {
+  if (!payload || typeof payload.helpful !== "boolean") throw new Error("Feedback must be helpful or not helpful.");
+  validateCloudUuid(payload.taskId, "agent task ID");
+  return cloudApiRequest<any>("/api/agent/tasks/" + payload.taskId + "/feedback", {
+    method: "POST",
+    body: JSON.stringify({ helpful: payload.helpful }),
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
 async function getCloudProjectIndex(projectId: string) {
   validateCloudUuid(projectId, "cloud project ID");
   return cloudApiRequest<any>("/api/projects/" + projectId + "/index");
@@ -932,7 +1029,7 @@ async function checkForAppUpdates(): Promise<AppUpdateState> {
     return appUpdateState;
   }
 
-  if (updateCheckInFlight) return appUpdateState;
+  if (updateCheckInFlight || ['downloading', 'downloaded'].includes(appUpdateState.status)) return appUpdateState;
   updateCheckInFlight = true;
   broadcastUpdateState({ status: 'checking', error: undefined, message: 'Checking GitHub Releases…' });
 
@@ -1017,14 +1114,16 @@ function initializeAutoUpdates() {
     });
   });
 
-  // Check once shortly after launch and then every four hours.
+  // Check shortly after launch, then every five minutes. Installation still requires the user's click.
   const startupTimer = setTimeout(() => { void checkForAppUpdates(); }, 8_000);
   startupTimer.unref();
   const updateTimer = setInterval(() => { void checkForAppUpdates(); }, UPDATE_CHECK_INTERVAL_MS);
   updateTimer.unref();
+  powerMonitor.on('resume', () => { void checkForAppUpdates(); });
 }
 
 app.whenReady().then(() => {
+  installRendererSecurityPolicies();
   createWindow();
   initializeAutoUpdates();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
@@ -1032,7 +1131,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => { void disconnectRoblox(); });
 
-ipcMain.handle('app:get-state', async () => {
+registerTrustedIpcHandler('app:get-state', async () => {
   const settings = await readSettings();
   const files = settings.projectPath ? await projectFiles(settings.projectPath) : [];
   return {
@@ -1045,23 +1144,23 @@ ipcMain.handle('app:get-state', async () => {
   };
 });
 
-ipcMain.handle('cloud:state', () => getCloudState());
-ipcMain.handle('cloud:sign-in', async (_event, payload: { email: string; password: string }) => {
+registerTrustedIpcHandler('cloud:state', () => getCloudState());
+registerTrustedIpcHandler('cloud:sign-in', async (_event, payload: { email: string; password: string }) => {
   if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
     throw new Error('Enter your Rmango account email and password.');
   }
   return cloudSignIn(payload.email, payload.password);
 });
-ipcMain.handle('cloud:sign-up', async (_event, payload: { email: string; password: string; displayName?: string }) => {
+registerTrustedIpcHandler('cloud:sign-up', async (_event, payload: { email: string; password: string; displayName?: string }) => {
   if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
     throw new Error('Enter an email and password to create a Rmango account.');
   }
   return cloudSignUp(payload.email, payload.password, payload.displayName);
 });
-ipcMain.handle('cloud:sign-out', () => cloudSignOut());
-ipcMain.handle('cloud:models', () => getCloudModels());
+registerTrustedIpcHandler('cloud:sign-out', () => cloudSignOut());
+registerTrustedIpcHandler('cloud:models', () => getCloudModels());
 
-ipcMain.handle('project:open', async () => {
+registerTrustedIpcHandler('project:open', async () => {
   const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
   if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
   const root = picked.filePaths[0];
@@ -1069,31 +1168,32 @@ ipcMain.handle('project:open', async () => {
   await writeSettings({ ...settings, projectPath: root });
   return { canceled: false, path: root, files: await projectFiles(root) };
 });
-ipcMain.handle('project:upload-cloud', () => uploadCloudProject());
-ipcMain.handle('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
-ipcMain.handle('agent:tasks:list', (_event, projectId?: string) => listAgentTasks(projectId));
-ipcMain.handle('agent:tasks:get', (_event, taskId: string) => getAgentTask(taskId));
-ipcMain.handle('agent:tasks:create', (_event, payload: { projectId: string; conversationId?: string; taskText: string; profile: CloudProfile }) => createAgentTask(payload));
-ipcMain.handle('agent:tasks:control', (_event, payload: { taskId: string; action: "pause" | "resume" | "cancel" | "retry" }) => controlAgentTask(payload));
-ipcMain.handle('project:index:get', (_event, projectId: string) => getCloudProjectIndex(projectId));
-ipcMain.handle('project:index:start', (_event, projectId: string) => startCloudProjectIndex(projectId));
-ipcMain.handle('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
+registerTrustedIpcHandler('project:upload-cloud', () => uploadCloudProject());
+registerTrustedIpcHandler('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
+registerTrustedIpcHandler('agent:tasks:list', (_event, projectId?: string) => listAgentTasks(projectId));
+registerTrustedIpcHandler('agent:tasks:get', (_event, taskId: string) => getAgentTask(taskId));
+registerTrustedIpcHandler('agent:tasks:create', (_event, payload: { projectId: string; conversationId?: string; taskText: string; profile: CloudProfile }) => createAgentTask(payload));
+registerTrustedIpcHandler('agent:tasks:control', (_event, payload: { taskId: string; action: "pause" | "resume" | "cancel" | "retry" }) => controlAgentTask(payload));
+registerTrustedIpcHandler('agent:tasks:feedback', (_event, payload: { taskId: string; helpful: boolean }) => submitAgentFeedback(payload));
+registerTrustedIpcHandler('project:index:get', (_event, projectId: string) => getCloudProjectIndex(projectId));
+registerTrustedIpcHandler('project:index:start', (_event, projectId: string) => startCloudProjectIndex(projectId));
+registerTrustedIpcHandler('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
   if (!payload || (payload.decision !== "approve" && payload.decision !== "reject")) {
     throw new Error("A valid approve/reject decision is required.");
   }
   return reviewCloudProjectChange(payload.projectId, payload.changeId, payload.decision);
 });
-ipcMain.handle('project:download-cloud', (_event, projectId: string) => downloadCloudProjectZip(projectId));
-ipcMain.handle('project:clear', async () => {
+registerTrustedIpcHandler('project:download-cloud', (_event, projectId: string) => downloadCloudProjectZip(projectId));
+registerTrustedIpcHandler('project:clear', async () => {
   const settings = await readSettings();
   delete settings.projectPath;
   await writeSettings(settings);
   return { ok: true };
 });
 
-ipcMain.handle('mcp:connect', () => connectRoblox());
-ipcMain.handle('mcp:disconnect', () => disconnectRoblox());
-ipcMain.handle('mcp:state', async () => {
+registerTrustedIpcHandler('mcp:connect', () => connectRoblox());
+registerTrustedIpcHandler('mcp:disconnect', () => disconnectRoblox());
+registerTrustedIpcHandler('mcp:state', async () => {
   const session = await readCloudSession();
   return {
     connected: mcpAvailable(),
@@ -1103,13 +1203,13 @@ ipcMain.handle('mcp:state', async () => {
     studioId: selectedStudioId || null,
   };
 });
-ipcMain.handle('mcp:list-tools', () => ({
+registerTrustedIpcHandler('mcp:list-tools', () => ({
   all: connectedTools.map(tool => ({ name: tool.name, description: tool.description || '' })),
   readOnly: safeToolList().filter(tool => READ_ONLY_STUDIO_TOOLS.has(tool.name)).map(tool => tool.name),
   approvalRequired: safeToolList().filter(tool => APPROVAL_REQUIRED_STUDIO_TOOLS.has(tool.name)).map(tool => tool.name),
 }));
-ipcMain.handle('mcp:diagnostics', () => runDiagnostics());
-ipcMain.handle('studio:approval-result', (_event, response: { requestId: string; approved: boolean }) => {
+registerTrustedIpcHandler('mcp:diagnostics', () => runDiagnostics());
+registerTrustedIpcHandler('studio:approval-result', (_event, response: { requestId: string; approved: boolean }) => {
   const resolve = approvalResolvers.get(response.requestId);
   if (resolve) {
     approvalResolvers.delete(response.requestId);
@@ -1119,22 +1219,74 @@ ipcMain.handle('studio:approval-result', (_event, response: { requestId: string;
   return { ok: false };
 });
 
-ipcMain.handle('chat:load', async () => {
-  try { return JSON.parse(await fs.readFile(sessionPath(), 'utf8')) as ChatMessage[]; } catch { return []; }
-});
-ipcMain.handle('chat:save', async (_event, messages: ChatMessage[]) => {
+async function readEncryptedChatHistory(): Promise<ChatMessage[]> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Rmango will not save chat history in plain text.');
+  }
+  try {
+    const encrypted = await fs.readFile(chatHistoryPath(), 'utf8');
+    const parsed = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+    if (!Array.isArray(parsed)) throw new Error('Saved chat history has an invalid format.');
+    return parsed as ChatMessage[];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  // One-time migration of legacy plaintext history into Windows-protected storage.
+  try {
+    const legacy = JSON.parse(await fs.readFile(legacySessionPath(), 'utf8'));
+    if (Array.isArray(legacy)) {
+      await writeEncryptedChatHistory(legacy as ChatMessage[]);
+      await fs.rm(legacySessionPath(), { force: true });
+      return legacy as ChatMessage[];
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new Error('Could not safely migrate your old local chat history. The original file was left untouched.');
+    }
+  }
+  return [];
+}
+
+async function writeEncryptedChatHistory(messages: ChatMessage[]) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Rmango will not save chat history in plain text.');
+  }
   await fs.mkdir(userData(), { recursive: true });
-  const cleaned = messages.slice(-100).map(message => ({
-    ...message,
-    attachments: (message as any).attachments
-      ? (message as any).attachments.map(({ id, name, mimeType, kind, size }: any) => ({ id, name, mimeType, kind, size }))
-      : undefined,
-  }));
-  await fs.writeFile(sessionPath(), JSON.stringify(cleaned, null, 2), 'utf8');
-  return { ok: true };
+  const encrypted = safeStorage.encryptString(JSON.stringify(messages)).toString('base64');
+  await fs.writeFile(chatHistoryPath(), encrypted, { encoding: 'utf8', mode: 0o600 });
+}
+
+registerTrustedIpcHandler('chat:load', async () => readEncryptedChatHistory());
+registerTrustedIpcHandler('chat:save', async (_event, messages: ChatMessage[]) => {
+  if (!Array.isArray(messages) || messages.length > 100) {
+    throw new Error('Chat history must contain no more than 100 messages.');
+  }
+  const cleaned = messages.map(message => {
+    if (!message || !['user', 'assistant'].includes(message.role) || typeof message.content !== 'string') {
+      throw new Error('Chat history contains an invalid message.');
+    }
+    if (message.content.length > 100_000) throw new Error('A chat message exceeds the local storage limit.');
+    const attachments = Array.isArray(message.attachments) ? message.attachments.slice(0, 8).map(item => ({
+      id: String(item.id || '').slice(0, 100),
+      name: String(item.name || '').slice(0, 200),
+      mimeType: String(item.mimeType || '').slice(0, 100),
+      kind: item.kind === 'image' ? 'image' as const : 'file' as const,
+      size: Math.max(0, Math.min(Number(item.size) || 0, 15 * 1024 * 1024)),
+    })) : undefined;
+    return {
+      id: typeof message.id === 'string' ? message.id.slice(0, 100) : undefined,
+      role: message.role,
+      content: message.content,
+      createdAt: typeof message.createdAt === 'string' ? message.createdAt.slice(0, 40) : new Date().toISOString(),
+      modelProfile: message.modelProfile,
+      attachments,
+    };
+  });
+  await writeEncryptedChatHistory(cleaned);
+  return { ok: true, encrypted: true };
 });
 
-ipcMain.handle('cloud:send', async (_event, payload: {
+registerTrustedIpcHandler('cloud:send', async (_event, payload: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   attachments?: Attachment[];
   profile: CloudProfile;
@@ -1164,9 +1316,9 @@ ipcMain.handle('cloud:send', async (_event, payload: {
   });
 });
 
-ipcMain.handle('updates:get-state', () => appUpdateState);
-ipcMain.handle('updates:check', () => checkForAppUpdates());
-ipcMain.handle('updates:install', async () => {
+registerTrustedIpcHandler('updates:get-state', () => appUpdateState);
+registerTrustedIpcHandler('updates:check', () => checkForAppUpdates());
+registerTrustedIpcHandler('updates:install', async () => {
   if (!app.isPackaged || process.platform !== 'win32') {
     return { ok: false, message: 'Install updates from a packaged Windows build.' };
   }
@@ -1177,8 +1329,11 @@ ipcMain.handle('updates:install', async () => {
   return { ok: true, message: 'Restarting Rmango to install the update.' };
 });
 
-ipcMain.handle('app:open-external', async (_event, url: string) => {
-  if (typeof url !== 'string' || !/^https:\/\//i.test(url)) return { ok: false };
-  await shell.openExternal(url);
+registerTrustedIpcHandler('app:open-external', async (_event, rawUrl: string) => {
+  if (typeof rawUrl !== 'string' || rawUrl.length > 2_048) return { ok: false };
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { return { ok: false }; }
+  if (url.protocol !== 'https:' || url.username || url.password || !url.hostname) return { ok: false };
+  await shell.openExternal(url.toString());
   return { ok: true };
 });
