@@ -62,8 +62,17 @@ $leafInner = [System.Drawing.PointF[]]@(
 )
 $graphics.FillPolygon($leafHighlight, $leafInner)
 
+$iconBitmap = [System.Drawing.Bitmap]::new(
+  256,
+  256,
+  [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+)
+$iconGraphics = [System.Drawing.Graphics]::FromImage($iconBitmap)
+$iconGraphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+$iconGraphics.DrawImage($bitmap, 0, 0, 256, 256)
+
 $stream = [System.IO.MemoryStream]::new()
-$bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+$iconBitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
 $pngBytes = $stream.ToArray()
 $stream.Dispose()
 
@@ -85,6 +94,8 @@ $icoBytes = [byte[]]::new(22 + $pngBytes.Length)
 $target = Join-Path $PSScriptRoot "icon.ico"
 [System.IO.File]::WriteAllBytes($target, $icoBytes)
 
+$iconGraphics.Dispose()
+$iconBitmap.Dispose()
 $graphics.Dispose()
 $bitmap.Dispose()
 $background.Dispose()
