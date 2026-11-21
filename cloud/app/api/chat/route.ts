@@ -925,6 +925,17 @@ export async function POST(request: Request) {
           for await (const part of result.fullStream) {
             if (part.type === "text-delta" && part.text) { emit({ type: "text", text: part.text }); continue; }
             if (part.type === "start") {
+              emit({
+                type: "activity",
+                activity: {
+                  id: "workflow",
+                  name: "Task routing",
+                  detail: workflow.intent + " · " + workflow.complexityLabel + " request · " + workflow.mode + " workflow · " + workflow.risk + " action risk" +
+                    (workflow.domains.length ? " · " + workflow.domains.join(", ") : ""),
+                  status: "completed",
+                  ok: true,
+                },
+              });
               emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Started a request through the hosted AI Gateway.", status: "running", ok: false } });
               continue;
             }
