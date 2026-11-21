@@ -20,7 +20,7 @@ test("routes ordinary one-system coding to focused with a developer-capable mode
   const plan = run("Add a cooldown to this Roblox RemoteEvent handler.");
   assert.equal(plan.intent, "implementation");
   assert.equal(plan.level, "focused");
-  assert.equal(plan.modelProfile, "agent");
+  assert.equal(plan.modelProfile, "developer");
   assert.equal(plan.budget.minimumEvidenceBeforeEdits, 1);
 });
 
@@ -48,7 +48,8 @@ test("routes current documentation and benchmarking to research mode", () => {
   assert.equal(plan.level, "research");
   assert.equal(plan.intent, "research");
   assert.equal(plan.modelProfile, "think");
-  assert.equal(plan.budget.verificationDepth, "independent");
+  assert.equal(plan.budget.verificationDepth, "strong");
+  assert.equal(plan.budget.externalSourcesAvailable, false);
 });
 
 test("honors explicit model profile and manual intelligence-level overrides", () => {
@@ -86,4 +87,23 @@ test("increases context and verification budgets monotonically by level", () => 
     assert.ok(budgets[i].maxProjectFiles >= budgets[i - 1].maxProjectFiles);
     assert.ok(budgets[i].maxMemoryCharacters >= budgets[i - 1].maxMemoryCharacters);
   }
+});
+
+
+test("detects project-navigation questions from selected-project references", () => {
+  const plan = run("Explain how the inventory save system works in this project.", {
+    hasSelectedProject: true,
+  });
+  assert.equal(plan.intent, "project_navigation");
+  assert.equal(plan.budget.useProjectTools, true);
+});
+
+test("focused debugging selects the developer profile; deep debugging selects agent", () => {
+  const focused = run("Debug why this one function returns nil.");
+  const deep = run("Deep engineering investigation: debug the entire inventory and persistence architecture.", {
+    hasSelectedProject: true,
+    projectFileCount: 180,
+  });
+  assert.equal(focused.modelProfile, "developer");
+  assert.equal(deep.modelProfile, "agent");
 });

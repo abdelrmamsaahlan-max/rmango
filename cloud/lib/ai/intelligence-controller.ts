@@ -122,18 +122,22 @@ const BUDGETS: Record<IntelligenceLevel, Omit<IntelligenceBudget, "useProjectToo
     maxMemoryCharacters: 12_000,
     maxHypotheses: 3,
     minimumEvidenceBeforeEdits: 2,
-    verificationDepth: "independent",
+    verificationDepth: "strong",
     compareApproaches: true,
   },
 };
 
-function detectIntent(prompt: string): IntelligenceIntent {
+function detectIntent(prompt: string, hasSelectedProject = false): IntelligenceIntent {
   for (const item of INTENT_PATTERNS) {
     if (item.pattern.test(prompt)) {
       if (item.intent === "planning" && IMPLEMENTATION.test(prompt)) return "implementation";
       return item.intent;
     }
   }
+  if (
+    hasSelectedProject &&
+    /\\b(in this project|in my project|in this game|in my game|in this codebase|in the codebase|existing implementation|how is .* implemented|what does .* system do)\\b/i.test(prompt)
+  ) return "project_navigation";
   return "question";
 }
 
@@ -186,9 +190,10 @@ function automaticProfile(input: {
 }): HostedModelProfile {
   if (input.hasImage) return "vision";
   if (input.intent === "question" || input.level === "instant") return "fast";
-  if (input.intent === "research" && !input.hasSelectedProject) return "think";
-  if (input.level === "deep" || input.level === "research" || input.intent === "debugging" || input.intent === "implementation") {
-    return "agent";
+  if (input.intent === "research") return "think";
+  if (input.level === "deep" || input.level === "research") return "agent";
+  if (input.intent === "implementation" || input.intent === "debugging") {
+    return input.level === "advanced" ? "agent" : "developer";
   }
   if (input.intent === "planning" && !input.hasSelectedProject) return "think";
   return "developer";
@@ -201,7 +206,7 @@ export function createIntelligencePlan(input: IntelligenceControllerInput): Inte
   const hasSelectedProject = Boolean(input.hasSelectedProject);
   const projectFileCount = Math.max(0, Math.floor(input.projectFileCount || 0));
   const conversationMessageCount = Math.max(0, Math.floor(input.conversationMessageCount || 0));
-  const intent = detectIntent(prompt);
+  const intent = detectIntent(prompt, hasSelectedProject);
   const automatic = chooseAutomaticLevel({
     prompt, intent, hasImage, hasDocument, hasSelectedProject, projectFileCount, conversationMessageCount,
   });
@@ -229,6 +234,7 @@ export function createIntelligencePlan(input: IntelligenceControllerInput): Inte
       ...baseBudget,
       useProjectTools,
       useStudioTools,
+      externalSourcesAvailable: false,
     },
   };
 }
