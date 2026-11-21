@@ -3,6 +3,10 @@
 
 create extension if not exists pgcrypto;
 
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+grant usage on schema private to supabase_auth_admin;
+
 create table if not exists public.user_profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
@@ -26,6 +30,7 @@ end;
 $$;
 
 revoke all on function private.create_rmango_profile() from public, anon, authenticated;
+grant execute on function private.create_rmango_profile() to supabase_auth_admin;
 
 drop trigger if exists on_rmango_user_created on auth.users;
 create trigger on_rmango_user_created
