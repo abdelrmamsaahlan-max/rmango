@@ -98,7 +98,7 @@ Use supported formats based on the current Roblox Importer workflow (FBX, OBJ or
     instructions: `Design effects as a reusable, event-driven system with a clear start, lifetime and cleanup. Use Attachment + ParticleEmitter for emitted particles, Beam/Trail for attachment-driven paths, and appropriate NumberSequence/ColorSequence curves for size, transparency, color, drag, acceleration and lifetime. Use TweenService for bounded property transitions; cancel/clean up tweens and temporary instances. Use Debris or explicit lifecycle cleanup for short-lived effect instances. Keep gameplay-critical hit detection and damage separate from cosmetic client-side effects.
 
 For scene lighting, define a coherent global baseline (Lighting technology and time-of-day, Atmosphere, Sky, ColorCorrectionEffect, BloomEffect and DepthOfFieldEffect only where justified) and use local lights sparingly. Avoid excessive transparent overdraw, high-rate emitters, oversized particle counts and unbounded per-frame loops. Test effects on low-end/mobile hardware and maintain visibility/contrast in bright and dark scenes. Verify current property names and classes using live Studio schemas or Creator Hub documentation before editing; do not claim a visual effect is live until it has been inserted and inspected in Studio.`
-  }
+  },
   {
     id: "audio-and-music-systems",
     version: "1.0.0",
