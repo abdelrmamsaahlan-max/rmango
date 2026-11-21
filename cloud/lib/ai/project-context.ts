@@ -173,7 +173,12 @@ export async function loadSelectedProjectContext(
   let memoryCharactersRemaining = memoryCharacterLimit;
   const boundedMemories = selectedMemories.flatMap(memory => {
     if (memoryCharactersRemaining <= 0) return [];
-    const sourceMemory = memory.item;
+    const sourceMemory = memory.item as typeof memory.item & {
+      provenance?: string | null;
+      verification_status?: string | null;
+      confidence?: string | null;
+      revision_count?: number | null;
+    };
     const content = String(sourceMemory.content || "").slice(0, Math.min(1_500, memoryCharactersRemaining));
     memoryCharactersRemaining -= content.length;
     const updatedAt = String(sourceMemory.updated_at || "");

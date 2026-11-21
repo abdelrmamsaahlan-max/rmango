@@ -19,7 +19,6 @@ import { extractSupportedDocument } from "@/lib/ai/documents";
 import { createIntelligencePlan, getIntelligenceLevelLabel, type IntelligenceLevelSetting } from "@/lib/ai/intelligence-controller";
 import { classifyProviderFailure, formatProviderFailure } from "@/lib/ai/provider-errors";
 import { validateMemoryEvidence } from "@/lib/ai/memory-evidence";
-import { validateMemoryEvidence } from "@/lib/ai/memory-evidence";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
