@@ -809,15 +809,27 @@ export async function POST(request: Request) {
           content: { text: finalText },
           model_profile: profile,
         });
-        const conversationTitle = latestUserText.replace(/\\s+/g, " ").trim().slice(0, 72);
+        const conversationTitle = latestUserText
+          .replaceAll(String.fromCharCode(10), " ")
+          .replaceAll(String.fromCharCode(13), " ")
+          .replaceAll(String.fromCharCode(9), " ")
+          .split(" ")
+          .filter(Boolean)
+          .join(" ")
+          .slice(0, 72);
+        const { data: currentConversation } = await supabase.from("conversations")
+          .select("title")
+          .eq("id", conversationId)
+          .eq("owner_id", user.id)
+          .maybeSingle();
         const conversationUpdate = {
           updated_at: new Date().toISOString(),
-          ...(conversationTitle ? { title: conversationTitle } : {}),
+          ...(currentConversation?.title === "New chat" && conversationTitle
+            ? { title: conversationTitle }
+            : {}),
         };
-        let titleUpdate = supabase.from("conversations").update(conversationUpdate)
+        await supabase.from("conversations").update(conversationUpdate)
           .eq("id", conversationId).eq("owner_id", user.id);
-        if (conversationTitle) titleUpdate = titleUpdate.eq("title", "New chat");
-        await titleUpdate;
         await admin.rpc("complete_ai_request", {
           p_user_id: user.id,
           p_request_id: requestId,
