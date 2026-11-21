@@ -1153,3 +1153,18 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .task-trace-payload{width:100%;margin:2px 0 0 10px;padding:4px 6px;border:1px solid #304333;border-radius:5px;background:#101d14}
 .task-trace-payload summary{font-size:7px;color:#92ae8a}
 .task-trace-payload pre{max-height:180px;overflow:auto;margin:5px 0 0;color:#b5c7ae;font:7px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+
+.checkpoint-history{border-top:1px solid #344838;margin-top:8px;padding-top:12px;display:flex;flex-direction:column;gap:8px;min-height:70px}
+.checkpoint-history-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.checkpoint-history-heading>div{display:flex;flex-direction:column;gap:4px}
+.checkpoint-history-heading strong{font:8px var(--mono);letter-spacing:.8px;color:#e3c77f}
+.checkpoint-history-heading small{font-size:8px;line-height:1.45;color:#94a38f;max-width:430px}
+.checkpoint-empty{padding:8px;border:1px dashed #455841;border-radius:7px;color:#93a48d;font-size:8px;line-height:1.5}
+.checkpoint-card{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 9px;border:1px solid #354c38;border-radius:7px;background:#14251b}
+.checkpoint-card-copy{min-width:0;display:flex;flex-direction:column;gap:3px}
+.checkpoint-card-copy strong{font-size:9px;color:#e2ecd9}
+.checkpoint-card-copy small{font:7px var(--mono);color:#9caf91;overflow-wrap:anywhere}
+.checkpoint-card-copy span{font-size:7px;color:#82947c}
+.checkpoint-restore-button{height:25px;flex:none;display:flex;align-items:center;gap:5px;padding:0 8px;border:1px solid #7c6635;border-radius:6px;background:#38301e;color:#f3d98f;font-size:8px}
+.checkpoint-restore-button:hover:not(:disabled){background:#4a3b21;border-color:#c4a354;color:#fff0bd}
+.checkpoint-restore-button:disabled{opacity:.55;cursor:wait}

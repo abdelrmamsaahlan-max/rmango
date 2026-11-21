@@ -1240,6 +1240,21 @@ async function getCloudProjectChanges(projectId: string) {
   return cloudApiRequest<any>("/api/projects/" + projectId + "/changes");
 }
 
+async function getCloudProjectCheckpoints(projectId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId)) throw new Error("Invalid cloud project ID.");
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/checkpoints");
+}
+
+async function restoreCloudProjectCheckpoint(projectId: string, checkpointId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId) || !/^[0-9a-f-]{36}$/i.test(checkpointId)) {
+    throw new Error("Invalid cloud project or checkpoint ID.");
+  }
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/checkpoints/" + checkpointId + "/restore", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 async function reviewCloudProjectChange(projectId: string, changeId: string, decision: "approve" | "reject") {
   if (!/^[0-9a-f-]{36}$/i.test(projectId) || !/^[0-9a-f-]{36}$/i.test(changeId)) {
     throw new Error("Invalid cloud project or proposal ID.");
@@ -1752,6 +1767,9 @@ handleIpc('project:open', async () => {
 });
 handleIpc('project:upload-cloud', () => uploadCloudProject());
 handleIpc('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
+handleIpc('project:checkpoints', (_event, projectId: string) => getCloudProjectCheckpoints(projectId));
+handleIpc('project:checkpoint-restore', (_event, payload: { projectId: string; checkpointId: string }) =>
+  restoreCloudProjectCheckpoint(payload.projectId, payload.checkpointId));
 handleIpc('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
   if (!payload || (payload.decision !== "approve" && payload.decision !== "reject")) {
     throw new Error("A valid approve/reject decision is required.");

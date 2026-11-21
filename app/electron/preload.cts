@@ -27,6 +27,8 @@ const api = {
   clearProject: () => ipcRenderer.invoke('project:clear'),
   uploadCloudProject: () => ipcRenderer.invoke('project:upload-cloud'),
   getCloudProjectChanges: (projectId: string) => ipcRenderer.invoke('project:changes', projectId),
+  getCloudProjectCheckpoints: (projectId: string) => ipcRenderer.invoke('project:checkpoints', projectId),
+  restoreCloudProjectCheckpoint: (payload: { projectId: string; checkpointId: string }) => ipcRenderer.invoke('project:checkpoint-restore', payload),
   reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => ipcRenderer.invoke('project:review-change', payload),
   downloadCloudProject: (projectId: string) => ipcRenderer.invoke('project:download-cloud', projectId),
   onProjectUploadProgress: (callback: (event: any) => void) => {

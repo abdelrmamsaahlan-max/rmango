@@ -8,7 +8,8 @@ import {
   Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info
 } from 'lucide-react';
 import type {
-  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
+  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectCheckpoint,
+  CloudProjectChange,
   AgentActivity, CloudProfile, CloudState, CloudUsage, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
 } from './types';
 
@@ -120,6 +121,9 @@ function App() {
   const [chatReady, setChatReady] = useState(false);
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
   const [cloudProjectChanges, setCloudProjectChanges] = useState<CloudProjectChange[]>([]);
+  const [cloudProjectCheckpoints, setCloudProjectCheckpoints] = useState<CloudProjectCheckpoint[]>([]);
+  const [checkpointLoadError, setCheckpointLoadError] = useState<string | null>(null);
+  const [restoringCheckpointId, setRestoringCheckpointId] = useState<string | null>(null);
   const [projectChangesOpen, setProjectChangesOpen] = useState(false);
   const [reviewingChangeId, setReviewingChangeId] = useState<string | null>(null);
   const [uploadingProject, setUploadingProject] = useState(false);
@@ -258,6 +262,14 @@ function App() {
             const changeList = await window.rmango.getCloudProjectChanges(cloud.currentProjectId);
             setCloudProjectChanges(changeList.changes || []);
           } catch { /* Existing cloud project may no longer be accessible. */ }
+          try {
+            const checkpointList = await window.rmango.getCloudProjectCheckpoints(cloud.currentProjectId);
+            setCloudProjectCheckpoints(checkpointList.checkpoints || []);
+            setCheckpointLoadError(null);
+          } catch {
+            setCloudProjectCheckpoints([]);
+            setCheckpointLoadError("Recovery history is unavailable until the project-checkpoint migration is deployed.");
+          }
         }
         let restoredMessages = savedMessages || [];
         if (state.studioConnected) void refreshMcpState();
@@ -847,8 +859,16 @@ function App() {
   async function handleLoadProjectChanges() {
     if (!cloudProjectId) return;
     try {
-      const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
-      setCloudProjectChanges(result.changes || []);
+      const [changeResult, checkpointResult] = await Promise.all([
+        window.rmango.getCloudProjectChanges(cloudProjectId),
+        window.rmango.getCloudProjectCheckpoints(cloudProjectId).catch(error => {
+          setCheckpointLoadError(error instanceof Error ? error.message : 'Recovery history is unavailable.');
+          return { checkpoints: [] as CloudProjectCheckpoint[] };
+        }),
+      ]);
+      setCloudProjectChanges(changeResult.changes || []);
+      setCloudProjectCheckpoints(checkpointResult.checkpoints || []);
+      if (!checkpointLoadError) setCheckpointLoadError(null);
       setProjectChangesOpen(true);
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not load cloud project changes.');
@@ -864,8 +884,12 @@ function App() {
         changeId: change.id,
         decision,
       });
-      const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
+      const [result, checkpointResult] = await Promise.all([
+        window.rmango.getCloudProjectChanges(cloudProjectId),
+        window.rmango.getCloudProjectCheckpoints(cloudProjectId).catch(() => ({ checkpoints: [] as CloudProjectCheckpoint[] })),
+      ]);
       setCloudProjectChanges(result.changes || []);
+      setCloudProjectCheckpoints(checkpointResult.checkpoints || []);
       setToast(decision === 'approve'
         ? 'Approved and applied ' + change.relative_path + ' in the cloud workspace.'
         : 'Rejected the proposed change to ' + change.relative_path + '.');
@@ -873,12 +897,44 @@ function App() {
       setToast(error instanceof Error ? error.message : 'Could not review the proposed change.');
       if (cloudProjectId) {
         try {
-          const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
+          const [result, checkpointResult] = await Promise.all([
+            window.rmango.getCloudProjectChanges(cloudProjectId),
+            window.rmango.getCloudProjectCheckpoints(cloudProjectId).catch(() => ({ checkpoints: [] as CloudProjectCheckpoint[] })),
+          ]);
           setCloudProjectChanges(result.changes || []);
+          setCloudProjectCheckpoints(checkpointResult.checkpoints || []);
         } catch { /* Keep the previous review list visible. */ }
       }
     } finally {
       setReviewingChangeId(null);
+    }
+  }
+
+  async function handleRestoreProjectCheckpoint(checkpoint: CloudProjectCheckpoint) {
+    if (!cloudProjectId || restoringCheckpointId || checkpoint.status !== 'ready') return;
+    const file = checkpoint.files[0];
+    const description = file?.relative_path ? " for " + file.relative_path : "";
+    const confirmed = window.confirm(
+      "Restore the saved version" + description + "?\n\nRmango will first create another recovery point so this restore can be undone. If the live file changed since this checkpoint, restoration will be refused."
+    );
+    if (!confirmed) return;
+    setRestoringCheckpointId(checkpoint.id);
+    try {
+      const result = await window.rmango.restoreCloudProjectCheckpoint({
+        projectId: cloudProjectId,
+        checkpointId: checkpoint.id,
+      });
+      const updated = await window.rmango.getCloudProjectCheckpoints(cloudProjectId);
+      setCloudProjectCheckpoints(updated.checkpoints || []);
+      setToast(result.message || "The selected file checkpoint was restored. A new recovery point is available to undo the restore.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not restore this checkpoint.');
+      try {
+        const updated = await window.rmango.getCloudProjectCheckpoints(cloudProjectId);
+        setCloudProjectCheckpoints(updated.checkpoints || []);
+      } catch { /* Keep last known recovery history. */ }
+    } finally {
+      setRestoringCheckpointId(null);
     }
   }
 
@@ -1870,6 +1926,36 @@ function App() {
                 </div>
               )}
             </div>}
+          <section className="checkpoint-history">
+            <div className="checkpoint-history-heading">
+              <div><strong>RECOVERY POINTS</strong><small>Every approved cloud edit saves the previous file state. Restores create a new point so you can undo them.</small></div>
+              <button type="button" className="subtle-icon" title="Refresh recovery history" onClick={() => void window.rmango.getCloudProjectCheckpoints(cloudProjectId || '').then(result => { setCloudProjectCheckpoints(result.checkpoints || []); setCheckpointLoadError(null); }).catch(error => setCheckpointLoadError(error instanceof Error ? error.message : 'Could not refresh recovery history.'))}><RefreshCw size={13}/></button>
+            </div>
+            {checkpointLoadError && <div className="checkpoint-empty">{checkpointLoadError}</div>}
+            {!checkpointLoadError && cloudProjectCheckpoints.length === 0 && (
+              <div className="checkpoint-empty">No recovery points yet. Approving a cloud file change creates the first one automatically.</div>
+            )}
+            {cloudProjectCheckpoints.map(checkpoint => {
+              const file = checkpoint.files[0];
+              const restorable = checkpoint.status === 'ready';
+              return (
+                <div className="checkpoint-card" key={checkpoint.id}>
+                  <div className="checkpoint-card-copy">
+                    <strong>{file?.file_name || checkpoint.label}</strong>
+                    <small>{file?.relative_path || checkpoint.label}</small>
+                    <span>{displayTime(checkpoint.created_at)} · {checkpoint.checkpoint_kind.replaceAll('_', ' ')} · {checkpoint.status.replaceAll('_', ' ')}</span>
+                    {file && <span>{file.existed_before ? 'Previous file snapshot saved' : 'Checkpoint records a newly created file'}</span>}
+                  </div>
+                  {restorable && (
+                    <button type="button" className="checkpoint-restore-button" disabled={restoringCheckpointId === checkpoint.id} onClick={() => void handleRestoreProjectCheckpoint(checkpoint)}>
+                      {restoringCheckpointId === checkpoint.id ? <LoaderCircle size={12} className="spin"/> : <RotateCcw size={12}/>}
+                      Restore
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </section>
           <div className="modal-footer">
             <button type="button" className="cancel-button" onClick={() => setProjectChangesOpen(false)}>Close</button>
             {cloudProjectId && <button type="button" className="save-button" onClick={() => void handleDownloadCloudProject()}><Download size={13}/> Download ZIP</button>}

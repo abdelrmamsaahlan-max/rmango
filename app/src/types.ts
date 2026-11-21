@@ -53,6 +53,25 @@ export type CloudProjectChange = {
   created_at: string;
 };
 
+export type CloudProjectCheckpoint = {
+  id: string;
+  label: string;
+  checkpoint_kind: 'before_change' | 'before_restore';
+  status: 'creating' | 'ready' | 'restored' | 'conflict' | 'restore_conflict' | 'failed';
+  created_at: string;
+  restored_at: string | null;
+  source_change_id: string | null;
+  files: Array<{
+    id: string;
+    relative_path: string;
+    file_name: string;
+    existed_before: boolean;
+    original_sha256: string | null;
+    applied_sha256: string | null;
+    size_bytes: number;
+  }>;
+};
+
 export type ProjectUploadProgress = {
   projectId: string;
   completed: number;
@@ -225,6 +244,8 @@ declare global {
       clearProject: () => Promise<any>;
       uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; unchanged: number; removed: number; skipped: Array<{ name: string; reason: string }> }>;
       getCloudProjectChanges: (projectId: string) => Promise<{ project: { id: string; name: string }; changes: CloudProjectChange[] }>;
+      getCloudProjectCheckpoints: (projectId: string) => Promise<{ checkpoints: CloudProjectCheckpoint[] }>;
+      restoreCloudProjectCheckpoint: (payload: { projectId: string; checkpointId: string }) => Promise<{ ok: boolean; status: string; relativePath?: string; rollbackCheckpointId?: string; message?: string }>;
       reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => Promise<{ ok: boolean; status: string; relativePath?: string }>;
       downloadCloudProject: (projectId: string) => Promise<{ canceled: boolean; path?: string; sizeBytes?: number }>;
       onProjectUploadProgress: (callback: (event: ProjectUploadProgress) => void) => () => void;
