@@ -611,8 +611,14 @@ function App() {
     try {
       const result = await window.rmango.uploadCloudProject();
       setCloudProjectId(result.projectId);
-      const changeList = await window.rmango.getCloudProjectChanges(result.projectId);
+      await window.rmango.setCurrentCloudProjectId(result.projectId);
+      setCloudState(current => current ? { ...current, currentProjectId: result.projectId } : current);
+      const [changeList, projects] = await Promise.all([
+        window.rmango.getCloudProjectChanges(result.projectId),
+        window.rmango.getCloudProjects(),
+      ]);
       setCloudProjectChanges(changeList.changes || []);
+      setCloudProjects(projects);
       setToast('Uploaded ' + result.uploaded + ' source files to your private cloud project.' + (result.skipped.length ? ' ' + result.skipped.length + ' files were skipped.' : ''));
       if (result.skipped.length) {
         setActivities(current => [
