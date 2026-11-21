@@ -443,7 +443,7 @@ async function executeTaskWorkflow(
       "Use the project tools for uploaded source and memories. Use the Studio tools to inspect the live game and make real Studio changes.",
       "Improve RMango's future project guidance through verified project memories and task evaluation signals. Read relevant project memories before decisions; save only confirmed, durable project facts after evidence supports them.",
       "The learning loop records compact task verification metrics and optional helpful/not-helpful ratings. These are project-context and evaluation signals only; never claim to train, fine-tune or update foundation-model weights automatically.",
-      "Do not put full prompts, full file contents, credentials, secrets, or unrelated personal data into learning/evaluation records.
+      "Do not put full prompts, full file contents, credentials, secrets, or unrelated personal data into learning/evaluation records.",
       "Do not infer that an uploaded source snapshot matches the currently open place. Compare with live Studio state when connected.",
       "Choose the smallest relevant set of tools for each step. Read more context only when it changes an engineering decision.",
       "Always trace dependencies and client/server boundaries before editing shared or networked systems.",
