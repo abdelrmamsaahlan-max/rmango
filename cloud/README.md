@@ -62,9 +62,10 @@ Set in the Vercel project's server environment only:
 | Variable | Required | Purpose |
 |---|---:|---|
 | `SUPABASE_URL` | Yes | Rmango Supabase project URL |
-| `SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase public/publishable client key used by the server to validate user sessions |
+| `SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase public/publishable client key used by the server to validate user sessions and initialize the desktop OAuth client |
 | `SUPABASE_SECRET_KEY` | Yes | Recommended server-only Supabase secret API key (`sb_secret_...`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Legacy | Backward-compatible server-only key for existing deployments |
+| `RMANGO_PUBLIC_URL` | Recommended | Canonical HTTPS origin used for password-recovery redirects (defaults to `https://rmango-cloud.vercel.app`) |
 | `VERCEL_OIDC_TOKEN` | Automatic on Vercel | Authentication to AI Gateway; no static AI key |
 | `RMANGO_MODEL_FAST` | Optional | Admin-selected Gateway model ID for Rmango Fast |
 | `RMANGO_MODEL_DEVELOPER` | Optional | Admin-selected Gateway model ID for Rmango Developer |
@@ -113,7 +114,8 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 ## Current endpoints
 
 - `/api/health` — non-secret backend readiness state.
-- `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out` — Rmango accounts.
+- `/api/auth/config` — public Supabase URL/publishable key plus Google-provider status for the desktop OAuth client; never returns server secrets.
+- `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out`, `password-reset` — Rmango accounts.
 - `/api/models` — live model profiles and capability/price metadata.
 - `/api/chat` — authenticated streaming cloud chat and cloud agent tools.
 - `/api/projects` — account-owned cloud project index/create.
