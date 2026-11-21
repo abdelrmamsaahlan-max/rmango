@@ -44,6 +44,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Run password recovery redirect tests
+        run: npm run test:auth
+
       - name: Type-check cloud backend
         run: npm run typecheck
 
@@ -68,6 +71,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Run OAuth callback security tests
+        run: npm run test:auth
 
       - name: Type-check renderer and Electron
         run: npm run typecheck
