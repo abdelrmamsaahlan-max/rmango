@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import { z } from "zod";
 import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
-import { getSynapModel, resolveProfile, type ModelProfile } from "@/lib/ai/models";
+import { getWorkersAiModel, resolveProfile, type ModelProfile } from "@/lib/ai/models";
 import { optionalEnv } from "@/lib/env";
 import { isAllowedStudioTool } from "@/lib/studio-connector";
 import { formatSelectedProjectContext, loadSelectedProjectContext } from "@/lib/ai/project-context";
@@ -779,7 +779,7 @@ export async function POST(request: Request) {
   const requestMessages = messages;
   try {
     const result = streamText({
-      model: getSynapModel(choice.primary.id),
+      model: getWorkersAiModel(choice.primary.id),
       system: systemPrompt,
       messages: requestMessages,
       tools: { ...projectTools, ...studioTools },
@@ -832,7 +832,7 @@ export async function POST(request: Request) {
           p_request_id: requestId,
           p_model_profile: profile,
           p_model_id: actualModelId,
-          p_provider: "synap",
+          p_provider: "cloudflare-workers-ai",
           p_input_tokens: inputTokens,
           p_output_tokens: outputTokens,
           p_estimated_cost_usd: recordedCost,
