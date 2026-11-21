@@ -306,7 +306,7 @@ create or replace function public.reserve_ai_request(
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 declare
   v_user_id uuid := p_user_id;
   v_policy public.usage_policies%rowtype;
@@ -440,7 +440,7 @@ returns void
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 declare v_user_id uuid := p_user_id;
 begin
   if current_setting('request.jwt.claim.role', true) <> 'service_role' then raise exception 'service_role_required'; end if;
