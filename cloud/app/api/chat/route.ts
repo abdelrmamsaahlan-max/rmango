@@ -507,14 +507,20 @@ export async function POST(request: Request) {
         if (memoryType) query = query.eq("memory_type", memoryType);
         const { data, error } = await query;
         if (error) throw new Error("Could not read saved project memory: " + error.message);
-        return (data || []).map(item => ({
-          id: item.id,
-          type: item.memory_type,
-          title: item.title,
-          content: String(item.content || "").slice(0, 4_000),
-          sourceRef: item.source_ref,
-          updatedAt: item.updated_at,
-        }));
+        let remainingCharacters = 16_000;
+        return (data || []).flatMap(item => {
+          if (remainingCharacters <= 0) return [];
+          const content = String(item.content || "").slice(0, Math.min(1_500, remainingCharacters));
+          remainingCharacters -= content.length;
+          return [{
+            id: item.id,
+            type: item.memory_type,
+            title: item.title,
+            content,
+            sourceRef: item.source_ref,
+            updatedAt: item.updated_at,
+          }];
+        });
       },
     }),
     save_project_memory: tool({
