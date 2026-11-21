@@ -936,6 +936,18 @@ export async function POST(request: Request) {
     return new Response(activityStream, { status: 200, headers: responseHeaders });
   } catch (error) {
     await admin.rpc("cancel_ai_request", { p_user_id: user.id, p_request_id: requestId });
+    if (agentTaskId) {
+      const failedMessage = error instanceof Error ? error.message : "The cloud model request failed.";
+      await supabase.from("agent_tasks").update({
+        status: request.signal.aborted ? "cancelled" : "failed",
+        error: failedMessage.slice(0, 1_000),
+        updated_at: new Date().toISOString(),
+      }).eq("id", agentTaskId).eq("owner_id", user.id);
+      await recordAgentEvent(
+        request.signal.aborted ? "cancelled" : "failed",
+        request.signal.aborted ? "The user stopped the task." : "The model request could not be started: " + failedMessage,
+      );
+    }
     return NextResponse.json({
       error: error instanceof Error ? error.message : "The cloud model request failed.",
     }, { status: 502 });
