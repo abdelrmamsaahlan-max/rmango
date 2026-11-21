@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+
 const api = {
   getAppState: () => ipcRenderer.invoke('app:get-state'),
-  getSettings: () => ipcRenderer.invoke('settings:get'),
-  saveSettings: (settings: { provider: 'ollama' | 'anthropic' | 'openai'; model: string; apiKey?: string }) =>
-    ipcRenderer.invoke('settings:save', settings),
-  getLocalAiState: (model?: string) => ipcRenderer.invoke('local-ai:state', model),
-  pullLocalModel: (model: string) => ipcRenderer.invoke('local-ai:pull', model),
+  getCloudState: () => ipcRenderer.invoke('cloud:state'),
+  cloudSignIn: (credentials: { email: string; password: string }) => ipcRenderer.invoke('cloud:sign-in', credentials),
+  cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => ipcRenderer.invoke('cloud:sign-up', credentials),
+  cloudSignOut: () => ipcRenderer.invoke('cloud:sign-out'),
+  getCloudModels: () => ipcRenderer.invoke('cloud:models'),
   openProject: () => ipcRenderer.invoke('project:open'),
   clearProject: () => ipcRenderer.invoke('project:clear'),
   connectRoblox: () => ipcRenderer.invoke('mcp:connect'),
@@ -20,8 +22,16 @@ const api = {
   sendMessage: (payload: {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     attachments?: Array<{ name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string }>;
-    mode: string;
-  }) => ipcRenderer.invoke('chat:send', payload),
+    profile: CloudProfile;
+    projectId?: string;
+    conversationId?: string;
+    requestId?: string;
+  }) => ipcRenderer.invoke('cloud:send', payload),
+  onCloudChatDelta: (callback: (event: { requestId: string; delta: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { requestId: string; delta: string }) => callback(payload);
+    ipcRenderer.on('cloud:chat-delta', listener);
+    return () => ipcRenderer.removeListener('cloud:chat-delta', listener);
+  },
   onToolApproval: (callback: (request: any) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, request: any) => callback(request);
     ipcRenderer.on('studio:approval-request', listener);
