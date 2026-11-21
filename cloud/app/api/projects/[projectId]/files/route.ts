@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthErrorResponse } from "@/lib/supabase";
+import { indexCloudProjectFile } from "@/lib/ai/project-graph-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,18 +113,27 @@ export async function POST(request: Request, context: { params: Promise<{ projec
       sha256: createHash("sha256").update(bytes).digest("hex"),
       indexed_at: null,
     }, { onConflict: "project_id,relative_path" })
-    .select("id,relative_path,file_name,mime_type,size_bytes,created_at")
+    .select("id,relative_path,file_name,mime_type,size_bytes,created_at,indexed_at")
     .single();
 
   if (insertError || !file) {
     return NextResponse.json({ error: "Could not index the uploaded source file." }, { status: 503 });
   }
 
+  const graphIndex = await indexCloudProjectFile(supabase, file.id, relativePath, bytes.toString("utf8"));
   await supabase.from("projects")
     .update({ updated_at: new Date().toISOString() })
     .eq("id", projectId).eq("owner_id", user.id);
 
-  return NextResponse.json({ file }, { status: 201 });
+  return NextResponse.json({
+    file: { ...file, indexed_at: graphIndex.indexed ? new Date().toISOString() : null },
+    graphIndex: {
+      status: graphIndex.indexed ? "indexed" : "pending",
+      symbols: graphIndex.symbolCount,
+      dependencies: graphIndex.edgeCount,
+      reason: graphIndex.reason || null,
+    },
+  }, { status: 201 });
 }
 
 

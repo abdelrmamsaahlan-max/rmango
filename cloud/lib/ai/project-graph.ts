@@ -116,7 +116,7 @@ function addEdge(
 export function parseProjectSource(relativePath: string, source: string): ProjectFileGraph {
   const normalizedPath = relativePath.replace(/\\/g, "/");
   const extension = normalizedPath.slice(normalizedPath.lastIndexOf(".")).toLowerCase();
-  if (![".lua", ".luau", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(extension)) {
+  if (![".lua", ".luau", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".txt", ".md", ".json", ".csv", ".xml", ".yaml", ".yml", ".toml", ".css", ".html", ".py"].includes(extension)) {
     return { symbols: [], edges: [], skippedReason: "unsupported_file" };
   }
   if (new TextEncoder().encode(source).byteLength > MAX_SOURCE_BYTES) {

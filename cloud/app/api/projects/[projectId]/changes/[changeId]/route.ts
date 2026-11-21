@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthErrorResponse } from "@/lib/supabase";
+import { indexCloudProjectFile } from "@/lib/ai/project-graph-storage";
 
 export const runtime = "nodejs";
 
@@ -87,7 +88,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
   });
   if (storageError) return NextResponse.json({ error: "Could not apply the proposed file to private storage." }, { status: 503 });
 
-  const { error: indexError } = await supabase.from("project_files").upsert({
+  const { data: appliedFile, error: indexError } = await supabase.from("project_files").upsert({
     project_id: projectId,
     owner_id: user.id,
     storage_path: storagePath,
@@ -96,14 +97,31 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
     mime_type: mimeType,
     size_bytes: bytes.length,
     sha256: actualHash,
-    indexed_at: new Date().toISOString(),
-  }, { onConflict: "project_id,relative_path" });
-  if (indexError) return NextResponse.json({ error: "The file was stored but its project index could not be updated. Contact Rmango support." }, { status: 503 });
+    indexed_at: null,
+  }, { onConflict: "project_id,relative_path" }).select("id").single();
+  if (indexError || !appliedFile) {
+    return NextResponse.json({ error: "The file was stored but its project index could not be updated. Contact Rmango support." }, { status: 503 });
+  }
+
+  // Indexing is recoverable and must not make an already applied source change
+  // appear to be unreviewed. A missing graph migration leaves the index pending.
+  const graphIndex = await indexCloudProjectFile(supabase, appliedFile.id, proposal.relative_path, proposal.proposed_content);
 
   const { error: reviewError } = await supabase.from("project_changes")
     .update({ status: "approved", reviewed_at: new Date().toISOString() })
     .eq("id", changeId).eq("owner_id", user.id).eq("status", "pending");
   if (reviewError) return NextResponse.json({ error: "The file was applied but the proposal status could not be saved." }, { status: 503 });
 
-  return NextResponse.json({ ok: true, status: "approved", relativePath: proposal.relative_path, sha256: actualHash });
+  return NextResponse.json({
+    ok: true,
+    status: "approved",
+    relativePath: proposal.relative_path,
+    sha256: actualHash,
+    graphIndex: {
+      status: graphIndex.indexed ? "indexed" : "pending",
+      symbols: graphIndex.symbolCount,
+      dependencies: graphIndex.edgeCount,
+      reason: graphIndex.reason || null,
+    },
+  });
 }

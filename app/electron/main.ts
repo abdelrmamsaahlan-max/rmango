@@ -1330,6 +1330,7 @@ async function uploadCloudProject() {
     relative_path: string;
     sha256: string | null;
     size_bytes: number;
+    indexed_at: string | null;
   }> }>("/api/projects/" + projectId + "/files", {}, true);
   const remoteByPath = new Map((remote.files || []).map(file => [file.relative_path, file]));
   const allEntries = (await projectFiles(root)).filter(item => item.kind === "file");
@@ -1349,7 +1350,7 @@ async function uploadCloudProject() {
       const bytes = Buffer.from(content, "utf8");
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const existing = remoteByPath.get(relativePath);
-      if (existing?.sha256 === sha256) {
+      if (existing?.sha256 === sha256 && existing.indexed_at) {
         unchanged.push(relativePath);
       } else {
         await cloudApiRequest("/api/projects/" + projectId + "/files", {
