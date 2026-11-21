@@ -1,25 +1,74 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlertCircle, ArrowDown, ArrowRight, Bot, Box, Check, CheckCircle2,
-  ChevronDown, ChevronRight, CircleHelp, Code2, Command, Cpu, ExternalLink,
-  FileCode2, FileJson, FileText, Folder, FolderOpen, Gauge, Gamepad2, GitBranch,
-  HardDrive, History, Layers3, Link2, LoaderCircle, LockKeyhole, Menu, MessageSquare,
-  MoreHorizontal, Play, Plus, RefreshCw, Search, Send, Settings2, ShieldCheck,
-  Sparkles, Square, Terminal, Wrench, X, Zap
+  Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, CircleHelp,
+  Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
+  FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
+  MessageSquare, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send,
+  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X
 } from 'lucide-react';
-import type { AppState, ChatMessage, ProjectFile, Settings } from './types';
+import type {
+  AIProvider, AppState, AttachmentPayload, ChatAttachment, ChatMessage,
+  LocalAiState, ProjectFile, Settings, StudioApprovalRequest
+} from './types';
 
 type ActivityItem = { name: string; detail: string; ok: boolean };
+type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
 
 const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-function IconForFile({ file }: { file: ProjectFile }) {
+function MangoMark({ size = 34, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 64 64" fill="none" role="img" aria-label="Rmango mango mark">
+      <defs>
+        <linearGradient id="mango-body" x1="12" y1="8" x2="53" y2="57" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFE36C"/><stop offset=".52" stopColor="#FFC43F"/><stop offset="1" stopColor="#EE941E"/>
+        </linearGradient>
+        <linearGradient id="mango-leaf" x1="36" y1="4" x2="58" y2="23" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#B7E87B"/><stop offset="1" stopColor="#4A9B4B"/>
+        </linearGradient>
+      </defs>
+      <path d="M34.6 13.3C27.8 7.7 17.9 11.1 12.7 18.1 5.4 27.7 9.2 43.7 18.2 52.3c7.3 7 17.9 5.6 25.2-1.9 7.6-7.8 11.2-20.1 6.5-29.1-3-5.7-8.6-7.2-15.3-8Z" fill="url(#mango-body)"/>
+      <path d="M34.8 13.6c5.2-6.3 12.7-8.8 20.4-6.1-2.3 8.7-8.6 13.5-17.6 13.2-2.6-.1-4.7-1.8-5.2-4.2-.3-1 .4-2 2.4-2.9Z" fill="url(#mango-leaf)"/>
+      <path d="M35.5 16.8c4.4-2.4 8.6-4.4 14-6.2" stroke="#286F3D" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M19 23.4c2.2-4.5 5.5-6.9 9.1-7.8" stroke="#FFF0A9" strokeWidth="3" strokeLinecap="round" opacity=".8"/>
+      <path d="M16.7 35c.1 5.3 2.5 10 6.2 13" stroke="#F9A829" strokeWidth="1.4" strokeLinecap="round" opacity=".55"/>
+    </svg>
+  );
+}
+
+function FileGlyph({ file }: { file: ProjectFile }) {
   if (file.kind === 'folder') return <Folder size={14} className="file-icon folder-icon" />;
   const ext = file.name.split('.').pop()?.toLowerCase();
-  if (['lua', 'luau'].includes(ext || '')) return <FileCode2 size={14} className="file-icon lua-icon" />;
+  if (['lua', 'luau', 'ts', 'tsx', 'js'].includes(ext || '')) return <FileCode2 size={14} className="file-icon code-icon" />;
   if (ext === 'json') return <FileJson size={14} className="file-icon json-icon" />;
   return <FileText size={14} className="file-icon" />;
+}
+
+function encodeTextBase64(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) binary += String.fromCharCode(...bytes.subarray(i, i + step));
+  return btoa(binary);
+}
+
+function readDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read ' + file.name + '.'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  });
+}
+
+function inferMimeType(file: File) {
+  if (file.type) return file.type;
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  const textExts = ['lua', 'luau', 'txt', 'md', 'csv', 'toml', 'yaml', 'yml', 'js', 'jsx', 'ts', 'tsx', 'css', 'html', 'xml'];
+  if (ext === 'json') return 'application/json';
+  if (textExts.includes(ext || '')) return 'text/plain';
+  return 'application/octet-stream';
 }
 
 function App() {
@@ -30,33 +79,39 @@ function App() {
   const [studioTools, setStudioTools] = useState<string[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState('');
-  const [diagnosticResult, setDiagnosticResult] = useState<string>('');
-  const [provider, setProvider] = useState<'anthropic' | 'openai'>('anthropic');
-  const [model, setModel] = useState('claude-fable-5-2');
+  const [diagnosticResult, setDiagnosticResult] = useState('');
+  const [provider, setProvider] = useState<AIProvider>('ollama');
+  const [model, setModel] = useState('qwen3.5:4b');
   const [apiKey, setApiKey] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [search, setSearch] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [localAi, setLocalAi] = useState<LocalAiState | null>(null);
+  const [checkingLocalAi, setCheckingLocalAi] = useState(false);
+  const [pullingModel, setPullingModel] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     Promise.all([window.rmango.getAppState(), window.rmango.getSettings(), window.rmango.loadMessages()])
-      .then(([state, savedSettings, savedMessages]) => {
+      .then(async ([state, savedSettings, savedMessages]) => {
         setAppState(state);
         setProjectFiles(state.projectFiles || []);
         setSettings(savedSettings);
         setProvider(savedSettings.provider);
         setModel(savedSettings.model);
         setMessages(savedMessages || []);
-        if (state.projectPath) {
-          // The persisted path is reflected in the workspace; the file tree refreshes when the user reopens it.
-        }
+        if (savedSettings.provider === 'ollama') setLocalAi(await window.rmango.getLocalAiState(savedSettings.model));
         if (state.studioConnected) void refreshMcpState();
       })
       .catch(() => setToast('Could not read local app state. Restart Rmango and try again.'));
@@ -64,7 +119,7 @@ function App() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, busy]);
+  }, [messages, busy, pendingApproval]);
 
   useEffect(() => {
     if (messages.length) void window.rmango.saveMessages(messages);
@@ -72,14 +127,55 @@ function App() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(''), 3600);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setToast(''), 4200);
+    return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => window.rmango.onToolApproval(request => {
+    setPendingApproval(request);
+    setApprovalBusy(false);
+  }), []);
 
   async function refreshMcpState() {
     const state = await window.rmango.getMcpState();
     setStudioTools(state.tools || []);
     setAppState(prev => prev ? { ...prev, studioConnected: state.connected, studioToolCount: state.toolCount } : prev);
+  }
+
+  async function refreshLocalAi() {
+    setCheckingLocalAi(true);
+    try {
+      const state = await window.rmango.getLocalAiState(model);
+      setLocalAi(state);
+      if (state.running && state.modelInstalled) setToast('Local AI is ready. Your prompts stay on this computer.');
+      else if (state.running) setToast('Ollama is running. Download the selected model to start chatting.');
+      else setToast('Ollama is not running yet. Install the local runtime first.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not check local AI.');
+    } finally {
+      setCheckingLocalAi(false);
+    }
+  }
+
+  async function handlePullModel() {
+    if (!localAi?.running) {
+      setToast('Install and open Ollama first. Rmango will then download the model locally.');
+      return;
+    }
+    setPullingModel(true);
+    try {
+      const result = await window.rmango.pullLocalModel(model);
+      const nextSettings = await window.rmango.getSettings();
+      const state = await window.rmango.getLocalAiState(model);
+      setSettings(nextSettings);
+      setProvider('ollama');
+      setLocalAi(state);
+      setToast(result.message);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not download the local model.');
+    } finally {
+      setPullingModel(false);
+    }
   }
 
   async function handleConnect() {
@@ -88,7 +184,7 @@ function App() {
       const result = await window.rmango.connectRoblox();
       if (result.ok) {
         await refreshMcpState();
-        setToast(`Connected to Roblox Studio · ${result.toolCount} tools discovered`);
+        setToast('Connected to Roblox Studio · ' + result.toolCount + ' tools discovered');
       } else {
         setToast(result.error || 'Could not connect to Roblox Studio.');
       }
@@ -118,7 +214,7 @@ function App() {
     setDiagnosticResult('');
     try {
       const result = await window.rmango.runDiagnostics();
-      const report = (result.checks || []).map((check: any) => `${check.ok ? '✓' : '×'} ${check.name}\n${check.detail}`).join('\n\n');
+      const report = (result.checks || []).map((check: any) => (check.ok ? '✓ ' : '× ') + check.name + '\n' + check.detail).join('\n\n');
       setDiagnosticResult(report || result.error || 'No diagnostic tools were available.');
       setActivities((result.checks || []).map((check: any) => ({ name: check.name, detail: check.ok ? 'Studio diagnostic completed' : check.detail, ok: check.ok })));
       setToast(result.ok ? 'Studio diagnostics completed.' : 'Diagnostics completed with warnings.');
@@ -133,12 +229,17 @@ function App() {
     event.preventDefault();
     setSavingSettings(true);
     try {
-      const result = await window.rmango.saveSettings({ provider, model, apiKey: apiKey.trim() || undefined });
+      const result = await window.rmango.saveSettings({
+        provider,
+        model,
+        apiKey: provider === 'ollama' ? undefined : apiKey.trim() || undefined,
+      });
       const next = await window.rmango.getSettings();
       setSettings(next);
       setApiKey('');
+      if (provider === 'ollama') setLocalAi(await window.rmango.getLocalAiState(model));
       setSettingsOpen(false);
-      setToast(result.message || (result.keySaved ? 'AI settings saved securely.' : 'Model settings saved.'));
+      setToast(result.message || 'Settings saved.');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not save settings.');
     } finally {
@@ -146,23 +247,104 @@ function App() {
     }
   }
 
+  async function addFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList);
+    if (attachments.length + files.length > 8) {
+      setToast('You can attach up to 8 files per message.');
+      return;
+    }
+    const allowedTextExtensions = new Set([
+      'lua', 'luau', 'txt', 'md', 'json', 'csv', 'xml', 'yaml', 'yml',
+      'toml', 'js', 'jsx', 'ts', 'tsx', 'css', 'html',
+    ]);
+    const next: PendingAttachment[] = [];
+    for (const file of files) {
+      const mimeType = inferMimeType(file);
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      const isImage = /^image\/(png|jpeg|webp|gif)$/i.test(mimeType);
+      const isText = allowedTextExtensions.has(ext) && (/^text\/|application\/json/i.test(mimeType) || mimeType === 'application/octet-stream');
+      if (!isImage && !isText) {
+        setToast('Unsupported file: ' + file.name + '. Add an image or a text/code file.');
+        continue;
+      }
+      const maxBytes = isImage ? 8 * 1024 * 1024 : 512 * 1024;
+      if (file.size > maxBytes) {
+        setToast(file.name + ' is too large. Images: 8 MB max; text files: 512 KB max.');
+        continue;
+      }
+      try {
+        if (isImage) {
+          const dataUrl = await readDataUrl(file);
+          next.push({
+            id: crypto.randomUUID(), name: file.name, mimeType, kind: 'image', size: file.size,
+            data: dataUrl.split(',')[1] || '', previewUrl: dataUrl,
+          });
+        } else {
+          next.push({
+            id: crypto.randomUUID(), name: file.name,
+            mimeType: mimeType === 'application/octet-stream' ? 'text/plain' : mimeType,
+            kind: 'file', size: file.size, data: encodeTextBase64(await file.text()),
+          });
+        }
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : 'Could not attach ' + file.name + '.');
+      }
+    }
+    if (next.length) {
+      setAttachments(current => [...current, ...next]);
+      setToast(next.length + (next.length === 1 ? ' attachment added.' : ' attachments added.'));
+    }
+  }
+
   async function sendMessage(content = input) {
     const trimmed = content.trim();
-    if (!trimmed || busy) return;
-    const nextMessages: ChatMessage[] = [...messages, { role: 'user', content: trimmed, createdAt: timeNow() }];
+    if ((!trimmed && attachments.length === 0) || busy) return;
+    if (provider === 'ollama' && (!localAi?.running || !localAi.modelInstalled)) {
+      setToast(!localAi?.running ? 'Set up Ollama in Settings before chatting.' : 'Download the local model in Settings before chatting.');
+      setSettingsOpen(true);
+      return;
+    }
+    const pending = [...attachments];
+    const shownAttachments: ChatAttachment[] = pending.map(({ id, name, mimeType, kind, size, previewUrl }) => ({
+      id, name, mimeType, kind, size, previewUrl,
+    }));
+    const userContent = trimmed || 'Please inspect the attached files and images.';
+    const nextMessages: ChatMessage[] = [
+      ...messages,
+      { role: 'user', content: userContent, createdAt: timeNow(), attachments: shownAttachments },
+    ];
     setMessages(nextMessages);
     setInput('');
+    setAttachments([]);
     setBusy(true);
     try {
-      const result = await window.rmango.sendMessage({ messages: nextMessages.map(({ role, content: text }) => ({ role, content: text })), mode: 'agent' });
+      const result = await window.rmango.sendMessage({
+        messages: nextMessages.map(({ role, content: text }) => ({ role, content: text })),
+        attachments: pending.map(({ name, mimeType, kind, size, data }) => ({ name, mimeType, kind, size, data })),
+        mode: 'agent',
+      });
       setActivities(result.activity || []);
       setMessages(current => [...current, { role: 'assistant', content: result.content, createdAt: timeNow() }]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Something went wrong while contacting the model.';
-      setMessages(current => [...current, { role: 'assistant', content: `I couldn't complete that request.\n\n${message}`, createdAt: timeNow() }]);
+      const message = error instanceof Error ? error.message : 'Something went wrong while contacting the local model.';
+      setMessages(current => [...current, { role: 'assistant', content: 'I could not complete that request.\n\n' + message, createdAt: timeNow() }]);
+      if (pending.length) setAttachments(current => [...pending, ...current].slice(0, 8));
     } finally {
       setBusy(false);
       composerRef.current?.focus();
+    }
+  }
+
+  async function respondToApproval(approved: boolean) {
+    if (!pendingApproval || approvalBusy) return;
+    setApprovalBusy(true);
+    try {
+      await window.rmango.respondToolApproval(pendingApproval.requestId, approved);
+      setToast(approved ? 'Approved. Rmango is sending the action to Roblox Studio.' : 'Action denied. Nothing was changed by that request.');
+      setPendingApproval(null);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not submit the approval response.');
+      setApprovalBusy(false);
     }
   }
 
@@ -173,165 +355,395 @@ function App() {
     }
   }
 
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    if (event.target.files?.length) void addFiles(event.target.files);
+    event.target.value = '';
+  }
+
+  function openFilePicker(imagesOnly = false) {
+    if (!fileInputRef.current) return;
+    fileInputRef.current.accept = imagesOnly
+      ? 'image/png,image/jpeg,image/webp,image/gif'
+      : 'image/png,image/jpeg,image/webp,image/gif,.lua,.luau,.txt,.md,.json,.csv,.xml,.yaml,.yml,.toml,.js,.jsx,.ts,.tsx,.css,.html';
+    fileInputRef.current.click();
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    if (event.dataTransfer.files?.length) void addFiles(event.dataTransfer.files);
+  }
+
   const filteredFiles = useMemo(() => {
     if (!search.trim()) return projectFiles;
-    const q = search.toLowerCase();
-    return projectFiles.filter(file => file.name.toLowerCase().includes(q));
+    const query = search.toLowerCase();
+    return projectFiles.filter(file => file.name.toLowerCase().includes(query));
   }, [projectFiles, search]);
 
-  const providerLabel = settings?.provider === 'openai' ? 'OpenAI' : 'Anthropic';
-  const modelLabel = settings?.model || 'No model selected';
   const studioConnected = appState?.studioConnected ?? false;
+  const localReady = Boolean(localAi?.running && localAi.modelInstalled);
+  const localStatus = !localAi?.running ? 'Runtime not found' : localAi.modelInstalled ? 'Model ready' : 'Model not downloaded';
 
   const quickPrompts = [
-    { icon: <Search size={14}/>, label: 'Inspect my game', prompt: 'Inspect my currently open Roblox game. Start by checking the connected Studio instance and state, then summarize the project structure and the most important systems you can identify. Do not make changes.' },
-    { icon: <Code2 size={14}/>, label: 'Review my scripts', prompt: 'Review the scripts in my open Roblox Studio project. Search for important scripts, inspect the main game systems, and report architecture risks, bugs, and the highest-impact improvements. Do not edit anything.' },
-    { icon: <Layers3 size={14}/>, label: 'Plan a game system', prompt: 'Help me design a production-ready Roblox game system. Ask what game and system I am building if it is not clear, then give me a modular implementation plan with server/client responsibilities and test cases.' },
+    {
+      icon: <Search size={15}/>, label: 'Inspect my game', detail: 'Map the place structure and current systems',
+      prompt: 'Inspect my currently open Roblox game. Identify the experience and place, map the DataModel hierarchy, find important scripts and report the state of the game. Do not make changes yet.',
+    },
+    {
+      icon: <Code2 size={15}/>, label: 'Review my scripts', detail: 'Find bugs and architecture issues',
+      prompt: 'Review the scripts in my open Roblox Studio project. Search the important systems, inspect their dependencies, and report bugs and high-impact improvements. Do not edit yet.',
+    },
+    {
+      icon: <Layers3 size={15}/>, label: 'Plan a map', detail: 'Design a detailed Roblox map in stages',
+      prompt: 'Help me design a high-quality Roblox map. First inspect the current place and its scale. Then propose a detailed map layout with landmarks, routes, gameplay areas, spawn points, materials, lighting and decoration. Ask me to approve the plan before creating anything.',
+    },
   ];
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      onDragOver={event => { event.preventDefault(); setDragActive(true); }}
+      onDragLeave={event => { if (event.currentTarget === event.target) setDragActive(false); }}
+      onDrop={handleDrop}
+    >
       <header className="topbar">
         <div className="brand-wrap">
-          <div className="brand-mark"><span>R</span><i /></div>
+          <div className="brand-tile"><MangoMark size={32}/></div>
           <span className="brand-name">rmango</span>
-          <span className="brand-beta">EARLY ACCESS</span>
+          <span className="brand-version">STUDIO AI</span>
         </div>
-        <div className="topbar-divider" />
+        <div className="topbar-divider"/>
         <div className="workspace-crumb"><Gamepad2 size={15}/><span>Roblox workspace</span><ChevronDown size={13}/></div>
-        <div className="topbar-spacer" />
-        <div className={`connection-pill ${studioConnected ? 'connected' : ''}`}>
-          <span className="status-dot" />
-          {studioConnected ? 'Studio connected' : 'Studio offline'}
+        <div className="topbar-spacer"/>
+        <button className={'runtime-pill ' + (localReady ? 'ready' : '')} onClick={() => setSettingsOpen(true)}>
+          <span className="runtime-dot"/>{localReady ? 'LOCAL AI READY' : 'LOCAL AI SETUP'}
+        </button>
+        <div className={'connection-pill ' + (studioConnected ? 'connected' : '')}>
+          <span className="status-dot"/>{studioConnected ? 'Studio connected' : 'Studio offline'}
         </div>
-        <button className="icon-button top-icon" title="Help" onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}><CircleHelp size={17}/></button>
+        <button className="icon-button top-icon" title="Roblox MCP help" onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}><CircleHelp size={17}/></button>
         <button className="top-settings" onClick={() => setSettingsOpen(true)}><Settings2 size={15}/> Settings</button>
-        <div className="avatar">R</div>
+        <div className="avatar"><MangoMark size={25}/></div>
       </header>
 
       <div className="workspace-layout">
         <nav className="activity-rail">
-          <button className="rail-button active" title="Workspace"><Layers3 size={18}/></button>
+          <button className="rail-button active" title="Workspace"><Bot size={18}/></button>
           <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
-          <button className="rail-button" title="Tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
-          <div className="rail-spacer" />
+          <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
+          <div className="rail-spacer"/>
           <button className="rail-button" title="Settings" onClick={() => setSettingsOpen(true)}><Settings2 size={18}/></button>
         </nav>
 
         <aside className="left-sidebar">
-          <div className="sidebar-heading"><span>WORKSPACE</span><button className="subtle-icon" title="More"><MoreHorizontal size={16}/></button></div>
+          <div className="sidebar-heading"><span>WORKSPACE</span><button className="subtle-icon" title="Workspace menu"><MoreHorizontal size={16}/></button></div>
           <div className="project-card">
             <div className="project-icon"><Gamepad2 size={17}/></div>
-            <div className="project-details"><strong>{appState?.projectPath ? appState.projectPath.split(/[\\/]/).filter(Boolean).pop() : 'No project open'}</strong><span>{appState?.projectPath ? 'Local project folder' : 'Choose a folder to begin'}</span></div>
+            <div className="project-details">
+              <strong>{appState?.projectPath ? appState.projectPath.split(/[\\/]/).filter(Boolean).pop() : 'No project open'}</strong>
+              <span>{appState?.projectPath ? 'Local project folder' : 'Choose a folder to begin'}</span>
+            </div>
             <button className="subtle-icon" title="Open project folder" onClick={() => void handleOpenProject()}><FolderOpen size={15}/></button>
           </div>
           <div className="section-row"><span>PROJECT EXPLORER</span><button className="subtle-icon" onClick={() => void handleOpenProject()} title="Open folder"><Plus size={14}/></button></div>
-          {appState?.projectPath ? <div className="project-path" title={appState.projectPath}>{appState.projectPath}</div> : <div className="empty-explorer"><FolderOpen size={21}/><span>No project folder selected</span><button onClick={() => void handleOpenProject()}>Open folder</button></div>}
+          {appState?.projectPath
+            ? <div className="project-path" title={appState.projectPath}>{appState.projectPath}</div>
+            : <div className="empty-explorer"><FolderOpen size={22}/><span>No project folder selected</span><button onClick={() => void handleOpenProject()}>Open folder</button></div>}
           {projectFiles.length > 0 && <>
-            <div className="file-search"><Search size={13}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter files" /></div>
+            <div className="file-search"><Search size={13}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Filter files"/></div>
             <div className="file-tree">
-              {filteredFiles.slice(0, 70).map((file, index) => <div className={`file-row ${file.kind === 'folder' ? 'folder-row' : ''}`} key={`${file.path}-${index}`}><IconForFile file={file}/><span>{file.name}</span></div>)}
+              {filteredFiles.slice(0, 80).map((file, index) =>
+                <div className={'file-row ' + (file.kind === 'folder' ? 'folder-row' : '')} key={file.path + '-' + index}>
+                  <FileGlyph file={file}/><span>{file.name}</span>
+                </div>
+              )}
               {filteredFiles.length === 0 && <div className="small-empty">No matching files</div>}
             </div>
           </>}
           <div className="sidebar-bottom">
-            <div className="section-row"><span>CONNECTIONS</span><span className={`tiny-status ${studioConnected ? 'on' : ''}`}/></div>
-            <div className="integration-row"><div className="integration-icon roblox"><Gamepad2 size={14}/></div><div><strong>Roblox Studio</strong><span>{studioConnected ? `${studioTools.length} read tools ready` : 'Not connected'}</span></div><button className="subtle-icon" title={studioConnected ? 'Disconnect' : 'Connect'} onClick={() => studioConnected ? void handleDisconnect() : void handleConnect()}>{studioConnected ? <Check size={14}/> : <Link2 size={14}/>}</button></div>
-            <div className="integration-row"><div className="integration-icon blender"><Box size={14}/></div><div><strong>Blender</strong><span>Coming in a later build</span></div><span className="soon-tag">SOON</span></div>
+            <div className="section-row"><span>CONNECTIONS</span><span className={'tiny-status ' + (studioConnected ? 'on' : '')}/></div>
+            <div className="integration-row">
+              <div className="integration-icon roblox"><Gamepad2 size={14}/></div>
+              <div><strong>Roblox Studio</strong><span>{studioConnected ? studioTools.length + ' tools available' : 'Not connected'}</span></div>
+              <button className="subtle-icon" title={studioConnected ? 'Disconnect' : 'Connect'} onClick={() => studioConnected ? void handleDisconnect() : void handleConnect()}>{studioConnected ? <Check size={14}/> : <Link2 size={14}/>}</button>
+            </div>
+            <div className="integration-row">
+              <div className="integration-icon local"><Cpu size={14}/></div>
+              <div><strong>Ollama Local AI</strong><span>{localStatus}</span></div>
+              <button className="subtle-icon" title="Check local AI" onClick={() => void refreshLocalAi()}><RefreshCw size={13}/></button>
+            </div>
           </div>
         </aside>
 
         <main className="main-panel">
           <div className="main-toolbar">
-            <div className="tab-active"><MessageSquare size={14}/> Agent chat <span className="tab-close">×</span></div>
-            <div className="toolbar-actions"><span className="model-chip"><Sparkles size={12}/>{modelLabel}</span><button className="subtle-icon" title="Toggle activity panel" onClick={() => setRightPanelOpen(v => !v)}><Menu size={16}/></button></div>
+            <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">LOCAL-FIRST</span></div>
+            <div className="toolbar-actions">
+              <span className="model-chip"><Sparkles size={12}/>{provider === 'ollama' ? model : (settings?.model || model)}</span>
+              <button className="subtle-icon" title="Toggle inspector" onClick={() => setRightPanelOpen(value => !value)}><Menu size={16}/></button>
+            </div>
           </div>
+
           <div className="chat-scroll">
             <div className="chat-content">
-              {messages.length === 0 ? <div className="welcome-block">
-                <div className="welcome-orb"><div className="brand-mark large"><span>R</span><i /></div><div className="orb-spark spark-one"/><div className="orb-spark spark-two"/><div className="orb-spark spark-three"/></div>
-                <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX DEVELOPMENT AGENT <span className="eyebrow-line"/></div>
-                <h1>What are we <em>building</em><br/>today?</h1>
-                <p>Tell Rmango what you want to create. I can inspect your connected Studio session, understand your scripts, and help architect your next game feature.</p>
-                <div className="quick-grid">
-                  {quickPrompts.map(item => <button className="quick-card" key={item.label} onClick={() => void sendMessage(item.prompt)}><span className="quick-icon">{item.icon}</span><span>{item.label}</span><ArrowRight size={14} className="quick-arrow"/></button>)}
-                </div>
-                {!settings?.keyConfigured && <button className="setup-nudge" onClick={() => setSettingsOpen(true)}><LockKeyhole size={14}/> Add an AI API key in Settings to start chatting <ArrowRight size={13}/></button>}
-              </div> : <div className="message-list">
-                {messages.map((message, index) => <div className={`message-row ${message.role}`} key={`${message.createdAt}-${index}`}>
-                  <div className={`message-avatar ${message.role}`}>{message.role === 'assistant' ? <div className="mini-mark">R</div> : 'Y'}</div>
-                  <div className="message-body">
-                    <div className="message-meta"><strong>{message.role === 'assistant' ? 'Rmango' : 'You'}</strong><span>{displayTime(message.createdAt)}</span>{message.role === 'assistant' && <span className="agent-tag"><Sparkles size={10}/> AGENT</span>}</div>
-                    <div className="message-content">{message.content}</div>
+              {messages.length === 0 ? (
+                <div className="welcome-block">
+                  <div className="welcome-orb"><div className="welcome-logo"><MangoMark size={66}/></div><span className="orb-spark spark-one"/><span className="orb-spark spark-two"/><span className="orb-spark spark-three"/></div>
+                  <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX BUILD PARTNER <span className="eyebrow-line"/></div>
+                  <h1>Make something<br/><em>mango-nificent.</em></h1>
+                  <p>Inspect your place, understand your scripts, design maps and build Roblox systems with a local AI model connected to Studio.</p>
+
+                  {!localReady && <div className="setup-card">
+                    <div className="setup-card-icon"><Cpu size={19}/></div>
+                    <div className="setup-card-copy">
+                      <strong>{!localAi?.running ? 'Set up your local AI' : 'Download your local model'}</strong>
+                      <span>{!localAi?.running ? 'Install Ollama once. Rmango will use it on this computer, without a provider API key.' : model + ' is ready to download to this computer.'}</span>
+                    </div>
+                    <button onClick={() => setSettingsOpen(true)}>Set up <ArrowRight size={13}/></button>
+                  </div>}
+
+                  <div className="quick-grid">
+                    {quickPrompts.map(item =>
+                      <button className="quick-card" key={item.label} onClick={() => void sendMessage(item.prompt)}>
+                        <span className="quick-icon">{item.icon}</span>
+                        <span className="quick-copy"><strong>{item.label}</strong><small>{item.detail}</small></span>
+                        <ArrowRight size={14} className="quick-arrow"/>
+                      </button>
+                    )}
                   </div>
-                </div>)}
-                {busy && <div className="message-row assistant"><div className="message-avatar assistant"><div className="mini-mark">R</div></div><div className="message-body"><div className="message-meta"><strong>Rmango</strong><span>working</span></div><div className="thinking-state"><span className="typing-dots"><i/><i/><i/></span><span>Thinking through your request</span></div></div></div>}
-                <div ref={bottomRef}/>
-              </div>}
+                  <div className="welcome-footnote"><ShieldCheck size={13}/> Studio changes always wait for your approval.</div>
+                </div>
+              ) : (
+                <div className="message-list">
+                  {messages.map((message, index) =>
+                    <div className={'message-row ' + message.role} key={message.createdAt + '-' + index}>
+                      <div className={'message-avatar ' + message.role}>
+                        {message.role === 'assistant' ? <MangoMark size={24}/> : <span>YOU</span>}
+                      </div>
+                      <div className="message-body">
+                        <div className="message-meta">
+                          <strong>{message.role === 'assistant' ? 'Rmango' : 'You'}</strong>
+                          <span>{displayTime(message.createdAt)}</span>
+                          {message.role === 'assistant' && <span className="agent-tag"><Sparkles size={10}/> AGENT</span>}
+                        </div>
+                        {message.attachments?.length ? <div className="message-attachments">
+                          {message.attachments.map(attachment =>
+                            <div className="message-attachment" key={attachment.id}>
+                              {attachment.kind === 'image' && attachment.previewUrl
+                                ? <img src={attachment.previewUrl} alt={attachment.name}/>
+                                : <span className="attachment-icon">{attachment.kind === 'image' ? <ImageIcon size={17}/> : <FileText size={17}/>}</span>}
+                              <span>{attachment.name}</span>
+                            </div>
+                          )}
+                        </div> : null}
+                        <div className="message-content">{message.content}</div>
+                      </div>
+                    </div>
+                  )}
+                  {busy && <div className="message-row assistant">
+                    <div className="message-avatar assistant"><MangoMark size={24}/></div>
+                    <div className="message-body">
+                      <div className="message-meta"><strong>Rmango</strong><span>working</span></div>
+                      <div className="thinking-state"><span className="typing-dots"><i/><i/><i/></span><span>Thinking and checking the available tools…</span></div>
+                    </div>
+                  </div>}
+                  <div ref={bottomRef}/>
+                </div>
+              )}
             </div>
           </div>
-          <div className="composer-area">
+
+          <div className={'composer-area ' + (dragActive ? 'drag-active' : '')} onDragOver={event => { event.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={handleDrop}>
+            {dragActive && <div className="drop-overlay"><Upload size={22}/> Drop photos or files to attach</div>}
+            {attachments.length > 0 && <div className="attachment-tray">
+              {attachments.map(attachment =>
+                <div className="attachment-chip" key={attachment.id}>
+                  {attachment.kind === 'image' && attachment.previewUrl
+                    ? <img src={attachment.previewUrl} alt={attachment.name}/>
+                    : <span className="attachment-file-icon">{attachment.kind === 'image' ? <ImageIcon size={15}/> : <FileText size={15}/>}</span>}
+                  <span className="attachment-chip-name">{attachment.name}</span>
+                  <button title="Remove attachment" onClick={() => setAttachments(current => current.filter(item => item.id !== attachment.id))}><X size={13}/></button>
+                </div>
+              )}
+            </div>}
             <div className="composer-box">
-              <textarea ref={composerRef} rows={2} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleComposerKey} placeholder="Ask Rmango to inspect, plan, or improve your Roblox game..." />
-              <div className="composer-footer"><div className="composer-left"><span className="read-only-badge"><ShieldCheck size={11}/> READ-ONLY STUDIO ACCESS</span><span className="composer-hint">Enter to send · Shift + Enter for new line</span></div><button className="send-button" disabled={!input.trim() || busy} onClick={() => void sendMessage()}>{busy ? <LoaderCircle size={16} className="spin"/> : <Send size={15}/>}</button></div>
+              <textarea
+                ref={composerRef}
+                rows={2}
+                value={input}
+                onChange={event => setInput(event.target.value)}
+                onKeyDown={handleComposerKey}
+                placeholder="Ask Rmango to inspect, design, code, or improve your Roblox game…"
+              />
+              <div className="composer-footer">
+                <div className="composer-left">
+                  <button className="attach-button" title="Attach images or files" onClick={() => openFilePicker(false)}><Paperclip size={14}/> Attach</button>
+                  <button className="attach-button attach-image" title="Attach photo" onClick={() => openFilePicker(true)}><ImageIcon size={14}/> Photo</button>
+                  <input ref={fileInputRef} className="hidden-file-input" type="file" multiple onChange={handleFileChange}/>
+                  <span className="composer-hint">Enter to send · Shift + Enter for new line</span>
+                </div>
+                <button className="send-button" disabled={(!input.trim() && attachments.length === 0) || busy} onClick={() => void sendMessage()}>
+                  {busy ? <LoaderCircle size={16} className="spin"/> : <Send size={15}/>}
+                </button>
+              </div>
             </div>
-            <div className="composer-disclaimer">Rmango can make mistakes. Review important code and changes before using them in your game.</div>
+            <div className="composer-disclaimer"><ShieldCheck size={11}/> Photos and text/code files are processed by your selected model. Studio edits require approval.</div>
           </div>
         </main>
 
         {rightPanelOpen && <aside className="right-sidebar">
-          <div className="right-heading"><span>INSPECTOR</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close inspector"><X size={15}/></button></div>
+          <div className="right-heading"><span>CONTROL ROOM</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close inspector"><X size={15}/></button></div>
+
+          <section className="inspector-section local-section">
+            <div className="section-title"><span>LOCAL AI ENGINE</span><span className={'live-indicator ' + (localReady ? 'live' : '')}>{localReady ? 'READY' : 'SETUP'}</span></div>
+            <div className="local-status-card">
+              <div className="local-status-icon"><Cpu size={19}/></div>
+              <div className="local-status-copy"><strong>{localReady ? 'Running on this PC' : localAi?.running ? 'Model not installed' : 'Runtime not connected'}</strong><span>{localAi?.running ? model : 'Ollama localhost · no API key'}</span></div>
+              <span className={'status-dot ' + (localAi?.running ? 'bright' : '')}/>
+              <div className="local-meta"><span>MODE</span><strong>On-device</strong><span>KEY</span><strong>Not required</strong></div>
+            </div>
+            <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Local AI settings <ArrowRight size={13}/></button>
+            <button className="secondary-action" onClick={() => void refreshLocalAi()} disabled={checkingLocalAi}>{checkingLocalAi ? <LoaderCircle size={13} className="spin"/> : <RefreshCw size={13}/>} Check local runtime</button>
+            {!localAi?.running && <button className="help-link" onClick={() => void window.rmango.openExternal('https://ollama.com/download/windows')}>Install Ollama for Windows <ExternalLink size={11}/></button>}
+            {localAi?.running && !localAi.modelInstalled && <button className="help-link" onClick={() => void handlePullModel()} disabled={pullingModel}>{pullingModel ? <LoaderCircle size={12} className="spin"/> : <Download size={12}/>} Download {model}</button>}
+          </section>
+
           <section className="inspector-section">
-            <div className="section-title"><span>STUDIO SESSION</span><span className={`live-indicator ${studioConnected ? 'live' : ''}`}>{studioConnected ? 'LIVE' : 'OFFLINE'}</span></div>
+            <div className="section-title"><span>ROBLOX STUDIO MCP</span><span className={'live-indicator ' + (studioConnected ? 'live' : '')}>{studioConnected ? 'CONNECTED' : 'OFFLINE'}</span></div>
             <div className="studio-status-card">
-              <div className={`studio-status-icon ${studioConnected ? 'live' : ''}`}><Gamepad2 size={19}/></div>
-              <div className="studio-status-copy"><strong>{studioConnected ? 'Roblox Studio detected' : 'Waiting for Studio'}</strong><span>{studioConnected ? 'MCP connection established' : 'Connect your active Studio session'}</span></div>
-              <span className={`status-dot ${studioConnected ? 'bright' : ''}`}/>
-              <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>ACCESS</span><strong>Read only</strong></div><div><span>PLATFORM</span><strong>Windows</strong></div></div>
+              <div className={'studio-status-icon ' + (studioConnected ? 'live' : '')}><Gamepad2 size={19}/></div>
+              <div className="studio-status-copy"><strong>{studioConnected ? 'Studio session linked' : 'Waiting for Studio'}</strong><span>{studioConnected ? 'MCP server is responding' : 'Enable Studio as MCP server'}</span></div>
+              <span className={'status-dot ' + (studioConnected ? 'bright' : '')}/>
+              <div className="studio-meta"><div><span>TOOLS</span><strong>{studioConnected ? studioTools.length : '—'}</strong></div><div><span>ACCESS</span><strong>Approval gated</strong></div><div><span>PLATFORM</span><strong>Windows</strong></div></div>
             </div>
-            {studioConnected ? <button className="outline-action" onClick={() => void handleDisconnect()}><X size={13}/> Disconnect Studio</button> : <button className="primary-action" onClick={() => void handleConnect()} disabled={connecting}>{connecting ? <LoaderCircle size={14} className="spin"/> : <Link2 size={14}/>} Connect to Studio <ArrowRight size={13}/></button>}
-            {!studioConnected && <div className="connect-help"><strong>Quick setup</strong><span>In Roblox Studio, open Assistant → Manage MCP Servers and enable “Studio as MCP server”. Then connect here.</span><button onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}>View setup guide <ExternalLink size={11}/></button></div>}
+            {studioConnected
+              ? <button className="outline-action" onClick={() => void handleDisconnect()}><X size={13}/> Disconnect Studio</button>
+              : <button className="primary-action" onClick={() => void handleConnect()} disabled={connecting}>{connecting ? <LoaderCircle size={14} className="spin"/> : <Link2 size={14}/>} Connect to Studio <ArrowRight size={13}/></button>}
+            {!studioConnected && <div className="connect-help">
+              <strong>Quick setup</strong>
+              <span>In Roblox Studio: Assistant → Manage MCP Servers → turn on “Enable Studio as MCP server”. Keep Studio open, then connect here.</span>
+              <button onClick={() => void window.rmango.openExternal('https://create.roblox.com/docs/studio/mcp')}>Official setup guide <ExternalLink size={11}/></button>
+            </div>}
           </section>
+
           <section className="inspector-section">
-            <div className="section-title"><span>AGENT TOOLS</span><span className="count-tag">{studioTools.length}</span></div>
+            <div className="section-title"><span>AGENT TOOL ACCESS</span><span className="count-tag">{studioTools.length}</span></div>
+            <div className="permission-legend"><span><i className="legend-read"/> Read-only</span><span><i className="legend-approve"/> Approval required</span></div>
             <div className="tool-stack">
-              {studioConnected && studioTools.length ? studioTools.slice(0, 8).map(name => <div className="tool-item" key={name}><span className="tool-icon"><Wrench size={12}/></span><span>{name}</span><span className="tool-read-tag">READ</span></div>) : <div className="tools-empty"><Wrench size={17}/><span>Studio tools will appear here after connecting.</span></div>}
-              {studioConnected && studioTools.length > 8 && <div className="more-tools">+ {studioTools.length - 8} more available</div>}
+              {studioConnected && studioTools.length
+                ? studioTools.slice(0, 9).map(name => {
+                    const needsApproval = [
+                      'multi_edit','execute_luau','generate_mesh','generate_material',
+                      'generate_procedural_model','generate_animation','generate_avatar',
+                      'insert_asset','upload_image','start_stop_play','character_navigation',
+                      'user_keyboard_input','user_mouse_input','save_place',
+                    ].includes(name);
+                    return <div className="tool-item" key={name}><span className={'tool-icon ' + (needsApproval ? 'approve' : '')}><Wrench size={12}/></span><span>{name}</span><span className={'tool-read-tag ' + (needsApproval ? 'approve' : '')}>{needsApproval ? 'ASK' : 'READ'}</span></div>;
+                  })
+                : <div className="tools-empty"><Wrench size={17}/><span>Connect Studio to see available tools.</span></div>}
+              {studioConnected && studioTools.length > 9 && <div className="more-tools">+ {studioTools.length - 9} more available</div>}
             </div>
           </section>
+
           <section className="inspector-section">
             <div className="section-title"><span>QUICK ACTIONS</span></div>
-            <button className="quick-action-row" onClick={() => void handleDiagnostics()} disabled={!studioConnected || diagnosing}><span className="action-icon"><Activity size={14}/></span><span><strong>Run Studio diagnostics</strong><small>Check session and DataModel state</small></span>{diagnosing ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={13}/>}</button>
-            <button className="quick-action-row" onClick={() => void sendMessage('Inspect the currently connected Roblox Studio session. Identify the open experience and summarize its state, available scripts, and important warnings. Do not make changes.')} disabled={!studioConnected || busy}><span className="action-icon purple"><Search size={14}/></span><span><strong>Inspect open experience</strong><small>Ask the agent to map the project</small></span><ArrowRight size={13}/></button>
+            <button className="quick-action-row" onClick={() => void handleDiagnostics()} disabled={!studioConnected || diagnosing}>
+              <span className="action-icon"><Activity size={14}/></span><span><strong>Run Studio diagnostics</strong><small>Check session and place state</small></span>
+              {diagnosing ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={13}/>}
+            </button>
+            <button className="quick-action-row" onClick={() => void sendMessage('Inspect the open Roblox place. Map the current DataModel, identify existing map and gameplay systems, then suggest the next high-impact improvement. Do not make changes before explaining the plan.')} disabled={!studioConnected || busy}>
+              <span className="action-icon mango"><Search size={14}/></span><span><strong>Map my current place</strong><small>Inspect structure and layout</small></span><ArrowRight size={13}/>
+            </button>
+            <button className="quick-action-row" onClick={() => void sendMessage(quickPrompts[2].prompt)} disabled={!studioConnected || busy}>
+              <span className="action-icon build"><Layers3 size={14}/></span><span><strong>Design a new map</strong><small>Plan it before generating</small></span><ArrowRight size={13}/>
+            </button>
           </section>
-          {diagnosticResult && <section className="inspector-section diagnostic-section"><div className="section-title"><span>DIAGNOSTIC OUTPUT</span><button className="subtle-icon" onClick={() => setDiagnosticResult('')}><X size={13}/></button></div><pre>{diagnosticResult}</pre></section>}
+
+          {diagnosticResult && <section className="inspector-section diagnostic-section">
+            <div className="section-title"><span>DIAGNOSTIC OUTPUT</span><button className="subtle-icon" onClick={() => setDiagnosticResult('')}><X size={13}/></button></div>
+            <pre>{diagnosticResult}</pre>
+          </section>}
           <section className="inspector-section activity-section">
             <div className="section-title"><span>RECENT ACTIVITY</span><button className="subtle-icon" onClick={() => setActivities([])} title="Clear activity"><RefreshCw size={13}/></button></div>
-            {activities.length ? activities.slice(-6).reverse().map((item, index) => <div className="activity-item" key={`${item.name}-${index}`}><span className={`activity-check ${item.ok ? 'ok' : 'bad'}`}>{item.ok ? <Check size={11}/> : <AlertCircle size={11}/>}</span><div><strong>{item.name}</strong><span>{item.detail}</span></div></div>) : <div className="activity-empty"><History size={15}/><span>Agent actions will show up here.</span></div>}
+            {activities.length
+              ? activities.slice(-7).reverse().map((item, index) =>
+                  <div className="activity-item" key={item.name + '-' + index}>
+                    <span className={'activity-check ' + (item.ok ? 'ok' : 'bad')}>{item.ok ? <Check size={11}/> : <AlertCircle size={11}/>}</span>
+                    <div><strong>{item.name}</strong><span>{item.detail}</span></div>
+                  </div>
+                )
+              : <div className="activity-empty"><Activity size={15}/><span>Tool calls and model actions appear here.</span></div>}
           </section>
-          <div className="right-footer"><ShieldCheck size={13}/> No Studio edits are enabled in this MVP.</div>
+          <div className="right-footer"><ShieldCheck size={13}/> Every Studio change requires your approval.</div>
         </aside>}
       </div>
 
-      {settingsOpen && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setSettingsOpen(false); }}>
-        <form className="settings-modal" onSubmit={handleSaveSettings}>
-          <div className="modal-header"><div><div className="modal-kicker">RMANGO CONFIGURATION</div><h2>AI provider settings</h2><p>Connect your own model API key. It stays on this computer.</p></div><button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button></div>
-          <label className="field-label">PROVIDER</label>
-          <div className="provider-options">
-            <button type="button" className={`provider-option ${provider === 'anthropic' ? 'selected' : ''}`} onClick={() => { setProvider('anthropic'); if (model.startsWith('gpt-')) setModel('claude-fable-5-2'); }}><span className="provider-symbol anthropic-symbol">A</span><span><strong>Anthropic</strong><small>Claude Fable 5.2</small></span>{provider === 'anthropic' && <CheckCircle2 size={15}/>}</button>
-            <button type="button" className={`provider-option ${provider === 'openai' ? 'selected' : ''}`} onClick={() => { setProvider('openai'); if (model.startsWith('claude-')) setModel('gpt-6.2-astra'); }}><span className="provider-symbol openai-symbol">◉</span><span><strong>OpenAI</strong><small>GPT-6.2 Astra and more</small></span>{provider === 'openai' && <CheckCircle2 size={15}/>}</button>
+      {pendingApproval && <div className="approval-backdrop">
+        <div className="approval-modal">
+          <div className="approval-icon"><ShieldCheck size={21}/></div>
+          <div className="approval-kicker">ROBLOX STUDIO ACTION</div>
+          <h2>Approve this change?</h2>
+          <p>Rmango wants to run <strong>{pendingApproval.name}</strong> in your connected Roblox Studio session. Review the tool arguments before continuing.</p>
+          <div className="approval-description">{pendingApproval.description}</div>
+          <pre className="approval-json">{JSON.stringify(pendingApproval.arguments, null, 2)}</pre>
+          <div className="approval-actions">
+            <button className="deny-button" disabled={approvalBusy} onClick={() => void respondToApproval(false)}>Deny</button>
+            <button className="approve-button" disabled={approvalBusy} onClick={() => void respondToApproval(true)}>{approvalBusy ? <LoaderCircle size={14} className="spin"/> : <Check size={14}/>} Approve action</button>
           </div>
-          <label className="field-label" htmlFor="model-id">MODEL ID</label>
-          <input id="model-id" className="settings-input" list="rmango-model-options" value={model} onChange={e => setModel(e.target.value)} placeholder={provider === 'anthropic' ? 'claude-fable-5-2' : 'gpt-6.2-astra'} required />
+          <span className="approval-footnote">No Studio change happens until you approve.</span>
+        </div>
+      </div>}
+
+      {settingsOpen && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
+        <form className="settings-modal" onSubmit={handleSaveSettings}>
+          <div className="modal-header">
+            <div><div className="modal-kicker">RMANGO CONFIGURATION</div><h2>Make Rmango yours</h2><p>Local AI is the default. Cloud providers are optional.</p></div>
+            <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button>
+          </div>
+          <label className="field-label">AI ENGINE</label>
+          <div className="provider-options three">
+            <button type="button" className={'provider-option ' + (provider === 'ollama' ? 'selected' : '')} onClick={() => { setProvider('ollama'); if (model.startsWith('claude-') || model.startsWith('gpt-')) setModel('qwen3.5:4b'); }}>
+              <span className="provider-symbol local-symbol"><Cpu size={15}/></span><span><strong>Local AI</strong><small>No API key</small></span>{provider === 'ollama' && <CheckCircle2 size={15}/>}
+            </button>
+            <button type="button" className={'provider-option ' + (provider === 'anthropic' ? 'selected' : '')} onClick={() => { setProvider('anthropic'); if (!model.startsWith('claude-')) setModel('claude-sonnet'); }}>
+              <span className="provider-symbol anthropic-symbol">A</span><span><strong>Anthropic</strong><small>Optional cloud</small></span>{provider === 'anthropic' && <CheckCircle2 size={15}/>}
+            </button>
+            <button type="button" className={'provider-option ' + (provider === 'openai' ? 'selected' : '')} onClick={() => { setProvider('openai'); if (!model.startsWith('gpt-')) setModel('gpt-4.1'); }}>
+              <span className="provider-symbol openai-symbol">◉</span><span><strong>OpenAI</strong><small>Optional cloud</small></span>{provider === 'openai' && <CheckCircle2 size={15}/>}
+            </button>
+          </div>
+
+          <label className="field-label" htmlFor="model-id">MODEL</label>
+          <input id="model-id" className="settings-input" list="rmango-model-options" value={model} onChange={event => setModel(event.target.value)} placeholder={provider === 'ollama' ? 'qwen3.5:4b' : provider === 'anthropic' ? 'claude-sonnet' : 'gpt-4.1'} required/>
           <datalist id="rmango-model-options">
-            {provider === 'anthropic' ? <><option value="claude-fable-5-2"/><option value="claude-opus-5-5"/><option value="claude-sonnet-5-5"/><option value="claude-haiku-5-5"/></> : <><option value="gpt-6.2-astra"/><option value="gpt-6.2-sol"/><option value="gpt-6-luna"/><option value="gpt-6.1-terra"/></>}
+            {provider === 'ollama'
+              ? <><option value="qwen3.5:4b"/><option value="qwen3.5:2b"/><option value="qwen3.5:9b"/></>
+              : provider === 'anthropic'
+                ? <><option value="claude-sonnet"/><option value="claude-opus"/></>
+                : <><option value="gpt-4.1"/><option value="gpt-4.1-mini"/></>}
           </datalist>
-          <div className="provider-footnote">Use a model ID enabled for your API account. Suggested models are listed as you type.</div>
-          <label className="field-label" htmlFor="api-key">API KEY {(settings?.configuredProviders?.includes(provider) || (settings?.keyConfigured && settings.provider === provider)) && <span className="configured-label"><Check size={10}/> KEY SAVED</span>}</label>
-          <input id="api-key" className="settings-input" type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={(settings?.configuredProviders?.includes(provider) || (settings?.keyConfigured && settings.provider === provider)) ? 'Saved securely · enter a new key to replace' : 'Paste your provider API key'} autoComplete="off" />
-          <div className="secure-note"><LockKeyhole size={13}/><span>{settings?.secureStorageAvailable ? 'Encrypted using Windows secure storage. Your key is never sent to Rmango servers.' : 'Secure OS storage is unavailable. A newly entered key is kept only for this app session.'}</span></div>
-          <div className="modal-footer"><button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Cancel</button><button type="submit" className="save-button" disabled={savingSettings || !model.trim()}>{savingSettings ? <LoaderCircle size={14} className="spin"/> : <Check size={14}/>} Save settings</button></div>
-          <div className="provider-footnote">API usage is billed by your selected provider. Rmango does not include model credits.</div>
+
+          {provider === 'ollama' ? <>
+            <div className="local-setup-panel">
+              <div className={'local-setup-status ' + (localAi?.running ? 'on' : '')}><span className="status-dot"/>{localAi?.running ? 'Ollama is running on this PC' : 'Ollama runtime not detected'}</div>
+              <p>Install Ollama for Windows once. Rmango then connects to it on your PC; the model weights are downloaded one time and can run locally.</p>
+              <div className="local-setup-actions">
+                <button type="button" className="cancel-button" onClick={() => void window.rmango.openExternal('https://ollama.com/download/windows')}><Download size={13}/> Get Ollama</button>
+                <button type="button" className="cancel-button" onClick={() => void refreshLocalAi()} disabled={checkingLocalAi}>{checkingLocalAi ? <LoaderCircle size={13} className="spin"/> : <RefreshCw size={13}/>} Check</button>
+              </div>
+              {localAi?.running && <div className="model-download-row">
+                <div><strong>{localAi.modelInstalled ? 'Model is installed' : 'Model download needed'}</strong><small>{localAi.models.length ? localAi.models.slice(0, 3).join(', ') : model}</small></div>
+                {!localAi.modelInstalled && <button type="button" className="save-button" disabled={pullingModel} onClick={() => void handlePullModel()}>{pullingModel ? <LoaderCircle size={13} className="spin"/> : <Download size={13}/>} Download model</button>}
+              </div>}
+            </div>
+            <div className="secure-note"><ShieldCheck size={13}/><span>Local AI requests go to 127.0.0.1 on your own computer. No provider API key and no Rmango-hosted AI server.</span></div>
+          </> : <>
+            <label className="field-label" htmlFor="api-key">OPTIONAL PROVIDER API KEY {(settings?.configuredProviders?.includes(provider) || (settings?.keyConfigured && settings.provider === provider)) && <span className="configured-label"><Check size={10}/> KEY SAVED</span>}</label>
+            <input id="api-key" className="settings-input" type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={(settings?.configuredProviders?.includes(provider) || (settings?.keyConfigured && settings.provider === provider)) ? 'Saved securely · enter a new key to replace' : 'Paste provider API key'} autoComplete="off"/>
+            <div className="secure-note"><LockKeyhole size={13}/><span>{settings?.secureStorageAvailable ? 'Stored using Windows secure storage. Requests go directly to your selected provider.' : 'Secure OS storage is unavailable. A newly entered key is kept only for this app session.'}</span></div>
+          </>}
+          <div className="modal-footer"><button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button><button type="submit" className="save-button" disabled={savingSettings || !model.trim()}>{savingSettings ? <LoaderCircle size={14} className="spin"/> : <Check size={14}/>} Save settings</button></div>
+          <div className="provider-footnote">Local model speed and quality depend on your PC and the model size. It is not the same as a frontier hosted model.</div>
         </form>
       </div>}
 
