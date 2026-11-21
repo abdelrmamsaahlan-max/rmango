@@ -267,7 +267,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const estimatedText = JSON.stringify(body.messages) + "\\n" + textAttachmentSections.join("\\n");
+  const estimatedText = JSON.stringify(messages) + "\\n" + textAttachmentSections.join("\\n");
   const imageTokenReserve = attachmentParts.length * 20_000;
   const estimateInputTokens = Math.ceil(estimateTokens(estimatedText) * 1.25) + imageTokenReserve;
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
