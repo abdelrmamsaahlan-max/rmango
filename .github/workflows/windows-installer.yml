@@ -195,16 +195,16 @@ jobs:
           if ($env:RMANGO_HAS_SIGNING_CERT -eq "true") {
             $publisher = $env:RMANGO_SIGNING_PUBLISHER_NAME.Trim()
             if (-not $publisher) { throw "The Authenticode publisher subject is required." }
-            $package.build.win.publisherName = @($publisher)
+            Add-Member -InputObject $package.build.win -MemberType NoteProperty -Name publisherName -Value @($publisher) -Force
             $package.build.win.verifyUpdateCodeSignature = $true
-            $package.build.win.forceCodeSigning = $true
+            Add-Member -InputObject $package.build.win -MemberType NoteProperty -Name forceCodeSigning -Value $true -Force
           } else {
             if ("${{ github.ref }}" -eq "refs/heads/main" -or "${{ github.ref_type }}" -eq "tag") {
               throw "Refusing to package an unsigned Windows release."
             }
-            $package.build.win.publisherName = $null
+            if ($package.build.win.PSObject.Properties['publisherName']) { [void]$package.build.win.PSObject.Properties.Remove('publisherName') }
             $package.build.win.verifyUpdateCodeSignature = $false
-            $package.build.win.forceCodeSigning = $false
+            Add-Member -InputObject $package.build.win -MemberType NoteProperty -Name forceCodeSigning -Value $false -Force
           }
           Set-Content -LiteralPath $packagePath -Value ($package | ConvertTo-Json -Depth 100) -Encoding utf8
           "version=$version" >> $env:GITHUB_OUTPUT
