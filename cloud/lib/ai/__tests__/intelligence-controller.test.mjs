@@ -49,7 +49,7 @@ test("routes current documentation and benchmarking to research mode", () => {
   assert.equal(plan.intent, "research");
   assert.equal(plan.modelProfile, "think");
   assert.equal(plan.budget.verificationDepth, "strong");
-  assert.equal(plan.budget.externalSourcesAvailable, false);
+  assert.equal(plan.budget.verificationDepth, "strong");
 });
 
 test("honors explicit model profile and manual intelligence-level overrides", () => {

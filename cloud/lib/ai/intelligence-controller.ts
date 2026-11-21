@@ -30,7 +30,7 @@ export type IntelligenceBudget = {
   maxMemoryCharacters: number;
   maxHypotheses: number;
   minimumEvidenceBeforeEdits: number;
-  verificationDepth: "none" | "basic" | "focused" | "strong" | "independent";
+  verificationDepth: "none" | "basic" | "focused" | "strong";
   compareApproaches: boolean;
   useProjectTools: boolean;
   useStudioTools: boolean;
@@ -191,10 +191,11 @@ function automaticProfile(input: {
   if (input.hasImage) return "vision";
   if (input.intent === "question" || input.level === "instant") return "fast";
   if (input.intent === "research") return "think";
-  if (input.level === "deep" || input.level === "research") return "agent";
-  if (input.intent === "implementation" || input.intent === "debugging") {
-    return input.level === "advanced" ? "agent" : "developer";
+  if (input.level === "deep" || input.level === "research" ||
+      ((input.intent === "implementation" || input.intent === "debugging") && input.level === "advanced")) {
+    return "agent";
   }
+  if (input.intent === "implementation" || input.intent === "debugging") return "developer";
   if (input.intent === "planning" && !input.hasSelectedProject) return "think";
   return "developer";
 }
