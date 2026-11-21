@@ -353,7 +353,10 @@ async function cloudSignIn(email: string, password: string) {
     } : {}),
   };
   await writeCloudSession(session);
-  if (mcpClient) await registerCloudStudioConnector();
+  if (mcpClient) {
+    await discoverStudioInstances().catch(() => []);
+    if (selectedStudioId) await registerCloudStudioConnector();
+  }
   return { ok: true, user: session.user };
 }
 
@@ -371,7 +374,10 @@ async function cloudSignUp(email: string, password: string, displayName?: string
     user: payload.user,
   };
   await writeCloudSession(session);
-  if (mcpClient) await registerCloudStudioConnector();
+  if (mcpClient) {
+    await discoverStudioInstances().catch(() => []);
+    if (selectedStudioId) await registerCloudStudioConnector();
+  }
   return { ok: true, requiresEmailConfirmation: false, user: session.user };
 }
 
@@ -835,11 +841,15 @@ async function connectRoblox() {
   if (mcpClient) {
     try { await discoverStudioInstances(); }
     catch { /* The bridge may connect before Studio has opened a place. */ }
+    const savedSession = await readCloudSession();
+    const alreadyLinked = Boolean(savedSession?.studioConnectorId && savedSession.studioConnectorSecret);
     const cloudLink = selectedStudioId
-      ? await registerCloudStudioConnector().catch(error => ({
-          linked: false,
-          message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
-        }))
+      ? alreadyLinked
+        ? { linked: true, message: "The cloud connector is already linked." }
+        : await registerCloudStudioConnector().catch(error => ({
+            linked: false,
+            message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
+          }))
       : { linked: false, message: "MCP bridge connected. Open a place in Roblox Studio, then choose Refresh Studio connection." };
     return {
       ok: true,
@@ -1386,7 +1396,11 @@ async function uploadCloudProject() {
 }
 
 async function runDiagnostics() {
-  if (!mcpClient) return { ok: false, error: 'Connect Roblox Studio first.' };
+  if (!mcpClient) return { ok: false, error: 'Connect the Roblox Studio MCP bridge first.' };
+  try { await discoverStudioInstances(); } catch { /* Report the latest known Studio state below. */ }
+  if (!selectedStudioId) {
+    return { ok: false, error: 'The MCP bridge is connected, but no open Roblox Studio place was detected. Open a place, then refresh the connection.' };
+  }
   const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
   for (const name of ['list_roblox_studios', 'get_studio_state']) {
     if (!READ_ONLY_STUDIO_TOOLS.has(name) || !connectedTools.some(tool => tool.name === name)) continue;
