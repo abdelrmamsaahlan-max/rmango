@@ -1387,7 +1387,7 @@ export async function POST(request: Request) {
     activeStudioToolNames: Object.keys(activeStudioTools),
     debugHypothesisToolActive: Object.keys(debugHypothesisTools).length > 0,
   });
-  const effectiveSystemPrompt = [systemPrompt, runtimeCapabilities.systemText].join("\\n\\n");
+  const effectiveSystemPrompt = [systemPrompt, runtimeCapabilities.systemText].join("\n\n");
 
   try {
     const result = streamText({
