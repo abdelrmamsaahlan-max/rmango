@@ -5,7 +5,7 @@ import {
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
   LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square,
-  Palette, Gauge, UserRound, Bell, Keyboard, HardDrive
+  Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
@@ -711,12 +711,15 @@ function App() {
   }
 
   async function handleRefreshUsage() {
+    setCloudRefreshing(true);
     try {
       const usage = await window.rmango.getCloudUsage();
       setCloudUsage(usage);
       setToast('Usage information refreshed.');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not refresh usage information.');
+    } finally {
+      setCloudRefreshing(false);
     }
   }
 
