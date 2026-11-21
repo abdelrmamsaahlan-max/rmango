@@ -151,3 +151,8 @@ See [the Phase 2 audit and architecture plan](../docs/PHASE2-AUDIT.md) for curre
 
 
 Roblox Studio operations use the allowlisted tool categories supplied by the connected official Studio MCP: script editing, scene generation, procedural models, meshes, materials, textures, animations, asset search/insertion, and playtest/Output inspection where supported. All mutating operations retain user approval. The current connector does not synthesize completed music files; RMango can build AudioPlayer/Emitter/Listener/Wire/effects systems and search for permitted Creator Store audio assets.
+
+
+### Attachment context continuity
+
+For subsequent follow-up turns, the cloud API retains bounded text excerpts from PDF/DOCX attachments in the user's conversation message. It retrieves excerpts only from the previous six user messages for the same authenticated owner and conversation, with a 36,000-character combined cap. This stores extracted text (not original document or image blobs); users should reattach images when referring to their visual details in a later turn.
