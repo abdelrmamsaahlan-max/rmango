@@ -64,6 +64,11 @@ export type ProjectFile = {
   path: string;
   kind: 'file' | 'folder';
 };
+export type StudioInstance = {
+  id: string;
+  name: string;
+  placeId?: string;
+};
 
 export type AppState = AppPreferences & {
   appVersion: string;
@@ -192,7 +197,8 @@ declare global {
       onProjectUploadProgress: (callback: (event: ProjectUploadProgress) => void) => () => void;
       connectRoblox: () => Promise<any>;
       disconnectRoblox: () => Promise<any>;
-      getMcpState: () => Promise<any>;
+      getMcpState: () => Promise<{ connected: boolean; studioReady: boolean; cloudLinked: boolean; toolCount: number; tools: string[]; studioId: string | null; studioInstances: StudioInstance[] }>;
+      selectStudioInstance: (studioId: string) => Promise<{ ok: boolean; studioId: string; studioReady: boolean }>;
       listMcpTools: () => Promise<any>;
       runDiagnostics: () => Promise<any>;
       loadMessages: () => Promise<ChatMessage[]>;
