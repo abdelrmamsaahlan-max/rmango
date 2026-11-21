@@ -2647,7 +2647,7 @@ function App() {
             </main>
           </div>
           <footer className="settings-center-footer">
-            <span>Press <kbd>Ctrl</kbd> + <kbd>,</kbd> to open Settings</span>
+            <span>Press <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd> + <kbd>,</kbd> to open Settings</span>
             <button type="button" className="settings-footer-close" onClick={() => setSettingsOpen(false)}>Done</button>
           </footer>
         </section>
