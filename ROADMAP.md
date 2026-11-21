@@ -60,10 +60,16 @@ This roadmap separates existing, verified foundations from work that still needs
 ### Stage 3 — Deeper project intelligence
 
 - [ ] Upgrade the source scanner with parser-backed Luau analysis and confidence-labelled dependency resolution.
-- [ ] Track RemoteEvents/RemoteFunctions, DataStores, UI trees, assets, client/server boundaries and script-to-system relationships.
+- [x] Index DataStore and MemoryStore literal names from common service calls.
+- [x] Map remote event/function method usage to statically identified remote aliases when source evidence is present.
+- [x] Record common UI `Instance.new` classes and explicit `.Name` assignments.
+- [x] Extract literal `rbxassetid://` and `rbxthumb` references with source positions.
+- [ ] Build complete UI hierarchy, client/server architecture and cross-system relationships from more than local source patterns.
 - [ ] Incrementally re-index changed files and mark dependent symbols stale.
 - [ ] Add searchable technical knowledge and retrieval with source references.
 - [ ] Add safe, opt-in support for extracting content from Roblox place/model files where a supported parser exists.
+
+Index v2 is a conservative lexical source scanner. It filters comments, preserves source line positions, uses confidence values for dependency resolution, and triggers re-indexing through its version bump. It does not prove runtime instances exist or that asset IDs are accessible.
 
 **Acceptance:** a change plan names the affected systems and files, traces dependencies with confidence, and verifies that the index was refreshed after approved edits. Unsupported binary formats must be reported, not guessed.
 
