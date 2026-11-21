@@ -657,8 +657,8 @@ async function verifyTaskStep(
       const text = value.trim();
       const parsed = parseObject(text);
       if (parsed) return findExplicitPass(parsed, depth + 1);
-      if (/\b(playtest|gameplay|test suite|acceptance checks?)\\b.{0,80}\\b(passed|successful)\\b/i.test(text)) return true;
-      if (/\b(playtest|gameplay|test suite|acceptance checks?)\\b.{0,80}\\b(failed|unsuccessful)\\b/i.test(text)) return false;
+      if (/\b(playtest|gameplay|test suite|acceptance checks?)\b.{0,80}\b(passed|successful)\b/i.test(text)) return true;
+      if (/\b(playtest|gameplay|test suite|acceptance checks?)\b.{0,80}\b(failed|unsuccessful)\b/i.test(text)) return false;
     }
     return null;
   };
@@ -679,8 +679,8 @@ async function verifyTaskStep(
       }
     }
     const text = studioText(value);
-    if (/\b(error|exception|traceback)\\b/i.test(text)) return false;
-    if (/\b(no errors|0 errors|zero errors|error count:?\s*0)\\b/i.test(text)) return true;
+    if (/\b(error|exception|traceback)\b/i.test(text)) return false;
+    if (/\b(no errors|0 errors|zero errors|error count:?\s*0)\b/i.test(text)) return true;
     return null;
   });
   const knownConsoleResults = consoleResults.filter(value => value !== null);
