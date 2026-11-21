@@ -1019,7 +1019,7 @@ function App() {
         <div className="settings-modal cloud-settings-modal">
           <div className="modal-header">
             <div>
-              <div className="modal-kicker">RMANGO CLOUD PLATFORM</div>
+              <div className="modal-kicker">RMANGO INTELLIGENCE</div>
               <h2>Rmango Intelligence</h2>
               <p>One Rmango assistant, built around Roblox development. Choose a work mode; Rmango handles the engine and routing.</p>
             </div>
@@ -1087,7 +1087,7 @@ function App() {
                   </button>
                 )}
               </div>}
-            <div className="secure-note"><ShieldCheck size={13}/><span>Profile labels are Rmango routing presets, not separate models trained by Rmango. Capability and price details come from the live Gateway catalogue. No benchmark scores are fabricated.</span></div>
+            <div className="secure-note"><ShieldCheck size={13}/><span>RMango owns the Roblox agent, project context, tool orchestration, workflows and product experience. Its foundation-model engine is hosted; RMango is not claiming to have trained a separate foundation model.</span></div>
           </>}
 
           <div className="modal-footer">
