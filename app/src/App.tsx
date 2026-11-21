@@ -450,6 +450,8 @@ function App() {
 
     const pending = [...attachments];
     const requestId = crypto.randomUUID();
+    activeRequestIdRef.current = requestId;
+    cancelledRequestIdRef.current = null;
     const shownAttachments: ChatAttachment[] = pending.map(({ id, name, mimeType, kind, size, previewUrl }) => ({
       id, name, mimeType, kind, size, previewUrl,
     }));
