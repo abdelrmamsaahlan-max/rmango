@@ -80,6 +80,9 @@ export type AppState = AppPreferences & {
   projectFiles?: ProjectFile[];
   studioConnected: boolean;
   studioToolCount: number;
+  secureStorageAvailable?: boolean;
+  secureStorageProvider?: string;
+  secureStorageMessage?: string;
 };
 
 export type CloudState = {
@@ -207,6 +210,7 @@ declare global {
       getCloudUsage: () => Promise<CloudUsage>;
       cloudSignIn: (credentials: { email: string; password: string }) => Promise<{ ok: boolean; user: { id: string; email?: string } }>;
       requestPasswordReset: (payload: { email: string }) => Promise<{ ok: boolean; message: string }>;
+      resendEmailConfirmation: (payload: { email: string }) => Promise<{ ok: boolean; message: string }>;
       cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => Promise<{ ok: boolean; requiresEmailConfirmation: boolean; user: { id: string; email?: string } }>;
       cloudSignOut: () => Promise<{ ok: boolean }>;
       getCloudModels: () => Promise<CloudModels>;
