@@ -45,13 +45,17 @@ This roadmap separates existing, verified foundations from work that still needs
 
 ### Stage 2 — Lead agent and specialist delegation
 
-- [ ] Define stable contracts for Lead Architect, Luau Engineer, Gameplay Designer, UI/UX Designer, 3D/World Builder, QA, Performance, Security and Research roles.
-- [ ] Give every specialist the same project index, scoped tools, selected memories and task/run identifiers.
-- [ ] Let the Lead Architect assign bounded sub-tasks, collect reports, resolve disagreements and decide whether another pass is needed.
-- [ ] Use one final verifier to inspect evidence and publish a single coherent report.
-- [ ] Add per-agent step, token, time and cost ceilings; cancel sibling work when the parent task is cancelled.
+- [x] Define nine stable specialist contracts: Luau Engineer, Gameplay Designer, UI/UX Designer, World Builder, 3D Asset & Animation Specialist, QA Engineer, Performance Engineer, Security Reviewer and Technical Research Analyst.
+- [x] Give every review the same owner-scoped project index, selected source files, dependency references, project memories and active task/run context.
+- [x] Let the Lead Architect request up to three distinct, narrow, read-only reviews and receive concise reports.
+- [x] Give each specialist call its own model usage reservation and cost accounting; specialist calls fail closed when the operator/user spend policy denies the request.
+- [x] Persist specialist requested/started/completed/blocked/failed events in the durable task timeline.
+- [ ] Let the Lead Architect formally compare conflicting reports and persist a resolution record.
+- [ ] Add cancellation propagation and explicit agent-level cost/time dashboards for in-flight sibling work.
+- [ ] Add controlled parallel execution for independent roles after sequential delegation is stable under replay and retry.
+- [ ] Add real external-source retrieval for the research role; it currently audits supplied evidence and identifies claims needing official-source verification, but it does not browse externally.
 
-**Acceptance:** one task produces traceable specialist work, durable events, a combined result and evidence-backed verification without uncontrolled recursive agent calls.
+**Acceptance:** a complex task can ask distinct role-specific reviewers for bounded evidence-based advice, display those reports, then let the Lead decide what to implement. Specialist reviews are advisory and read-only; only the Lead uses project mutation tools and the approval-gated Studio bridge. This is a bounded multi-agent foundation, not yet unrestricted autonomous delegation.
 
 ### Stage 3 — Deeper project intelligence
 
