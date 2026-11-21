@@ -93,9 +93,10 @@ Vite handles React/CSS HMR. Nodemon rebuilds Electron main/preload source and re
 - No live guest-auth/inference/usage/quota/Studio-connector/ZIP end-to-end tests.
 - Independent specialist-agent delegation and conflict resolution across separate role-specific agents.
 - Admin model policy and cost dashboard.
-- PDF/DOCX parsing, embeddings/vector RAG and project-wide dependency indexing.
+- PDF/DOCX parsing, embeddings/vector RAG and parser-backed semantic dependency analysis beyond the existing bounded Luau source index.
 - Binary Roblox project file parsing.
 - A visual diff viewer for proposed project file changes.
+- Live anonymous guest creation and hosted chat after the managed RMango cloud is deployed.
 
 ## Deployment
 
