@@ -13,6 +13,7 @@ on:
       - upgrade/project-context-retrieval
       - upgrade/agent-workspace-studio
       - upgrade/rmango-native-identity-ui
+      - upgrade/security-continuous-learning-updater
     paths:
       - "cloud/**"
       - ".github/workflows/cloud-build.yml"
