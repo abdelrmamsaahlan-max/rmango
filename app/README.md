@@ -1,111 +1,114 @@
-# Rmango — Roblox Studio AI
+# Rmango — Cloud-powered Roblox Studio AI
 
-Rmango is a Windows desktop workspace for Roblox development. It is local-first: the default AI runs on your computer through Ollama, with no hosted AI-provider API key.
+Rmango is a Windows desktop workspace for Roblox development. **The user's PC is the interface; AI inference is remote.** The desktop does not install Ollama, download language models, use the user's GPU for inference, or ask for AI-provider API keys.
 
-## Download and install
+## Current cloud architecture
 
-Open the [GitHub Releases page](https://github.com/abdelrmamsaahlan-max/rmango/releases) and download the newest **Rmango-Setup-<version>-x64.exe** asset.
+- **Vercel + Next.js** hosts the API and agent routes.
+- **Vercel AI Gateway** routes hosted models and exposes live model capability/pricing metadata.
+- **Vercel OIDC** authenticates AI Gateway requests from Vercel deployments. No static AI Gateway key or provider key is configured in production.
+- **Supabase Auth, Postgres and private Storage** hold user accounts, projects, conversations, messages, uploaded source files, project proposals and usage events.
+- The Windows desktop connects over HTTPS and stores only the user's Rmango account session encrypted with Windows secure storage.
+- A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is a tool bridge only; it does not run any AI model.
 
-The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is only source code, not an installer.
+## Important deployment status
 
-## Automatic GitHub updates
+The cloud backend source, migration and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** The desktop currently shows “Cloud not configured” until an administrator provisions the cloud service and sets the public URL.
 
-The installed Windows app checks the public Rmango GitHub Releases feed shortly after startup and every four hours. You can also press **Check updates** in the top bar.
+No hosted model request or paid inference has been run from this code. No cloud project or provider spend has been activated by this change.
 
-When a newer release is found, Rmango downloads it in the background and shows the version and download progress. It does **not** unexpectedly close your app: once the download finishes, choose **Restart & install** to apply it.
+## Cloud deployment prerequisites
 
-The GitHub Actions workflow builds and publishes a new stable release on pushes to the main branch. It assigns a monotonically increasing patch version (0.2.<GitHub workflow run number>) and uploads both the NSIS installer and Electron's latest.yml update manifest. The workflow checks that the EXE and manifest are actually present in the release before it succeeds. A release containing only an EXE is not a valid auto-update release.
+1. Authorize the Rmango Vercel team/project scope.
+2. Create a dedicated Supabase project for Rmango. Do not reuse an unrelated app database.
+3. Apply `cloud/supabase/migrations/202611210001_rmango_cloud.sql`.
+4. Create a Vercel project from this repository with Root Directory set to `cloud`.
+5. Enable Vercel OIDC for the Vercel project.
+6. Add the server-only environment variables described in [cloud/README.md](cloud/README.md).
+7. Explicitly authorize an AI Gateway/provider spending budget in the admin account.
+8. Set the GitHub Actions repository variable `RMANGO_CLOUD_API_URL` to the public HTTPS Vercel URL.
+9. Push/rebuild the desktop installer so the public cloud URL is included in `app/cloud-config.json`.
 
-**One-time migration:** the original 0.2.0 installer was built before the updater was added. That older copy cannot update itself. Install the first updater-enabled release from GitHub Releases once; subsequent releases can be installed from inside Rmango.
+Cloud inference has a cost. User quotas are enforced in the database before the AI request starts, but they do not replace an administrator-configured provider/Gateway spending limit.
 
-### Development hot reload
+## Download and install the Windows app
 
-From the app/ directory, run:
+Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) and download the newest `Rmango-Setup-<version>-x64.exe`.
+
+The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
+
+Installed Windows builds check GitHub Releases after startup and every four hours. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+
+## Automatic updates
+
+Every push to `main` builds a versioned Windows NSIS installer and publishes both the EXE and `latest.yml` update metadata to a GitHub Release. The workflow verifies the EXE and update manifest are present before succeeding.
+
+The original 0.2.0 app was built before the updater existed; it needs one manual upgrade to an updater-enabled release. Current published build and signing state should be checked on the Releases page.
+
+## Developer hot reload
+
+From `app/`:
 
 ~~~powershell
 npm install --no-audit --no-fund
 npm run dev
 ~~~
 
-Vite hot-refreshes React/CSS renderer edits. Nodemon watches electron/main.ts and electron/preload.cts, rebuilds the Electron TypeScript output, and restarts the desktop process when either changes. This is a development-only workflow, not an installed-app updater.
+Vite hot-refreshes React/CSS edits. Nodemon rebuilds and restarts Electron when the main/preload process changes. This is a development workflow, not the installed-app auto-updater.
 
-## First-run setup: local AI
+## Local development for the cloud API
 
-1. Install [Ollama for Windows](https://ollama.com/download/windows).
-2. Open Ollama once and leave it running.
-3. Open Rmango → **Settings → Local AI**.
-4. Press **Check**. When Rmango detects Ollama, download the default qwen3.5:4b model.
-5. Once it is downloaded, chat with Rmango. Model requests are sent to the local Ollama service at 127.0.0.1:11434; Rmango does not send prompts to an AI provider.
-
-The model weights are downloaded once. After they are present, local inference can work without an internet connection. The first runtime/model installation needs an internet connection. Local speed and quality depend on your hardware and the selected model; a small local model is not equivalent to a frontier hosted model.
-
-## Photos and files
-
-The chat composer accepts images (PNG, JPEG, WebP, GIF) and text/code files (Luau, Lua, TXT, Markdown, JSON, CSV, XML, YAML, TOML, JavaScript, TypeScript, CSS, and HTML). Images are sent to the selected local vision model; text files are included as context. Current limits are 8 attachments per message, 8 MB per image, and 512 KB per text file.
-
-## Connect Roblox Studio with MCP
-
-MCP means **Model Context Protocol**. It is the connector between the AI model and Roblox Studio. The model decides which action to request; the MCP client sends that request to Studio; Studio runs the corresponding tool.
-
-Roblox Studio already includes its own MCP server. You do not need to write a second Roblox plugin/server just to connect Rmango:
-
-1. Open Roblox Studio and the place you want Rmango to work on.
-2. Open **Assistant → … → Manage MCP Servers**.
-3. Enable **Studio as MCP server**.
-4. Keep Studio open and switch to Rmango.
-5. Press **Connect to Studio** in the right-hand panel.
-
-On Windows, the Roblox MCP launcher is normally at %LOCALAPPDATA%\Roblox\mcp.bat. Rmango starts that local process using stdio transport and discovers the available tools.
-
-For other MCP clients, Roblox documents this Windows entry:
-
-~~~json
-{
-  "mcpServers": {
-    "Roblox_Studio": {
-      "command": "cmd.exe",
-      "args": ["/c", "%LOCALAPPDATA%\\Roblox\\mcp.bat"]
-    }
-  }
-}
-~~~
-
-## Studio permissions
-
-Read-only inspection tools can run without an approval prompt. Script edits, Luau execution, procedural models, asset insertion, uploads, playtest controls, player input, and saving a place require a visible **Approve / Deny** decision in Rmango. Denying or allowing an action is your choice. Rmango does not expose publishing or deletion tools in this build.
-
-A map workflow should start by inspecting the existing place, then propose the layout and scale. After you approve a specific Studio operation, Rmango can use the available procedural-model, mesh/material, asset, and Luau tools in focused passes. Tool availability varies by Roblox Studio version.
-
-## Windows Smart App Control and publisher signing
-
-The installer can be produced without a certificate, but an unsigned installer may be blocked by Windows Smart App Control because Windows cannot verify its publisher. That is not a reason to disable Windows protection. Automatic updates do not remove this first-install warning.
-
-For a trusted publisher identity, the application binaries and installer must be signed using a valid code-signing certificate from a certificate authority in Microsoft's Trusted Root Program (or Microsoft's supported Artifact Signing service). A self-signed test certificate does not establish a trusted publisher for Smart App Control.
-
-The GitHub workflow supports a PFX certificate through these repository secrets:
-- RMANGO_SIGNING_PFX_BASE64: Base64 contents of the certificate PFX.
-- RMANGO_SIGNING_PFX_PASSWORD: PFX password.
-
-Only the repository owner or an authorized adult maintainer should manage a real publisher certificate and its secrets. When a valid certificate is configured, the build signs the installer and the updater verifies the downloaded update's publisher. Without it, the current public build uses HTTPS GitHub releases and the generated SHA-512 update checksum, but Windows publisher-signature verification is disabled for that unsigned build. Protect the GitHub repository and its Actions write permissions accordingly.
-
-## Build from source
-
-Requirements: Windows 10/11, Node.js 22+, npm, and internet access for dependency/model downloads.
+From `cloud/`:
 
 ~~~powershell
-cd app
 npm install --no-audit --no-fund
+npm run typecheck
+npm run build
 npm run dev
 ~~~
 
-For a local Windows NSIS setup executable that does not publish a release, run **npm run dist:win**. The CI-only release command is **npm run dist:win:publish** and requires a GitHub token with release write permission.
+Authenticated API tests require a dedicated test Supabase project. Production Gateway inference requires a Vercel deployment with OIDC. Do not add model-provider keys to the desktop project.
+
+## Roblox Studio MCP connection
+
+Roblox Studio's official MCP server is started locally by Roblox. Rmango launches it through the Windows Roblox MCP launcher, discovers actual tools, registers the allowlisted schemas with the cloud, then polls for commands.
+
+- Read-only tools can execute without an approval prompt.
+- Script edits, Luau execution, asset insertion/uploads, procedural generation, playtesting/input and saving require an explicit approval in the desktop app.
+- The local connector only transports tool calls to the user's open Studio instance. All language-model reasoning and inference stays in the cloud.
+- Disconnecting Studio stops the bridge.
+
+Setup: in Roblox Studio open **Assistant → … → Manage MCP Servers**, enable **Studio as MCP server**, keep Studio open, then in Rmango choose **Connect to Studio**.
+
+[Official Roblox MCP documentation](https://create.roblox.com/docs/studio/mcp)
+
+## Cloud project workflow
+
+1. Sign in to a Rmango account.
+2. Open a local Roblox source folder in Rmango.
+3. Explicitly choose **Upload project to Cloud**.
+4. Supported text/source files upload into the user's private cloud workspace.
+5. Ask Rmango Agent to inspect files or propose a change.
+6. Review and accept/reject proposed file changes in Rmango.
+7. Download the approved cloud project as a ZIP.
+
+Current source-file import is limited to 120 files, 512 KB per file and supported text formats. Binary `.rbxl` / `.rbxm` projects are not parsed by this version.
+
+## Current limitations
+
+- The Vercel cloud app and Supabase project are not provisioned yet; real account/chat calls are not live.
+- Model profiles are dynamically selected from Gateway catalogue metadata. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
+- The desktop and cloud backend have CI build checks; full cloud login, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
+- Long-running agent work is not yet moved to a durable workflow/worker system; current chat requests and Studio tool calls have bounded request timeouts.
+- Admin usage dashboard, admin model-routing editor, durable task queue, PDF/DOCX parsing, vector RAG, full project dependency indexing and binary Roblox project import are not complete.
+- Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. A separate Vercel AI Gateway budget is still required.
 
 ## Repository structure
 
-- app/: editable React + Electron application.
-- app/electron/main.ts: Ollama/local inference, optional cloud adapters, MCP client, file context, approval gate, and GitHub updater.
-- app/electron/preload.cts: typed, context-isolated IPC surface for the renderer.
-- app/src/App.tsx: workspace UI, attachment composer, local AI setup, Studio inspector, approval dialog, and update controls.
-- app/src/styles.css: mango yellow / forest green visual system and update status.
-- app/build/generate-icon.ps1: generates the 256×256 mango Windows icon.
-- .github/workflows/windows-installer.yml: automatic versioning, Windows packaging, optional signing, GitHub publishing, and update-feed verification.
+- `app/`: React + Electron Windows desktop client.
+- `cloud/`: Next.js hosted API and agent service.
+- `cloud/lib/ai/models.ts`: live Vercel AI Gateway model discovery and role profiles.
+- `cloud/app/api/chat/route.ts`: streaming cloud inference, account/project context, quota reservation and tools.
+- `cloud/supabase/migrations/`: owner-scoped cloud database, RLS, storage and usage limits.
+- `.github/workflows/cloud-build.yml`: cloud-backend typecheck/production build.
+- `.github/workflows/windows-installer.yml`: Windows packaging and GitHub auto-update releases.
