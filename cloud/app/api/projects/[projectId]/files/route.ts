@@ -121,3 +121,67 @@ export async function POST(request: Request, context: { params: Promise<{ projec
 
   return NextResponse.json({ file }, { status: 201 });
 }
+
+
+const deleteSchema = z.object({
+  relativePaths: z.array(z.string().min(1).max(500)).min(1).max(500),
+});
+
+export async function DELETE(request: Request, context: { params: Promise<{ projectId: string }> }) {
+  const { context: auth, response } = await getAuthErrorResponse(request);
+  if (response) return response;
+  const { projectId } = await context.params;
+  const { supabase, user } = auth!;
+
+  const { data: project, error: projectError } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("id", projectId)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (projectError || !project) return NextResponse.json({ error: "Cloud project not found." }, { status: 404 });
+
+  let payload: z.infer<typeof deleteSchema>;
+  try { payload = deleteSchema.parse(await request.json()); }
+  catch { return NextResponse.json({ error: "Provide between 1 and 500 valid relative paths." }, { status: 400 }); }
+
+  const relativePaths = [...new Set(payload.relativePaths.map(safeRelativePath).filter((value): value is string => Boolean(value)))];
+  if (!relativePaths.length || relativePaths.length !== new Set(payload.relativePaths).size) {
+    return NextResponse.json({ error: "One or more project paths are invalid." }, { status: 400 });
+  }
+
+  const { data: rows, error: rowsError } = await supabase
+    .from("project_files")
+    .select("id,storage_path,relative_path")
+    .eq("project_id", projectId)
+    .eq("owner_id", user.id)
+    .in("relative_path", relativePaths);
+  if (rowsError) return NextResponse.json({ error: "Could not inspect stale project files." }, { status: 503 });
+
+  const paths = (rows || []).map(row => String(row.storage_path || "")).filter(Boolean);
+  for (let offset = 0; offset < paths.length; offset += 100) {
+    const { error } = await supabase.storage.from("rmango-files").remove(paths.slice(offset, offset + 100));
+    if (error) {
+      return NextResponse.json({ error: "Could not remove stale private file objects. Project file records were kept." }, { status: 503 });
+    }
+  }
+
+  const ids = (rows || []).map(row => row.id);
+  if (ids.length) {
+    const { error: deleteError } = await supabase
+      .from("project_files")
+      .delete()
+      .eq("project_id", projectId)
+      .eq("owner_id", user.id)
+      .in("id", ids);
+    if (deleteError) {
+      return NextResponse.json({ error: "Private file objects were removed, but their index rows could not be deleted." }, { status: 503 });
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    removed: ids.length,
+    relativePaths: (rows || []).map(row => row.relative_path),
+  });
+}
