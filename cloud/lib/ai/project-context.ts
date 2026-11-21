@@ -35,6 +35,7 @@ export async function loadSelectedProjectContext(
   supabase: SupabaseClient,
   ownerId: string,
   projectId: string,
+  query = "",
 ): Promise<SelectedProjectContext | null> {
   const { data: project, error: projectError } = await supabase
     .from("projects")
@@ -63,13 +64,35 @@ export async function loadSelectedProjectContext(
     .eq("project_id", projectId)
     .eq("owner_id", ownerId)
     .order("updated_at", { ascending: false })
-    .limit(20);
+    .limit(60);
 
   if (memoriesError) throw new Error("Could not load the selected project's saved memories.");
 
   const rows = files || [];
+  const stopWords = new Set(["the", "and", "for", "with", "that", "this", "from", "what", "when", "where", "why", "how", "can", "could", "would", "should", "make", "build", "create", "please", "about", "into", "your", "have", "need", "want", "there", "then", "them", "they", "our"]);
+  const queryTerms = Array.from(new Set(
+    (query.toLocaleLowerCase().match(/[a-z0-9_]{3,}/g) || []).filter(term => !stopWords.has(term)),
+  )).slice(0, 32);
+  const intentText = query.toLocaleLowerCase();
+  const memoryTypeBoost = (type: string): number => {
+    if (type === "decision" && /\b(prefer|must|constraint|don't want|avoid|decision|should not)\b/i.test(intentText)) return 2.5;
+    if (type === "architecture" && /\b(architecture|system|module|service|integrat|structure|workflow)\b/i.test(intentText)) return 2.5;
+    if (type === "bug" && /\b(bug|broken|error|fix|not working|doesn't work|issue|crash)\b/i.test(intentText)) return 3;
+    if (type === "feature" && /\b(build|implement|add|feature|upgrade|improve)\b/i.test(intentText)) return 1.8;
+    if (type === "concept" && /\b(design|concept|idea|game loop|player experience)\b/i.test(intentText)) return 1.8;
+    if (type === "task" && /\b(task|todo|next|remaining|pending)\b/i.test(intentText)) return 1.5;
+    return 0;
+  };
+  const rankedMemories = (memories || []).map((memory, index) => {
+    const title = String(memory.title || "").toLocaleLowerCase();
+    const content = String(memory.content || "").toLocaleLowerCase();
+    const titleMatches = queryTerms.filter(term => title.includes(term)).length;
+    const contentMatches = queryTerms.filter(term => content.includes(term)).length;
+    const relevance = titleMatches * 4 + Math.min(8, contentMatches) + memoryTypeBoost(String(memory.memory_type || ""));
+    return { memory, score: relevance, recency: index };
+  }).sort((a, b) => b.score - a.score || a.recency - b.recency);
   let memoryCharactersRemaining = 16_000;
-  const boundedMemories = (memories || []).flatMap(memory => {
+  const boundedMemories = rankedMemories.slice(0, 24).flatMap(({ memory }) => {
     if (memoryCharactersRemaining <= 0) return [];
     const content = String(memory.content || "").slice(0, Math.min(1_500, memoryCharactersRemaining));
     memoryCharactersRemaining -= content.length;

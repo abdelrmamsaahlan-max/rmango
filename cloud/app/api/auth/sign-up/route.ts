@@ -22,10 +22,20 @@ export async function POST(request: Request) {
   const { data, error } = await supabase.auth.signUp({
     email: payload.email,
     password: payload.password,
-    options: { data: { name: payload.displayName || payload.email.split("@")[0] } },
+    options: {
+      data: { name: payload.displayName || payload.email.split("@")[0] },
+      emailRedirectTo: new URL("/auth/confirmed", request.url).toString(),
+    },
   });
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const status = (error as { status?: number }).status;
+    const message = status === 429
+      ? "Too many account attempts. Please wait a little before trying again."
+      : "We could not create your account with those details. Check the information and try again.";
+    return NextResponse.json(
+      { error: message },
+      { status: status === 429 ? 429 : 400, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   return NextResponse.json({
@@ -36,5 +46,8 @@ export async function POST(request: Request) {
       expiresAt: data.session.expires_at,
     } : null,
     requiresEmailConfirmation: !data.session,
-  }, { status: 201 });
+  }, {
+    status: 201,
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
 }

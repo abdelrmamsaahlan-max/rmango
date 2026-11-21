@@ -1,11 +1,11 @@
-import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
-  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
+  LockKeyhole, MailCheck, Eye, EyeOff, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square,
-  Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info
+  Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info, Copy
 } from 'lucide-react';
 import type {
   AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
@@ -59,12 +59,252 @@ function MangoMark({ size = 34, className = '' }: { size?: number; className?: s
   );
 }
 
+function AccountSecurityVisual() {
+  return (
+    <div className="account-security-art" aria-hidden="true">
+      <div className="account-security-orbit orbit-one" />
+      <div className="account-security-orbit orbit-two" />
+      <span className="account-security-star star-one">✦</span>
+      <span className="account-security-star star-two">✧</span>
+      <svg viewBox="0 0 220 154" role="presentation">
+        <defs>
+          <linearGradient id="account-shield-fill" x1="70" y1="18" x2="154" y2="132" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#E6F4B7"/><stop offset=".55" stopColor="#B6DA79"/><stop offset="1" stopColor="#5A9A59"/>
+          </linearGradient>
+          <linearGradient id="account-shield-edge" x1="82" y1="20" x2="154" y2="131" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#F4FFD9"/><stop offset="1" stopColor="#86B86D"/>
+          </linearGradient>
+        </defs>
+        <path d="M110 17 163 38v37c0 34-23 54-53 66-30-12-53-32-53-66V38l53-21Z" fill="url(#account-shield-fill)" opacity=".16"/>
+        <path d="M110 25 154 42v32c0 27-18 44-44 56-26-12-44-29-44-56V42l44-17Z" fill="url(#account-shield-fill)" stroke="url(#account-shield-edge)" strokeWidth="2.4"/>
+        <path d="M110 39 141 51v23c0 19-12 31-31 41-19-10-31-22-31-41V51l31-12Z" fill="#183C27" opacity=".9"/>
+        <rect x="96" y="68" width="28" height="25" rx="7" fill="#D8F0A5"/>
+        <path d="M101 68v-7a9 9 0 0 1 18 0v7" stroke="#D8F0A5" strokeWidth="5" strokeLinecap="round" fill="none"/>
+        <circle cx="110" cy="80" r="3.2" fill="#345C35"/>
+        <path d="M110 83v6" stroke="#345C35" strokeWidth="2.8" strokeLinecap="round"/>
+        <path d="m49 91 8-8 8 8-8 8-8-8Z" fill="#C8E899" opacity=".85"/>
+        <circle cx="170" cy="47" r="5" fill="#E4F4B5"/><circle cx="167" cy="111" r="3.5" fill="#A8D576"/><circle cx="53" cy="48" r="3" fill="#F3D785"/>
+      </svg>
+      <div className="account-security-glow" />
+    </div>
+  );
+}
+
 function FileGlyph({ file }: { file: ProjectFile }) {
   if (file.kind === 'folder') return <Folder size={14} className="file-icon folder-icon" />;
   const ext = file.name.split('.').pop()?.toLowerCase();
   if (['lua', 'luau', 'ts', 'tsx', 'js'].includes(ext || '')) return <FileCode2 size={14} className="file-icon code-icon" />;
   if (ext === 'json') return <FileJson size={14} className="file-icon json-icon" />;
   return <FileText size={14} className="file-icon" />;
+}
+
+
+type MarkdownBlockNode = ReactNode;
+
+function renderInlineMarkdown(value: string, keyPrefix: string): ReactNode[] {
+  const pattern = /(\*\*[^*]+\*\*|\*[^*\n]+\*|~~[^~]+~~|\x60[^\x60]+\x60|\[([^\]]+)\]\((https:\/\/[^)\s]+)\))/g;
+  const output: ReactNode[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let part = 0;
+
+  while ((match = pattern.exec(value)) !== null) {
+    if (match.index > cursor) output.push(value.slice(cursor, match.index));
+    const token = match[0];
+    if (token.startsWith("**")) {
+      output.push(<strong key={keyPrefix + "-b-" + part}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("~~")) {
+      output.push(<del key={keyPrefix + "-d-" + part}>{token.slice(2, -2)}</del>);
+    } else if (token.startsWith("*")) {
+      output.push(<em key={keyPrefix + "-i-" + part}>{token.slice(1, -1)}</em>);
+    } else if (token.charCodeAt(0) === 96) {
+      output.push(<code className="inline-code" key={keyPrefix + "-c-" + part}>{token.slice(1, -1)}</code>);
+    } else {
+      const label = match[2] || token;
+      const url = match[3];
+      output.push(
+        <a
+          href={url}
+          key={keyPrefix + "-a-" + part}
+          onClick={event => { event.preventDefault(); void window.rmango.openExternal(url).catch(() => undefined); }}
+          rel="noreferrer noopener"
+          title={url}
+        >{label}</a>
+      );
+    }
+    cursor = match.index + token.length;
+    part += 1;
+  }
+  if (cursor < value.length) output.push(value.slice(cursor));
+  return output;
+}
+
+async function writeClipboardText(value: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+  } catch {
+    // Fall through to the compatible Electron/document copy path.
+  }
+
+  const field = document.createElement('textarea');
+  field.value = value;
+  field.setAttribute('readonly', '');
+  field.setAttribute('aria-hidden', 'true');
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  field.style.pointerEvents = 'none';
+  field.style.left = '-9999px';
+  document.body.appendChild(field);
+  field.select();
+  field.setSelectionRange(0, field.value.length);
+  const copied = document.execCommand('copy');
+  field.remove();
+  if (!copied) throw new Error('Clipboard access is unavailable.');
+}
+
+function MessageCodeBlock({ code, language }: { code: string; language: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copyCode() {
+    try {
+      await writeClipboardText(code);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <div className="chat-code-block">
+      <div className="chat-code-header">
+        <span>{language || "code"}</span>
+        <button type="button" onClick={() => void copyCode()} title="Copy code" aria-label="Copy code">
+          {copied ? <Check size={12}/> : <Copy size={12}/>}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre><code>{code}</code></pre>
+    </div>
+  );
+}
+
+function MessageContent({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: MarkdownBlockNode[] = [];
+  let index = 0;
+  let blockKey = 0;
+  const fence = String.fromCharCode(96).repeat(3);
+  const isBlockStart = (line: string) =>
+    line.trimStart().startsWith(fence) ||
+    /^#{1,4}\s+/.test(line) ||
+    /^\s*>/.test(line) ||
+    /^\s*[-*+]\s+/.test(line) ||
+    /^\s*\d+[.)]\s+/.test(line) ||
+    /^\s*(?:---+|\*\*\*+)\s*$/.test(line);
+  const isTableDivider = (line: string) => /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  const splitTableCells = (line: string) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(cell => cell.trim());
+
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) { index += 1; continue; }
+
+    const trimmed = line.trim();
+    if (trimmed.startsWith(fence)) {
+      const language = trimmed.slice(3).trim().split(/\s+/)[0] || "";
+      index += 1;
+      const codeLines: string[] = [];
+      while (index < lines.length && !lines[index].trim().startsWith(fence)) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(<MessageCodeBlock key={"code-" + blockKey++} code={codeLines.join("\n")} language={language}/>);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      const level = Math.min(4, heading[1].length);
+      const children = renderInlineMarkdown(heading[2], "h-" + blockKey);
+      const key = "heading-" + blockKey++;
+      if (level === 1) blocks.push(<h2 key={key}>{children}</h2>);
+      else if (level === 2) blocks.push(<h3 key={key}>{children}</h3>);
+      else if (level === 3) blocks.push(<h4 key={key}>{children}</h4>);
+      else blocks.push(<h5 key={key}>{children}</h5>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line)) {
+      blocks.push(<hr key={"hr-" + blockKey++}/>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*>/.test(line)) {
+      const quote: string[] = [];
+      while (index < lines.length && /^\s*>/.test(lines[index])) {
+        quote.push(lines[index].replace(/^\s*>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(<blockquote key={"quote-" + blockKey++}>{renderInlineMarkdown(quote.join(" "), "q-" + blockKey)}</blockquote>);
+      continue;
+    }
+
+    if (line.includes("|") && index + 1 < lines.length && isTableDivider(lines[index + 1])) {
+      const headers = splitTableCells(line);
+      index += 2;
+      const rows: string[][] = [];
+      while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+        rows.push(splitTableCells(lines[index]));
+        index += 1;
+      }
+      blocks.push(
+        <div className="chat-table-wrap" key={"table-" + blockKey++}>
+          <table className="chat-markdown-table">
+            <thead><tr>{headers.map((header, cellIndex) => <th key={"th-" + cellIndex}>{renderInlineMarkdown(header, "th-" + blockKey + "-" + cellIndex)}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) =>
+              <tr key={"tr-" + rowIndex}>
+                {headers.map((_, cellIndex) => <td key={"td-" + rowIndex + "-" + cellIndex}>{renderInlineMarkdown(row[cellIndex] || "", "td-" + blockKey + "-" + rowIndex + "-" + cellIndex)}</td>)}
+              </tr>
+            )}</tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    const unordered = /^\s*[-*+]\s+/.test(line);
+    const ordered = /^\s*\d+[.)]\s+/.test(line);
+    if (unordered || ordered) {
+      const items: string[] = [];
+      const matcher = unordered ? /^\s*[-*+]\s+(.*)$/ : /^\s*\d+[.)]\s+(.*)$/;
+      while (index < lines.length && matcher.test(lines[index])) {
+        items.push(lines[index].replace(matcher, "$1"));
+        index += 1;
+      }
+      const listItems = items.map((item, itemIndex) => <li key={"li-" + itemIndex}>{renderInlineMarkdown(item, "li-" + blockKey + "-" + itemIndex)}</li>);
+      blocks.push(unordered
+        ? <ul key={"ul-" + blockKey++}>{listItems}</ul>
+        : <ol key={"ol-" + blockKey++}>{listItems}</ol>);
+      continue;
+    }
+
+    const paragraph: string[] = [];
+    while (index < lines.length && lines[index].trim() && !isBlockStart(lines[index])) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    if (!paragraph.length) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    blocks.push(<p key={"p-" + blockKey++}>{renderInlineMarkdown(paragraph.join(" "), "p-" + blockKey)}</p>);
+  }
+
+  return <div className="message-markdown">{blocks}</div>;
 }
 
 function encodeTextBase64(value: string) {
@@ -111,6 +351,7 @@ function App() {
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
+  const [conversationSearch, setConversationSearch] = useState('');
   const [cloudTasks, setCloudTasks] = useState<CloudAgentTask[]>([]);
   const [cloudProjects, setCloudProjects] = useState<CloudProject[]>([]);
   const [cloudProjectSearch, setCloudProjectSearch] = useState('');
@@ -152,6 +393,7 @@ function App() {
   const [showInspectorByDefault, setShowInspectorByDefault] = useState(true);
   const [cloudRefreshing, setCloudRefreshing] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [toast, setToast] = useState('');
   const [diagnosticResult, setDiagnosticResult] = useState('');
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
@@ -161,6 +403,11 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authResetBusy, setAuthResetBusy] = useState(false);
   const [authResetSent, setAuthResetSent] = useState(false);
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
+  const [authVerificationFeedback, setAuthVerificationFeedback] = useState('');
+  const [authVerificationError, setAuthVerificationError] = useState(false);
+  const [authVerificationBusy, setAuthVerificationBusy] = useState(false);
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [search, setSearch] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
@@ -179,18 +426,33 @@ function App() {
   const deltaFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const onSettingsShortcut = (event: globalThis.KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === ',') {
+    const onWorkspaceShortcut = (event: globalThis.KeyboardEvent) => {
+      const modifier = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (modifier && key === ',') {
         event.preventDefault();
         setSettingsSection('general');
         setSettingsOpen(true);
-      } else if (event.key === 'Escape' && settingsOpen) {
-        setSettingsOpen(false);
+      } else if (modifier && key === 'b') {
+        event.preventDefault();
+        setLeftSidebarCollapsed(value => !value);
+        setLeftSidebarOpen(true);
+      } else if (modifier && event.shiftKey && key === 'i') {
+        event.preventDefault();
+        setRightPanelOpen(value => !value);
+      } else if (modifier && key === 'l') {
+        event.preventDefault();
+        composerRef.current?.focus();
+      } else if (event.key === 'Escape') {
+        if (settingsOpen) setSettingsOpen(false);
+        else if (rightPanelOpen) setRightPanelOpen(false);
+        else if (leftSidebarOpen) setLeftSidebarOpen(false);
+        else if (leftSidebarCollapsed) setLeftSidebarCollapsed(false);
       }
     };
-    window.addEventListener('keydown', onSettingsShortcut);
-    return () => window.removeEventListener('keydown', onSettingsShortcut);
-  }, [settingsOpen]);
+    window.addEventListener('keydown', onWorkspaceShortcut);
+    return () => window.removeEventListener('keydown', onWorkspaceShortcut);
+  }, [settingsOpen, rightPanelOpen, leftSidebarOpen, leftSidebarCollapsed]);
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
@@ -496,6 +758,13 @@ function App() {
       : cloudProjects;
   }, [cloudProjects, cloudProjectSearch]);
 
+  const filteredCloudConversations = useMemo(() => {
+    const query = conversationSearch.trim().toLocaleLowerCase();
+    return query
+      ? cloudConversations.filter(item => (item.title || 'New chat').toLocaleLowerCase().includes(query))
+      : cloudConversations;
+  }, [cloudConversations, conversationSearch]);
+
   async function handleNewConversation() {
     if (busy || loadingConversationId) return;
     if (!cloudState?.signedIn || !cloudState.serviceReady) {
@@ -574,21 +843,46 @@ function App() {
     }
   }
 
+  async function handleResendEmailConfirmation() {
+    const email = (pendingVerificationEmail || cloudState?.email || authEmail).trim().toLowerCase();
+    if (!email || authVerificationBusy) return;
+    setAuthVerificationBusy(true);
+    setAuthVerificationFeedback('');
+    setAuthVerificationError(false);
+    try {
+      const result = await window.rmango.resendEmailConfirmation({ email });
+      setAuthVerificationFeedback(result.message || 'Check your inbox for a confirmation email.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not request a confirmation email.';
+      setAuthVerificationFeedback(message);
+      setAuthVerificationError(true);
+    } finally {
+      setAuthVerificationBusy(false);
+    }
+  }
+
   async function handleAuth(event: FormEvent) {
     event.preventDefault();
     if (authBusy) return;
     setAuthBusy(true);
     try {
+      const normalizedEmail = authEmail.trim().toLowerCase();
       if (authMode === 'sign-in') {
-        await window.rmango.cloudSignIn({ email: authEmail.trim(), password: authPassword });
+        await window.rmango.cloudSignIn({ email: normalizedEmail, password: authPassword });
+        setPendingVerificationEmail('');
+        setAuthVerificationFeedback('');
+        setAuthVerificationError(false);
       } else {
         const result = await window.rmango.cloudSignUp({
-          email: authEmail.trim(),
+          email: normalizedEmail,
           password: authPassword,
           displayName: authDisplayName.trim() || undefined,
         });
         if (result.requiresEmailConfirmation) {
-          setToast('Check your email to confirm your Rmango account, then sign in.');
+          setPendingVerificationEmail(normalizedEmail);
+          setAuthVerificationFeedback('A confirmation link was requested. Open it on this device or another device, then return here and sign in.');
+          setAuthVerificationError(false);
+          setToast('Check your inbox to verify your Rmango account.');
           setAuthMode('sign-in');
           setAuthPassword('');
           return;
@@ -631,7 +925,13 @@ function App() {
       setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
       if (state.serviceReady) setSettingsOpen(false);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.');
+      const message = error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.';
+      if (authMode === 'sign-in' && /(email.*confirm|confirm.*email|email.*verif|verif.*email)/i.test(message)) {
+        setPendingVerificationEmail(authEmail.trim().toLowerCase());
+        setAuthVerificationFeedback('This account still needs email confirmation. Request a fresh link below, then sign in.');
+        setAuthVerificationError(false);
+      }
+      setToast(message);
     } finally {
       setAuthBusy(false);
     }
@@ -1202,6 +1502,15 @@ function App() {
     }
   }
 
+  async function copyTextToClipboard(value: string) {
+    try {
+      await writeClipboardText(value);
+      setToast('Copied to clipboard.');
+    } catch {
+      setToast('Could not access the clipboard in this window.');
+    }
+  }
+
   function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey && (sendOnEnter || event.ctrlKey || event.metaKey)) {
       event.preventDefault();
@@ -1342,17 +1651,17 @@ function App() {
 
       <div className="workspace-layout">
         <nav className="activity-rail">
-          <button className="rail-button active" title="Workspace"><Bot size={18}/></button>
-          <button className={"rail-button " + (leftSidebarOpen ? "active" : "")} title="Project files" onClick={() => setLeftSidebarOpen(value => !value)}><Folder size={18}/></button>
-          <button className="rail-button" title="Cloud projects" onClick={() => { setLeftSidebarOpen(true); setCloudProjectSearch(''); }}><Layers3 size={18}/></button>
-          <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
-          <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
+          <button className="rail-button active" title="Workspace" aria-label="Workspace" onClick={() => { setLeftSidebarCollapsed(false); setLeftSidebarOpen(true); setRightPanelOpen(false); }}><Bot size={18}/></button>
+          <button className={"rail-button " + (!leftSidebarCollapsed ? "active" : "")} title="Toggle project sidebar (Ctrl+B)" aria-label="Toggle project sidebar" onClick={() => { setLeftSidebarCollapsed(value => !value); setLeftSidebarOpen(true); }}><Folder size={18}/></button>
+          <button className="rail-button" title="Cloud projects" aria-label="Cloud projects" onClick={() => { setLeftSidebarOpen(true); setCloudProjectSearch(''); }}><Layers3 size={18}/></button>
+          <button className="rail-button" title="AI chat" aria-label="Focus chat composer" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
+          <button className="rail-button" title="Session inspector" aria-label="Session inspector" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
           <div className="rail-spacer"/>
           <button className="rail-button" title="Settings" onClick={() => { setSettingsSection('general'); setSettingsOpen(true); }}><Settings2 size={18}/></button>
         </nav>
 
-        <aside className={"left-sidebar " + (leftSidebarOpen ? "visible" : "")}>
-          <div className="sidebar-heading"><span>WORKSPACE</span><button className="subtle-icon" title="Workspace menu"><MoreHorizontal size={16}/></button></div>
+        <aside className={"left-sidebar " + (leftSidebarOpen ? "visible" : "") + (leftSidebarCollapsed ? " collapsed" : "")}>
+          <div className="sidebar-heading"><span>PROJECTS</span><button type="button" className="subtle-icon sidebar-collapse-button" title="Collapse project sidebar (Ctrl+B)" aria-label="Collapse project sidebar" onClick={() => setLeftSidebarCollapsed(true)}><PanelRight size={15}/></button></div>
           <div className="project-card">
             <div className="project-icon"><Gamepad2 size={17}/></div>
             <div className="project-details">
@@ -1429,8 +1738,12 @@ function App() {
               ? <div className="conversation-empty">Sign in to sync chat history.</div>
               : cloudConversations.length === 0
                 ? <div className="conversation-empty">Your cloud conversations will appear here.</div>
-                : <div className="conversation-list">
-                  {cloudConversations.slice(0, 20).map(item =>
+                : <>
+                  {cloudConversations.length > 4 && <div className="cloud-project-search conversation-search"><Search size={12}/><input value={conversationSearch} onChange={event => setConversationSearch(event.target.value)} placeholder="Search chats" aria-label="Search recent chats"/></div>}
+                  {filteredCloudConversations.length === 0
+                    ? <div className="conversation-empty">No chats match your search.</div>
+                    : <div className="conversation-list">
+                  {filteredCloudConversations.slice(0, 20).map(item =>
                     <button
                       type="button"
                       className={'conversation-item ' + (item.id === conversationId ? 'active' : '')}
@@ -1445,6 +1758,7 @@ function App() {
                     </button>
                   )}
                 </div>}
+                </>}
           </div>
           <div className="sidebar-bottom">
             <div className="section-row"><span>CONNECTIONS</span><span className={'tiny-status ' + (studioConnected ? 'on' : '')}/></div>
@@ -1479,7 +1793,7 @@ function App() {
 
         <main className="main-panel">
           <div className="main-toolbar">
-            <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">CLOUD AI</span></div>
+            <div className="main-toolbar-leading"><div className="tab-active"><MessageSquare size={14}/> Chat <span className="tab-live">RMANGO AI</span></div>{appState?.projectPath && <span className="toolbar-context"><Folder size={12}/>{appState.projectPath.split(/[\\/]/).filter(Boolean).pop()}</span>}</div>
             <div className="toolbar-actions">
               <button type="button" className="new-chat-button" onClick={() => void handleNewConversation()} disabled={!cloudState?.signedIn || !cloudReady || busy} title="Start a new conversation"><Plus size={13}/> New chat</button>
               <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Cloud model'}</span>
@@ -1492,9 +1806,9 @@ function App() {
               {messages.length === 0 ? (
                 <div className="welcome-block">
                   <div className="welcome-orb"><div className="welcome-logo"><MangoMark size={66}/></div><span className="orb-spark spark-one"/><span className="orb-spark spark-two"/><span className="orb-spark spark-three"/></div>
-                  <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX BUILD PARTNER <span className="eyebrow-line"/></div>
-                  <h1>Make something<br/><em>mango-nificent.</em></h1>
-                  <p>Inspect your place, understand your scripts, design maps and build Roblox systems with remotely hosted AI models.</p>
+                  <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX DEVELOPMENT WORKSPACE <span className="eyebrow-line"/></div>
+                  <h1>What are we<br/><em>building today?</em></h1>
+                  <p>Describe what you want to create or fix. RMango can inspect your project, work with Roblox Studio, and help turn ideas into working game systems.</p>
 
                   {!cloudReady && <div className="setup-card">
                     <div className="setup-card-icon"><Sparkles size={19}/></div>
@@ -1528,6 +1842,7 @@ function App() {
                           <strong>{message.role === 'assistant' ? 'Rmango' : 'You'}</strong>
                           <span>{displayTime(message.createdAt)}</span>
                           {message.role === 'assistant' && <span className="agent-tag"><Sparkles size={10}/> {(message.modelProfile || 'cloud').toUpperCase()}</span>}
+                          {message.role === 'assistant' && Boolean(message.content) && <button type="button" className="message-copy-button" title="Copy response" aria-label="Copy response" onClick={() => void copyTextToClipboard(message.content)}><Copy size={12}/></button>}
                         </div>
                         {message.attachments?.length ? <div className="message-attachments">
                           {message.attachments.map(attachment =>
@@ -1539,7 +1854,7 @@ function App() {
                             </div>
                           )}
                         </div> : null}
-                        <div className="message-content">{message.content}</div>
+                        <div className="message-content"><MessageContent content={message.content}/></div>
                       </div>
                     </div>
                   )}
@@ -1618,9 +1933,9 @@ function App() {
         </main>
 
         {rightPanelOpen && <aside className="right-sidebar">
-          <div className="right-heading"><span>WORKSPACE MAP</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close workspace panel"><X size={15}/></button></div>
+          <div className="right-heading"><span>SESSION INSPECTOR</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close workspace panel"><X size={15}/></button></div>
           <div className="workspace-map-shell">
-            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i className={cloudReady && studioReady ? 'all-live' : ''}/>{cloudReady && studioReady ? 'ALL SYSTEMS READY' : cloudReady && studioConnected ? 'AI ONLINE · OPEN A PLACE' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioReady ? 'STUDIO READY · AI OFFLINE' : studioConnected ? 'MCP BRIDGE ONLY' : 'WAITING FOR SERVICES'}</span></div>
+            <div className="workspace-map-caption"><span>LIVE WORKSPACE STATUS</span><span className="map-caption-status"><i className={cloudReady && studioReady ? 'all-live' : ''}/>{cloudReady && studioReady ? 'ALL SYSTEMS READY' : cloudReady && studioConnected ? 'AI ONLINE · OPEN A PLACE' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioReady ? 'STUDIO READY · AI OFFLINE' : studioConnected ? 'MCP BRIDGE ONLY' : 'WAITING FOR SERVICES'}</span></div>
             <div className="workspace-map">
               <button type="button" className="map-node project-node" onClick={() => void handleOpenProject()}>
                 <span className="map-node-icon"><FolderOpen size={18}/></span>
@@ -1751,7 +2066,7 @@ function App() {
               : <div className="activity-empty"><Layers3 size={15}/><span>Coordinated agent tasks will be saved here.</span></div>}
           </section>
           <section className="inspector-section activity-section">
-            <div className="section-title"><span>RECENT ACTIVITY</span><button className="subtle-icon" onClick={() => setActivities([])} title="Clear activity"><RefreshCw size={13}/></button></div>
+            <div className="section-title"><span>RECENT ACTIVITY</span><button className="subtle-icon" onClick={() => setActivities([])} title="Clear activity" aria-label="Clear activity"><Trash2 size={13}/></button></div>
             {activities.length
               ? activities.slice(-7).reverse().map((item, index) =>
                   <div className="activity-item" key={item.name + '-' + index}>
@@ -1916,7 +2231,19 @@ function App() {
                     </div>
                     <div className="settings-shortcut-row">
                       <div><strong>Open Settings</strong><small>Open this panel from anywhere in Rmango.</small></div>
-                      <kbd>Ctrl</kbd><span>+</span><kbd>,</kbd>
+                      <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd><span>+</span><kbd>,</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Toggle project sidebar</strong><small>Show or hide the project explorer.</small></div>
+                      <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd><span>+</span><kbd>B</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Toggle session inspector</strong><small>Show or hide Studio status and task activity.</small></div>
+                      <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>I</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Focus chat composer</strong><small>Jump directly to the message box.</small></div>
+                      <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd><span>+</span><kbd>L</kbd>
                     </div>
                   </section>
 
@@ -1933,7 +2260,7 @@ function App() {
 
                   <section className="settings-tip">
                     <Info size={16}/>
-                    <div><strong>Your settings are saved automatically</strong><p>Changes are stored locally on this Windows account. You do not need to press a Save button.</p></div>
+                    <div><strong>Your settings are saved automatically</strong><p>Changes are stored locally for this device account. You do not need to press a Save button.</p></div>
                   </section>
                 </>}
 
@@ -2096,12 +2423,28 @@ function App() {
                         <div className="account-copy">
                           <strong>{cloudState.displayName || cloudState.email || 'Rmango account'}</strong>
                           <span>{cloudState.email || 'Account email unavailable'}</span>
-                          <span>{cloudState.accountVerified
+                          <span className={cloudState.emailVerified ? 'account-email-verified' : 'account-email-pending'}>{cloudState.accountVerified
                             ? (cloudState.emailVerified ? 'Email confirmed' : 'Email not confirmed')
                             : 'Verification status unavailable'}</span>
                           <span>{cloudState.serviceReady ? 'Cloud services online' : 'Connected · cloud services need attention'}</span>
                         </div>
                         <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
+                      </div>
+                      {!cloudState.emailVerified && <div className="account-verify-callout">
+                        <div><AlertCircle size={15}/><span>Your email is not confirmed yet. Confirm it to finish securing your account.</span></div>
+                        <button type="button" className="verification-resend-button" onClick={() => void handleResendEmailConfirmation()} disabled={authVerificationBusy}>
+                          {authVerificationBusy ? <LoaderCircle size={13} className="spin"/> : <MailCheck size={13}/>}
+                          {authVerificationBusy ? 'Sending…' : 'Resend confirmation'}
+                        </button>
+                        {authVerificationFeedback && <p className={'verification-feedback ' + (authVerificationError ? 'is-error' : '')}>{authVerificationFeedback}</p>}
+                      </div>}
+                      <div className="account-device-security">
+                        <div className="account-device-security-icon"><ShieldCheck size={15}/></div>
+                        <div>
+                          <strong>{appState?.secureStorageAvailable ? 'Device key store protected' : 'Device key store needs attention'}</strong>
+                          <span>{appState?.secureStorageProvider || 'Checking operating-system key store'}{appState?.secureStorageMessage ? ' · ' + appState.secureStorageMessage : ' · Account tokens are encrypted using the operating-system key store.'}</span>
+                        </div>
+                        <span className={'account-device-security-status ' + (appState?.secureStorageAvailable ? 'ready' : 'warning')}>{appState?.secureStorageAvailable ? 'SECURE' : 'CHECK'}</span>
                       </div>
                       <div className="settings-inline-status">
                         <span className={'health-state ' + (cloudState.serviceReady ? 'ready' : 'blocked')}>{cloudState.serviceReady ? 'CLOUD READY' : 'CLOUD NEEDS ATTENTION'}</span>
@@ -2110,7 +2453,15 @@ function App() {
                     </section>
                   </> : <>
                     <section className="settings-card">
-                      <div className="settings-card-heading">
+                      <div className="account-auth-hero">
+                          <AccountSecurityVisual/>
+                          <div>
+                            <span className="account-auth-eyebrow">YOUR WORKSPACE, PROTECTED</span>
+                            <h3>One account. Your projects stay yours.</h3>
+                            <p>Email confirmation helps protect access to your cloud workspace and saved Roblox projects.</p>
+                          </div>
+                        </div>
+                        <div className="settings-card-heading">
                         <div className="settings-card-icon"><LockKeyhole size={17}/></div>
                         <div><h3>Connect your account</h3><p>Sign in to use hosted AI, projects, and account-based conversation history.</p></div>
                       </div>
@@ -2122,6 +2473,23 @@ function App() {
                           <span className="provider-symbol local-symbol"><Plus size={15}/></span><span><strong>Create account</strong><small>New Rmango account</small></span>
                         </button>
                       </div>
+                      {pendingVerificationEmail && <div className="verification-panel" role="status" aria-live="polite">
+                        <div className="verification-panel-icon"><MailCheck size={19}/></div>
+                        <div className="verification-panel-copy">
+                          <strong>Check your inbox</strong>
+                          <p>Verification is pending for <b>{pendingVerificationEmail}</b>. Open the confirmation link, then sign in here.</p>
+                        </div>
+                        <div className="verification-actions">
+                          <button type="button" className="verification-resend-button" onClick={() => void handleResendEmailConfirmation()} disabled={authVerificationBusy}>
+                            {authVerificationBusy ? <LoaderCircle size={13} className="spin"/> : <MailCheck size={13}/>}
+                            {authVerificationBusy ? 'Sending…' : 'Resend confirmation'}
+                          </button>
+                          <button type="button" className="verification-change-button" onClick={() => { setPendingVerificationEmail(''); setAuthVerificationFeedback(''); setAuthVerificationError(false); }}>
+                            Use another email
+                          </button>
+                        </div>
+                        {authVerificationFeedback && <p className={'verification-feedback ' + (authVerificationError ? 'is-error' : '')}>{authVerificationFeedback}</p>}
+                      </div>}
                       <form className="settings-auth-form" onSubmit={handleAuth}>
                         {authMode === 'sign-up' && <>
                           <label className="field-label" htmlFor="rmango-display-name">DISPLAY NAME</label>
@@ -2130,7 +2498,12 @@ function App() {
                         <label className="field-label" htmlFor="rmango-email">EMAIL</label>
                         <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => { setAuthEmail(event.target.value); setAuthResetSent(false); }} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
                         <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
-                        <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
+                        <div className="auth-password-wrap">
+                          <input id="rmango-password" className="settings-input" type={showAuthPassword ? 'text' : 'password'} value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
+                          <button type="button" className="auth-password-visibility" aria-label={showAuthPassword ? 'Hide password' : 'Show password'} aria-pressed={showAuthPassword} onClick={() => setShowAuthPassword(value => !value)}>
+                            {showAuthPassword ? <EyeOff size={15}/> : <Eye size={15}/>}
+                          </button>
+                        </div>
                         {authMode === 'sign-in' && <div className="password-recovery-row">
                           <button type="button" className="password-recovery-link" onClick={() => void handlePasswordReset()} disabled={authResetBusy || !authEmail.trim()}>
                             {authResetBusy ? <LoaderCircle size={13} className="spin"/> : <LockKeyhole size={13}/>}
@@ -2174,11 +2547,26 @@ function App() {
                 {settingsSection === 'privacy' && <>
                   <section className="settings-card">
                     <div className="settings-card-heading">
+                      <div className="settings-card-icon"><ShieldCheck size={17}/></div>
+                      <div><h3>Device encryption</h3><p>Rmango uses the built-in secure key store provided by your operating system.</p></div>
+                    </div>
+                    <div className="account-device-security">
+                      <div className="account-device-security-icon"><ShieldCheck size={15}/></div>
+                      <div>
+                        <strong>{appState?.secureStorageAvailable ? 'Secure storage ready' : 'Secure storage unavailable'}</strong>
+                        <span>{appState?.secureStorageProvider || 'Checking your system key store'}{appState?.secureStorageMessage ? ' · ' + appState.secureStorageMessage : ' · Local account tokens are encrypted with this device key store.'}</span>
+                      </div>
+                      <span className={'account-device-security-status ' + (appState?.secureStorageAvailable ? 'ready' : 'warning')}>{appState?.secureStorageAvailable ? 'READY' : 'CHECK'}</span>
+                    </div>
+                    <p className="settings-card-footnote">Windows uses DPAPI, macOS uses Keychain, and Linux requires Secret Service or KWallet. Rmango will not fall back to plain-text key storage.</p>
+                  </section>
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
                       <div className="settings-card-icon"><HardDrive size={17}/></div>
-                      <div><h3>Local chat cache</h3><p>Control whether Rmango keeps a small encrypted message cache on this PC.</p></div>
+                      <div><h3>Local chat cache</h3><p>Control whether Rmango keeps a small encrypted message cache on this device.</p></div>
                     </div>
                     <div className="settings-row">
-                      <div><strong>Save recent messages on this device</strong><small>Stores up to the most recent 100 messages in the Windows app data folder, encrypted using Windows secure storage.</small></div>
+                      <div><strong>Save recent messages on this device</strong><small>Stores up to the most recent 100 messages in the app data folder, encrypted using the operating-system key store.</small></div>
                       <button type="button" role="switch" aria-checked={saveLocalChatHistory} className={'preference-switch ' + (saveLocalChatHistory ? 'on' : '')} onClick={() => void handleLocalHistoryChange(!saveLocalChatHistory)}><i/></button>
                     </div>
                     <div className="settings-privacy-detail">
@@ -2197,7 +2585,7 @@ function App() {
                       <div><h3>Roblox Studio safety</h3><p>Actions that change your Studio project continue to use an approval step.</p></div>
                     </div>
                     <div className="settings-security-line"><CheckCircle2 size={15}/><span>Write and destructive Studio tools require approval in the app before they run.</span></div>
-                    <div className="settings-security-line"><LockKeyhole size={15}/><span>Your cloud session is stored using Windows secure storage, not as a plain-text password.</span></div>
+                    <div className="settings-security-line"><LockKeyhole size={15}/><span>Your cloud session is encrypted with your operating-system key store, not saved as a plain-text password.</span></div>
                     <p className="settings-card-footnote">These safety checks cannot be disabled from Settings.</p>
                   </section>
                 </>}
@@ -2213,7 +2601,7 @@ function App() {
                       <button type="button" role="switch" aria-checked={desktopNotifications} className={'preference-switch ' + (desktopNotifications ? 'on' : '')} onClick={() => { const value = !desktopNotifications; setDesktopNotifications(value); void savePreferences({ desktopNotifications: value }); }}><i/></button>
                     </div>
                   </section>
-                  <section className="settings-tip"><Info size={16}/><div><strong>Windows notification permissions</strong><p>Windows may also control whether notifications from Rmango are shown. This switch controls Rmango's own notification behavior.</p></div></section>
+                  <section className="settings-tip"><Info size={16}/><div><strong>Windows notification permissions</strong><p>Your operating system may also control whether notifications from Rmango are shown. This switch controls Rmango's own notification behavior.</p></div></section>
                 </>}
 
                 {settingsSection === 'updates' && <>
@@ -2227,8 +2615,8 @@ function App() {
                       <div><span>PLATFORM</span><strong>{appState?.platform || '—'}</strong></div>
                     </div>
                     <div className="settings-row">
-                      <div><strong>Automatic update checks</strong><small>Check for stable releases every five minutes. Updates are downloaded in the background and install only when you choose.</small></div>
-                      <button type="button" role="switch" aria-checked={autoUpdatesEnabled} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
+                      <div><strong>Automatic update checks</strong><small>{appState?.platform === 'win32' ? 'Check for the newest stable release every five minutes. Rmango validates its cached installer and downloads only when the verified update file is missing. Install only when you choose.' : appState?.platform === 'darwin' ? 'macOS releases are installed from signed and notarized DMG downloads. Automatic in-app updates are not enabled for this build.' : appState?.platform === 'linux' ? 'Linux releases are installed from AppImage or DEB packages. Automatic updates remain disabled until signed manifests are configured.' : 'Automatic updates are not configured for this platform.'}</small></div>
+                      <button type="button" role="switch" aria-checked={autoUpdatesEnabled} aria-label="Automatic update checks" disabled={appState?.platform !== 'win32'} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
                     </div>
                     <div className="settings-update-status">
                       <span className={'health-state ' + (updateState?.status === 'error' ? 'blocked' : updateState?.status === 'downloaded' || updateState?.status === 'not-available' ? 'ready' : '')}>{(updateState?.status || 'idle').replace('-', ' ').toUpperCase()}</span>
@@ -2238,7 +2626,7 @@ function App() {
                     </div>
                     {updateState?.releaseNotes && <details className="settings-release-notes"><summary>Release notes</summary><p>{updateState.releaseNotes}</p></details>}
                     <div className="settings-form-actions">
-                      <button type="button" className="settings-secondary-button" onClick={() => void handleCheckUpdates()} disabled={updateState?.status === 'checking' || updateState?.status === 'downloading'}>
+                      <button type="button" className="settings-secondary-button" onClick={() => void handleCheckUpdates()} disabled={appState?.platform !== 'win32' || updateState?.status === 'checking' || updateState?.status === 'downloading' || updateState?.status === 'downloaded'}>
                         {updateState?.status === 'checking' ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>} Check now
                       </button>
                       {updateState?.status === 'downloaded' && <button type="button" className="save-button" onClick={() => void handleInstallUpdate()}><Download size={14}/> Install and restart</button>}
@@ -2272,7 +2660,7 @@ function App() {
             </main>
           </div>
           <footer className="settings-center-footer">
-            <span>Press <kbd>Ctrl</kbd> + <kbd>,</kbd> to open Settings</span>
+            <span>Press <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd> + <kbd>,</kbd> to open Settings</span>
             <button type="button" className="settings-footer-close" onClick={() => setSettingsOpen(false)}>Done</button>
           </footer>
         </section>

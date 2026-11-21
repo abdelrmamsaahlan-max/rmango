@@ -17,7 +17,10 @@ export async function POST(request: Request) {
   const supabase = createAuthClient();
   const { data, error } = await supabase.auth.refreshSession({ refresh_token: payload.refreshToken });
   if (error || !data.session || !data.user) {
-    return NextResponse.json({ error: error?.message || "Your session has expired. Sign in again." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Your session has expired. Sign in again." },
+      { status: 401, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
   }
 
   return NextResponse.json({
@@ -27,5 +30,7 @@ export async function POST(request: Request) {
       refreshToken: data.session.refresh_token,
       expiresAt: data.session.expires_at,
     },
+  }, {
+    headers: { "Cache-Control": "no-store, max-age=0" },
   });
 }

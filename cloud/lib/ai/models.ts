@@ -129,31 +129,66 @@ function supportsProfile(model: GatewayModel, profile: ModelProfile) {
   return true;
 }
 
-function pickCandidate(models: GatewayModel[], profile: ModelProfile): GatewayModel | undefined {
-  let candidates = models.filter(model =>
-    (model.modalities?.input || []).includes("text") && Number.isFinite(scoreCost(model))
-  );
-  if (profile === "vision") {
-    candidates = candidates.filter(model => (model.modalities?.input || []).includes("image"));
-  } else if (profile === "think") {
-    candidates = candidates.filter(model => supports(model, "reasoning"));
-  } else if (profile === "agent") {
-    candidates = candidates.filter(model => supports(model, "tool-use"));
+function modelCapabilityScore(model: GatewayModel, profile: ModelProfile): number {
+  // Gateway metadata is an imperfect quality signal, not a benchmark. Prefer explicit
+  // capabilities first; use context/output size only as secondary tie-breakers.
+  const tags = new Set(capabilityTags(model).map(tag => tag.toLowerCase()));
+  const has = (tag: string) => tags.has(tag);
+  const text = ((model.name || "") + " " + (model.description || "")).toLowerCase();
+  const contextBonus = Math.min(2, Math.max(0, Math.log2(Math.max(1, model.context_window || 1) / 32_000))) * 0.8;
+  const outputBonus = Math.min(2, Math.max(0, Math.log2(Math.max(1, model.max_tokens || 1) / 4_096))) * 0.55;
+  const costPenalty = Math.log1p(scoreCost(model) * 1_000_000);
+  const featuredBonus = ["recommended", "featured", "frontier"].some(tag => has(tag)) ? 1.5 : 0;
+  let score = contextBonus + outputBonus + featuredBonus;
+
+  if (profile === "fast") {
+    if (has("fast") || has("low-latency")) score += 6;
+    if (/\b(fast|speed|instant|flash|haiku)\b/.test(text)) score += 1.5;
+    score -= costPenalty * 1.7;
   } else if (profile === "developer") {
-    const coder = candidates.filter(model => supports(model, "tool-use") && /coder|code|coding|developer/i.test((model.name || "") + " " + (model.description || "")));
-    if (coder.length) candidates = coder;
-    else candidates = candidates.filter(model => supports(model, "tool-use"));
-  } else if (profile === "fast") {
-    const fast = candidates.filter(model => supports(model, "fast"));
-    if (fast.length) candidates = fast;
+    if (has("tool-use")) score += 6;
+    if (has("reasoning")) score += 1.5;
+    if (/\b(code|coder|coding|developer|programming)\b/.test(text)) score += 4;
+    score -= costPenalty * 0.45;
+  } else if (profile === "think") {
+    if (has("reasoning")) score += 8;
+    if (has("tool-use")) score += 1.5;
+    score += contextBonus * 0.65 + outputBonus * 0.5;
+    score -= costPenalty * 0.3;
+  } else if (profile === "agent") {
+    // An agent must use tools, but multi-step reasoning is the second key capability.
+    // A missing reasoning tag is a penalty rather than a hard exclusion because
+    // Gateway metadata can be incomplete for otherwise capable models.
+    if (has("tool-use")) score += 8;
+    if (has("reasoning")) score += 8;
+    else score -= 3;
+    if (has("structured-outputs") || has("json-mode")) score += 1.5;
+    if (/\b(code|coder|coding|developer|programming)\b/.test(text)) score += 1.5;
+    score += contextBonus * 0.9 + outputBonus * 0.75;
+    score -= costPenalty * 0.3;
+  } else {
+    if ((model.modalities?.input || []).includes("image")) score += 8;
+    if (has("reasoning")) score += 2;
+    if (has("tool-use")) score += 1;
+    score -= costPenalty * 0.35;
   }
 
+  return score;
+}
+
+function pickCandidate(models: GatewayModel[], profile: ModelProfile): GatewayModel | undefined {
+  const candidates = models.filter(model =>
+    supportsProfile(model, profile) &&
+    Number.isFinite(scoreCost(model)) &&
+    Number.isFinite(modelCapabilityScore(model, profile))
+  );
   if (!candidates.length) return undefined;
-  if (profile === "think" || profile === "developer" || profile === "agent") {
-    candidates.sort((a, b) => (b.context_window || 0) - (a.context_window || 0) || scoreCost(a) - scoreCost(b));
-  } else {
-    candidates.sort((a, b) => scoreCost(a) - scoreCost(b));
-  }
+
+  candidates.sort((a, b) =>
+    modelCapabilityScore(b, profile) - modelCapabilityScore(a, profile) ||
+    scoreCost(a) - scoreCost(b) ||
+    (b.context_window || 0) - (a.context_window || 0)
+  );
   return candidates[0];
 }
 

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Optional version tag (example: v0.3.0). Leave blank for an automatic build version."
+        description: "Optional stable version tag (example: v0.3.0). Leave blank for a CI-only build."
         required: false
         default: ""
         type: string
@@ -146,34 +146,36 @@ jobs:
           $refType = "${{ github.ref_type }}"
           $refName = "${{ github.ref_name }}"
 
+          $releaseBuild = $false
           if ($requestedTag) {
             $version = $requestedTag -replace '^v', ''
+            $releaseBuild = $true
           } elseif ($refType -eq "tag") {
             $version = $refName -replace '^v', ''
+            $releaseBuild = $true
           } else {
-            $base = [regex]::Match($package.version, '^(?<major>\d+)\.(?<minor>\d+)\.\d+')
+            $base = [regex]::Match($package.version, '^(?<semver>\d+\.\d+\.\d+)')
             if (-not $base.Success) {
               throw "The base package version '$($package.version)' is not a valid major.minor.patch version."
             }
-            # Each main-branch build receives a strictly increasing patch number.
-            $version = "$($base.Groups['major'].Value).$($base.Groups['minor'].Value).${{ github.run_number }}"
+            # Main-branch builds are CI-only prereleases, never stable update releases.
+            $version = "$($base.Groups['semver'].Value)-ci.${{ github.run_number }}"
           }
 
           if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-            throw "Invalid release version '$version'. Use semantic versioning, for example 0.3.0."
+            throw "Invalid version '$version'. Use semantic versioning, for example 0.3.0."
           }
 
           $package.version = $version
-          if ($env:RMANGO_HAS_SIGNING_CERT -eq "true") {
-            $package.build.win.verifyUpdateCodeSignature = $true
-          } else {
-            # Current public builds are unsigned. SHA-512 metadata and HTTPS are still checked.
-            $package.build.win.verifyUpdateCodeSignature = $false
-          }
+          # Installed applications only accept updates signed by the trusted publisher.
+          # CI may still create an unsigned artifact for manual testing, but it is never published.
+          $package.build.win.verifyUpdateCodeSignature = $true
           Set-Content -LiteralPath $packagePath -Value ($package | ConvertTo-Json -Depth 100) -Encoding utf8
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
+          "is_release=$($releaseBuild.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           Write-Host "Building Rmango $version"
+          Write-Host "Stable release build: $releaseBuild"
           Write-Host "Publisher-signing configured: $env:RMANGO_HAS_SIGNING_CERT"
 
       - name: Set up Node.js
@@ -192,19 +194,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RMANGO_CLOUD_CONFIGURED: ${{ steps.cloud-config.outputs.configured }}
+          RMANGO_RELEASE_BUILD: ${{ steps.version.outputs.is_release }}
         shell: pwsh
         run: |
-          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
-            # electron-updater verifies the HTTPS release metadata and SHA-512 file hash.
-            # Authenticode signing is preferred, but it is optional because the app's
-            # update configuration explicitly permits unsigned publisher builds.
+          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true" -and $env:RMANGO_HAS_SIGNING_CERT -eq "true" -and $env:RMANGO_RELEASE_BUILD -eq "true") {
+            # Publish only when the updater can verify both the release checksum and
+            # the trusted Windows publisher signature.
             npm run dist:win:publish
-            if ($env:RMANGO_HAS_SIGNING_CERT -ne "true") {
-              Write-Warning "Published an unsigned update. Windows may show an unknown-publisher SmartScreen warning; configure the signing certificate for publisher identity."
-            }
           } else {
             npm run dist:win
-            Write-Warning "Cloud URL is missing, so this installer is CI-only and cannot be discovered by the in-app updater."
+            if ($env:RMANGO_RELEASE_BUILD -ne "true") {
+              Write-Warning "This is a main-branch CI build, not a stable release. It will not create a public GitHub Release or trigger another in-app update."
+            } elseif ($env:RMANGO_HAS_SIGNING_CERT -ne "true") {
+              Write-Warning "No trusted publisher certificate is configured. This installer is a CI artifact only; it will not be published to the auto-update feed."
+            } else {
+              Write-Warning "Cloud URL is missing, so this installer is CI-only and cannot be discovered by the in-app updater."
+            }
           }
 
       - name: Verify setup executable and update manifest
@@ -220,8 +225,9 @@ jobs:
 
           $configured = "${{ steps.cloud-config.outputs.configured }}"
           $signed = "${{ steps.signing.outputs.has_certificate }}"
+          $releaseBuild = "${{ steps.version.outputs.is_release }}"
           $manifest = Join-Path "app-src/release" "latest.yml"
-          if ($configured -eq "true") {
+          if ($configured -eq "true" -and $signed -eq "true" -and $releaseBuild -eq "true") {
             if (-not (Test-Path $manifest)) {
               throw "Missing latest.yml. The auto-update feed would not work."
             }
@@ -232,7 +238,7 @@ jobs:
             }
             Write-Host "Auto-update manifest: $manifest"
           } else {
-            Write-Warning "The cloud endpoint is not configured. This build will be saved as a CI artifact only; no public update feed can be published."
+            Write-Warning "A signed update feed is not configured. This build will be saved as a CI artifact only; no public update feed can be published."
           }
 
           $sizeMb = [math]::Round($installer.Length / 1MB, 2)
@@ -251,7 +257,7 @@ jobs:
           }
 
       - name: Verify public GitHub Release contains the update feed
-        if: steps.cloud-config.outputs.configured == 'true'
+        if: steps.version.outputs.is_release == 'true' && steps.cloud-config.outputs.configured == 'true' && steps.signing.outputs.has_certificate == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

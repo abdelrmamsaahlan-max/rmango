@@ -110,6 +110,8 @@ const approvalResolvers = new Map<string, (approved: boolean) => void>();
 const activeChatRequests = new Map<string, AbortController>();
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
+let updateDownloadInFlight = false;
+let lastDownloadedUpdateVersion: string | null = null;
 let lastUpdateCheckAt = 0;
 let updateStartupTimer: NodeJS.Timeout | null = null;
 let updateCheckTimer: NodeJS.Timeout | null = null;
@@ -123,6 +125,90 @@ const userData = () => app.getPath('userData');
 const settingsPath = () => path.join(userData(), 'settings.json');
 const sessionPath = () => path.join(userData(), 'session.json');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
+const updateCacheStatePath = () => path.join(userData(), 'update-cache-state.json');
+
+async function readUpdateCacheVersion(): Promise<string | null> {
+  try {
+    const raw = JSON.parse(await fs.readFile(updateCacheStatePath(), 'utf8')) as { version?: unknown };
+    return typeof raw.version === 'string' && isNewerStableVersion(raw.version, app.getVersion())
+      ? raw.version
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function persistUpdateCacheVersion(version: string): Promise<void> {
+  if (!isNewerStableVersion(version, app.getVersion())) return;
+  await fs.mkdir(userData(), { recursive: true, mode: 0o700 });
+  const target = updateCacheStatePath();
+  const temporary = target + '.' + randomUUID() + '.tmp';
+  await fs.writeFile(temporary, JSON.stringify({ version, savedAt: new Date().toISOString() }), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  await fs.chmod(temporary, 0o600).catch(() => undefined);
+  await fs.rename(temporary, target);
+}
+
+async function clearUpdateCacheVersion(): Promise<void> {
+  lastDownloadedUpdateVersion = null;
+  await fs.rm(updateCacheStatePath(), { force: true }).catch(() => undefined);
+}
+
+function secureStorageProvider(): string {
+  if (process.platform === 'win32') return 'Windows DPAPI';
+  if (process.platform === 'darwin') return 'macOS Keychain';
+  if (process.platform === 'linux') {
+    const backend = safeStorage.getSelectedStorageBackend();
+    const labels: Record<string, string> = {
+      gnome_libsecret: 'Linux Secret Service',
+      kwallet: 'KWallet',
+      kwallet5: 'KWallet 5',
+      kwallet6: 'KWallet 6',
+      basic_text: 'Insecure fallback (blocked)',
+      unknown: 'System keyring not detected',
+    };
+    return labels[backend] || backend;
+  }
+  return 'Platform key store';
+}
+
+async function isSecureStorageAvailable(): Promise<boolean> {
+  try {
+    const available = await safeStorage.isAsyncEncryptionAvailable();
+    if (!available) return false;
+    if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function secureStorageHelpMessage(): string {
+  if (process.platform === 'win32') return 'Windows DPAPI secure storage is unavailable. Check that your Windows user profile is available, then restart Rmango.';
+  if (process.platform === 'darwin') return 'macOS Keychain is unavailable. Unlock your login keychain, then restart Rmango.';
+  if (process.platform === 'linux') return 'Rmango requires a real Linux Secret Service or KWallet keyring. The current basic_text fallback is not secure enough for account tokens. Sign in to your desktop keyring and restart Rmango.';
+  return 'This platform does not expose a supported operating-system secure storage provider.';
+}
+
+async function encryptProtectedText(value: string): Promise<string> {
+  if (!(await isSecureStorageAvailable())) throw new Error(secureStorageHelpMessage());
+  const encrypted = await safeStorage.encryptStringAsync(value);
+  return Buffer.from(encrypted).toString('base64');
+}
+
+async function decryptProtectedText(value: string): Promise<string> {
+  if (!(await isSecureStorageAvailable())) throw new Error(secureStorageHelpMessage());
+  const encrypted = Buffer.from(value, 'base64');
+  let decrypted = await safeStorage.decryptStringAsync(encrypted);
+  if (decrypted.shouldReEncrypt) {
+    decrypted = await safeStorage.decryptStringAsync(encrypted);
+  }
+  return decrypted.result;
+}
 
 let cloudAuthGeneration = 0;
 let cloudRefreshFlight: {
@@ -211,10 +297,10 @@ async function getCloudApiBaseUrl(): Promise<string> {
 }
 
 async function readCloudSession(): Promise<CloudSession | null> {
-  if (!safeStorage.isEncryptionAvailable()) return null;
+  if (!(await isSecureStorageAvailable())) return null;
   try {
     const encrypted = await fs.readFile(cloudSessionPath(), 'utf8');
-    const parsed = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64'))) as CloudSession;
+    const parsed = JSON.parse(await decryptProtectedText(encrypted)) as CloudSession;
     if (!parsed.accessToken || !parsed.refreshToken || !parsed.user?.id) return null;
     return parsed;
   } catch {
@@ -223,12 +309,13 @@ async function readCloudSession(): Promise<CloudSession | null> {
 }
 
 async function writeCloudSession(session: CloudSession) {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('Windows secure storage is unavailable. Rmango cannot safely store your cloud session on this device.');
-  }
-  await fs.mkdir(userData(), { recursive: true });
-  const encrypted = safeStorage.encryptString(JSON.stringify(session)).toString('base64');
-  await fs.writeFile(cloudSessionPath(), encrypted, { encoding: 'utf8', mode: 0o600 });
+  const encrypted = await encryptProtectedText(JSON.stringify(session));
+  await fs.mkdir(userData(), { recursive: true, mode: 0o700 });
+  const filePath = cloudSessionPath();
+  const temporaryPath = filePath + '.tmp';
+  await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+  await fs.chmod(temporaryPath, 0o600).catch(() => undefined);
+  await fs.rename(temporaryPath, filePath);
 }
 
 async function clearCloudSession() {
@@ -371,6 +458,13 @@ async function cloudSignIn(email: string, password: string) {
 
 async function cloudRequestPasswordReset(email: string) {
   return cloudApiRequest<{ ok: boolean; message: string }>('/api/auth/password-reset', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }, false);
+}
+
+async function cloudResendEmailConfirmation(email: string) {
+  return cloudApiRequest<{ ok: boolean; message: string }>('/api/auth/resend-confirmation', {
     method: 'POST',
     body: JSON.stringify({ email }),
   }, false);
@@ -788,8 +882,13 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
     },
   });
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  mainWindow.webContents.session.setPermissionCheckHandler(() => false);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!isTrustedRendererUrl(url)) event.preventDefault();
@@ -1466,7 +1565,8 @@ function formatReleaseNotes(value: unknown): string {
 
 function isNewerStableVersion(candidate: string, current: string): boolean {
   const parse = (version: string) => {
-    const cleaned = version.trim().replace(/^v/i, '').split('-')[0];
+    const cleaned = version.trim().replace(/^v/i, '');
+    // Reject prereleases and malformed version strings rather than treating them as stable.
     if (!/^\d+(?:\.\d+){1,3}$/.test(cleaned)) return null;
     const parts = cleaned.split('.').map(part => Number(part));
     return parts.every(Number.isSafeInteger) ? parts : null;
@@ -1484,14 +1584,16 @@ function isNewerStableVersion(candidate: string, current: string): boolean {
 
 async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
   if (!app.isPackaged || process.platform !== 'win32') {
-    broadcastUpdateState({
-      status: 'unsupported',
-      message: 'GitHub updates are available in the installed Windows app.',
-    });
+    const message = process.platform === 'darwin'
+      ? 'macOS auto-updates need an Apple-signed and notarized release. Install the matching DMG from GitHub Releases.'
+      : process.platform === 'linux'
+        ? 'Linux auto-updates stay disabled until signed update manifests are configured. Install the latest AppImage or DEB release manually.'
+        : 'Automatic updates are available only in a packaged, publisher-signed Windows build.';
+    broadcastUpdateState({ status: 'unsupported', message });
     return appUpdateState;
   }
 
-  if (updateCheckInFlight || appUpdateState.status === 'downloading' || appUpdateState.status === 'downloaded') return appUpdateState;
+  if (updateCheckInFlight || updateDownloadInFlight || appUpdateState.status === 'downloading' || appUpdateState.status === 'downloaded') return appUpdateState;
   if (!force && Date.now() - lastUpdateCheckAt < 30_000 && appUpdateState.status === 'not-available') return appUpdateState;
 
   updateCheckInFlight = true;
@@ -1502,24 +1604,45 @@ async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
     const result = await autoUpdater.checkForUpdates();
     const latestVersion = result?.updateInfo?.version;
     if (!result?.isUpdateAvailable || !latestVersion || !isNewerStableVersion(latestVersion, app.getVersion())) {
+      await clearUpdateCacheVersion();
       broadcastUpdateState({
         status: 'not-available',
         availableVersion: undefined,
         progress: undefined,
         error: undefined,
+        releaseNotes: undefined,
         message: 'You are already on the latest stable version.',
       });
       return appUpdateState;
     }
 
+    const persistedVersion = await readUpdateCacheVersion();
+    const hasCachedCandidate = lastDownloadedUpdateVersion === latestVersion || persistedVersion === latestVersion;
+
+    updateDownloadInFlight = true;
     broadcastUpdateState({
       status: 'downloading',
       availableVersion: latestVersion,
-      progress: 0,
+      progress: hasCachedCandidate ? 100 : 0,
       error: undefined,
-      message: 'Downloading the newest stable version ' + latestVersion + '…',
+      message: hasCachedCandidate
+        ? 'Verifying the previously downloaded update…'
+        : 'Downloading the newest stable version ' + latestVersion + '…',
     });
+
+    // downloadUpdate reuses electron-updater's checksum-validated cache when present.
+    // Calling it also restores the installable update into this process after a restart.
     await autoUpdater.downloadUpdate();
+    lastDownloadedUpdateVersion = latestVersion;
+    await persistUpdateCacheVersion(latestVersion);
+    broadcastUpdateState({
+      status: 'downloaded',
+      availableVersion: latestVersion,
+      progress: 100,
+      message: hasCachedCandidate
+        ? 'The previously downloaded update was verified and is ready to install.'
+        : 'Version ' + latestVersion + ' is downloaded and ready to install.',
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     broadcastUpdateState({
@@ -1528,6 +1651,7 @@ async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
       message: 'Could not check or download the latest stable release.',
     });
   } finally {
+    updateDownloadInFlight = false;
     updateCheckInFlight = false;
   }
   return appUpdateState;
@@ -1535,10 +1659,12 @@ async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
 
 function initializeAutoUpdates() {
   if (!app.isPackaged || process.platform !== 'win32') {
-    broadcastUpdateState({
-      status: 'unsupported',
-      message: 'Updates are checked by the installed Windows version of Rmango.',
-    });
+    const message = process.platform === 'darwin'
+      ? 'macOS updates require an Apple-signed and notarized release. Download the matching DMG from GitHub Releases.'
+      : process.platform === 'linux'
+        ? 'Linux updates require a signed update manifest. Download the latest AppImage or DEB from GitHub Releases.'
+        : 'Automatic updates require a packaged, publisher-signed Windows installation.';
+    broadcastUpdateState({ status: 'unsupported', message });
     return;
   }
 
@@ -1555,11 +1681,20 @@ function initializeAutoUpdates() {
   });
 
   autoUpdater.on('update-available', info => {
+    if (!isNewerStableVersion(info.version, app.getVersion())) {
+      broadcastUpdateState({
+        status: 'not-available',
+        availableVersion: undefined,
+        message: 'You are already on the latest stable version.',
+      });
+      return;
+    }
+    if (lastDownloadedUpdateVersion === info.version || updateDownloadInFlight) return;
     broadcastUpdateState({
-      status: 'downloading',
+      status: 'checking',
       availableVersion: info.version,
       progress: 0,
-      message: 'Version ' + info.version + ' is available. Downloading in the background…',
+      message: 'Latest stable version ' + info.version + ' found. Preparing one download…',
       error: undefined,
     });
   });
@@ -1573,6 +1708,17 @@ function initializeAutoUpdates() {
   });
 
   autoUpdater.on('update-downloaded', info => {
+    if (!isNewerStableVersion(info.version, app.getVersion())) {
+      broadcastUpdateState({
+        status: 'not-available',
+        availableVersion: undefined,
+        progress: undefined,
+        message: 'You are already on the latest stable version.',
+      });
+      return;
+    }
+    lastDownloadedUpdateVersion = info.version;
+    void persistUpdateCacheVersion(info.version).catch(error => console.warn('Could not persist update cache marker:', error));
     broadcastUpdateState({
       status: 'downloaded',
       availableVersion: info.version,
@@ -1593,6 +1739,7 @@ function initializeAutoUpdates() {
   });
 
   autoUpdater.on('error', error => {
+    updateDownloadInFlight = false;
     broadcastUpdateState({
       status: 'error',
       error: error.message,
@@ -1614,6 +1761,7 @@ app.on('before-quit', () => { void disconnectRoblox(); });
 handleIpc('app:get-state', async () => {
   const settings = await readSettings();
   const files = settings.projectPath ? await projectFiles(settings.projectPath) : [];
+  const secureStorageAvailable = await isSecureStorageAvailable();
   return {
     appVersion: app.getVersion(),
     platform: process.platform,
@@ -1621,6 +1769,9 @@ handleIpc('app:get-state', async () => {
     projectFiles: files,
     studioConnected: mcpAvailable(),
     studioToolCount: safeToolList().length,
+    secureStorageAvailable,
+    secureStorageProvider: secureStorageProvider(),
+    secureStorageMessage: secureStorageAvailable ? undefined : secureStorageHelpMessage(),
     appearance: settings.appearance,
     density: settings.density,
     animationsEnabled: settings.animationsEnabled,
@@ -1709,8 +1860,12 @@ handleIpc('cloud:sign-in', async (_event, payload: { email: string; password: st
   return cloudSignIn(payload.email, payload.password);
 });
 handleIpc('cloud:password-reset', async (_event, payload: { email: string }) => {
-  if (!payload || typeof payload.email !== 'string') throw new Error('Enter your Rmango account email.');
-  return cloudRequestPasswordReset(payload.email);
+  if (!payload || typeof payload.email !== 'string' || payload.email.length > 254) throw new Error('Enter your Rmango account email.');
+  return cloudRequestPasswordReset(payload.email.trim().toLowerCase());
+});
+handleIpc('cloud:resend-confirmation', async (_event, payload: { email: string }) => {
+  if (!payload || typeof payload.email !== 'string' || payload.email.length > 254) throw new Error('Enter your Rmango account email.');
+  return cloudResendEmailConfirmation(payload.email.trim().toLowerCase());
 });
 handleIpc('cloud:sign-up', async (_event, payload: { email: string; password: string; displayName?: string }) => {
   if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {
@@ -1817,12 +1972,12 @@ handleIpc('chat:load', async () => {
     }
     const filePath = sessionPath();
     const stored = await fs.readFile(filePath, 'utf8');
-    if (!safeStorage.isEncryptionAvailable()) return [];
+    if (!(await isSecureStorageAvailable())) return [];
 
     let parsed: unknown;
     let legacyPlaintext = false;
     try {
-      parsed = JSON.parse(safeStorage.decryptString(Buffer.from(stored.trim(), 'base64')));
+      parsed = JSON.parse(await decryptProtectedText(stored.trim()));
     } catch {
       // One-time migration for history files created by older RMango versions.
       try {
@@ -1858,11 +2013,11 @@ handleIpc('chat:load', async () => {
       // A legacy unscoped transcript may have belonged to a different signed-in
       // account. Replace it with an empty account-bound cache instead of showing it.
       if (activeOwnerId && ownerId === null) {
-        const encrypted = safeStorage.encryptString(JSON.stringify({
+        const encrypted = await encryptProtectedText(JSON.stringify({
           version: 2,
           ownerId: activeOwnerId,
           messages: [],
-        })).toString('base64');
+        }));
         const temporaryPath = filePath + '.migrating';
         await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
         await fs.rename(temporaryPath, filePath);
@@ -1875,11 +2030,11 @@ handleIpc('chat:load', async () => {
     ).slice(-100);
 
     if (legacyPlaintext || Array.isArray(parsed)) {
-      const encrypted = safeStorage.encryptString(JSON.stringify({
+      const encrypted = await encryptProtectedText(JSON.stringify({
         version: 2,
         ownerId,
         messages: cleaned,
-      })).toString('base64');
+      }));
       const temporaryPath = filePath + '.migrating';
       await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
       await fs.rename(temporaryPath, filePath);
@@ -1896,8 +2051,8 @@ handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
     try { await fs.rm(sessionPath(), { force: true }); } catch { /* cache may not exist */ }
     return { ok: true, saved: false };
   }
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('Windows secure storage is unavailable. Chat history was not written in plaintext.');
+  if (!(await isSecureStorageAvailable())) {
+    throw new Error(secureStorageHelpMessage() + ' Local chat history was not written in plaintext.');
   }
   await fs.mkdir(userData(), { recursive: true });
   const cleaned = messages.slice(-100).map(message => ({
@@ -1908,14 +2063,15 @@ handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
   }));
   const cloudSession = await readCloudSession();
   const ownerId = cloudSession?.user.id || null;
-  const encrypted = safeStorage.encryptString(JSON.stringify({
+  const encrypted = await encryptProtectedText(JSON.stringify({
     version: 2,
     ownerId,
     messages: cleaned,
-  })).toString('base64');
+  }));
   const filePath = sessionPath();
   const temporaryPath = filePath + '.tmp';
   await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+  await fs.chmod(temporaryPath, 0o600).catch(() => undefined);
   await fs.rename(temporaryPath, filePath);
   return { ok: true, encrypted: true, accountScoped: true };
 });
@@ -1963,8 +2119,9 @@ handleIpc('updates:install', async () => {
   if (!app.isPackaged || process.platform !== 'win32') {
     return { ok: false, message: 'Install updates from a packaged Windows build.' };
   }
-  if (appUpdateState.status !== 'downloaded') {
-    return { ok: false, message: 'There is no downloaded update ready to install.' };
+  if (appUpdateState.status !== 'downloaded' || !appUpdateState.availableVersion ||
+      !isNewerStableVersion(appUpdateState.availableVersion, app.getVersion())) {
+    return { ok: false, message: 'There is no newer stable update ready to install.' };
   }
   autoUpdater.quitAndInstall(false, true);
   return { ok: true, message: 'Restarting Rmango to install the update.' };
