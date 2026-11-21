@@ -12,7 +12,22 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 
 type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
-type ChatMessage = { role: 'user' | 'assistant'; content: string; createdAt?: string };
+type ChatMessage = {
+  id?: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt?: string;
+  attachments?: Array<{ id: string; name: string; mimeType: string; kind: 'image' | 'file'; size: number }>;
+  modelProfile?: CloudProfile;
+};
+type CloudConversation = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  model_profile: CloudProfile;
+  created_at: string;
+  updated_at: string;
+};
 type Attachment = { name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string };
 type AppearanceTheme = 'dark' | 'light' | 'system';
 type SettingsFile = {
@@ -34,6 +49,7 @@ type CloudSession = {
   studioConnectorId?: string;
   studioConnectorSecret?: string;
   currentProjectId?: string;
+  currentConversationId?: string;
 };
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
 type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
@@ -402,11 +418,89 @@ async function getCloudState() {
     apiHost: new URL(apiBaseUrl).host,
     message: healthError,
     currentProjectId: latestSession?.currentProjectId,
+    currentConversationId: latestSession?.currentConversationId,
   };
 }
 
 async function getCloudModels() {
   return cloudApiRequest<any>('/api/models', {}, true);
+}
+
+async function listCloudConversations(projectId?: string): Promise<CloudConversation[]> {
+  const query = projectId ? '?projectId=' + encodeURIComponent(projectId) : '';
+  const result = await cloudApiRequest<{ conversations: CloudConversation[] }>('/api/conversations' + query, {}, true);
+  return Array.isArray(result.conversations) ? result.conversations : [];
+}
+
+function mapCloudMessage(row: any): ChatMessage | null {
+  if (!row || (row.role !== 'user' && row.role !== 'assistant')) return null;
+  const stored = row.content && typeof row.content === 'object'
+    ? row.content as Record<string, unknown>
+    : {};
+  const content = typeof stored.text === 'string'
+    ? stored.text
+    : typeof row.content === 'string' ? row.content : '';
+  const attachments = Array.isArray(stored.attachments)
+    ? stored.attachments.flatMap((item: any) => {
+        if (!item || typeof item !== 'object' || typeof item.name !== 'string') return [];
+        const kind = item.kind === 'image' ? 'image' : 'file';
+        return [{
+          id: randomUUID(),
+          name: item.name.slice(0, 200),
+          mimeType: typeof item.mimeType === 'string' ? item.mimeType.slice(0, 100) : 'application/octet-stream',
+          kind,
+          size: Math.max(0, Number(item.size) || 0),
+        }];
+      })
+    : undefined;
+  return {
+    id: typeof row.id === 'string' ? row.id : randomUUID(),
+    role: row.role,
+    content,
+    createdAt: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+    modelProfile: typeof row.model_profile === 'string' ? row.model_profile as CloudProfile : undefined,
+    attachments: attachments?.length ? attachments : undefined,
+  };
+}
+
+async function loadCloudConversation(conversationId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) {
+    throw new Error('Invalid conversation ID.');
+  }
+  const result = await cloudApiRequest<{ conversation: CloudConversation; messages: any[] }>(
+    '/api/conversations/' + encodeURIComponent(conversationId), {}, true,
+  );
+  const messages = (result.messages || []).map(mapCloudMessage).filter((item): item is ChatMessage => Boolean(item));
+  return { conversation: result.conversation, messages };
+}
+
+async function createCloudConversation(payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) {
+  const result = await cloudApiRequest<{ conversation: CloudConversation }>('/api/conversations', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: (payload.title || 'New chat').slice(0, 80),
+      projectId: payload.projectId || null,
+      modelProfile: payload.modelProfile,
+    }),
+  }, true);
+  const session = await readCloudSession();
+  if (session) {
+    await writeCloudSession({ ...session, currentConversationId: result.conversation.id });
+  }
+  return result.conversation;
+}
+
+async function setCurrentCloudConversation(conversationId?: string | null) {
+  if (conversationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) {
+    throw new Error('Invalid conversation ID.');
+  }
+  const session = await readCloudSession();
+  if (!session) return { ok: false };
+  const next = { ...session };
+  if (conversationId) next.currentConversationId = conversationId;
+  else delete next.currentConversationId;
+  await writeCloudSession(next);
+  return { ok: true };
 }
 
 async function sendCloudMessage(payload: {
@@ -439,6 +533,13 @@ async function sendCloudMessage(payload: {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+    const responseConversationId = response.headers.get('X-Rmango-Conversation-Id');
+    if (responseConversationId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(responseConversationId)) {
+      const latest = await readCloudSession();
+      if (latest?.user.id === session.user.id) {
+        await writeCloudSession({ ...latest, currentConversationId: responseConversationId });
+      }
+    }
     if (!response.ok) {
       const raw = await response.text();
       let message = raw;
@@ -1357,6 +1458,14 @@ handleIpc('cloud:sign-up', async (_event, payload: { email: string; password: st
 });
 handleIpc('cloud:sign-out', () => cloudSignOut());
 handleIpc('cloud:models', () => getCloudModels());
+handleIpc('cloud:conversations:list', (_event, projectId?: string) => listCloudConversations(projectId));
+handleIpc('cloud:conversations:load', (_event, conversationId: string) => loadCloudConversation(conversationId));
+handleIpc('cloud:conversations:create', (_event, payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => {
+  const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
+  if (!payload || !allowedProfiles.includes(payload.modelProfile)) throw new Error('Invalid conversation settings.');
+  return createCloudConversation(payload);
+});
+handleIpc('cloud:conversation:set-active', (_event, conversationId?: string | null) => setCurrentCloudConversation(conversationId));
 
 handleIpc('project:open', async () => {
   const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
