@@ -144,3 +144,19 @@ This document is an audit/plan, not a declaration that every planned system is c
 - Cloud route and context module: GitHub Actions run `44919263613` completed with `success`; both TypeScript type-check and Next.js production build steps passed for the selected-project context implementation.
 - Desktop: GitHub Actions Windows installer run `44919394258` was still in progress at the time of this edit. Do not describe the new installer as built or released until this workflow completes and its artifact is checked.
 - No real model request, paid inference, end-to-end authenticated cloud chat, benchmark run, Windows runtime memory/CPU measurement, or security red-team test has been performed. These remain explicitly unverified.
+
+
+## Follow-up, document and Roblox-production capabilities added
+
+- A versioned specialist skill catalog (`cloud/lib/ai/skills.ts`) now contains 10 focused Roblox skill packs: engineering core, gameplay architecture, Luau, server security/DataStore, UI/UX, worldbuilding/3D, animation, audio/SFX, performance, and testing. The selector is deterministic and adds at most four relevant skills per turn without an additional model call. These improve application-level task guidance; they do not change hosted model weights or create a fine-tuned foundation model.
+- Image-bearing requests are automatically routed to the Vision profile, and the effective selected profile is returned to the desktop.
+- Attachments now include bounded PDF and DOCX text extraction. PDF is limited to 5 MB / 25 pages; DOCX is limited to 5 MB input, at most 256 archive entries, a 25 MB uncompressed package and 60,000 extracted text characters. Text/code files and images retain individual limits, and the server enforces a combined 20 MB attachment cap. Scanned PDFs without selectable text are rejected with a clear message rather than treated as empty.
+- The desktop composer now accepts text/files while a request is streaming. It shows a follow-up queue capped at six items. Queued messages and attachments are submitted as consecutive turns in the same conversation after the active response finishes. **They are not injected into a model request that is already generating.** The queue is currently held in renderer memory and is lost if RMango exits before processing it; durable queue persistence remains future work.
+- Roblox Studio production guidance now selects among the existing allowlisted Studio tools: scene generation, procedural models, meshes, materials, textures, animations, asset search/insertion, code editing and playtest/Output inspection when connected. Mutating scene/asset/skill/delegated-agent actions remain approval-gated. The connector does not expose a native finished-music-file synthesis tool; the audio skill builds Roblox audio systems and searches permitted audio assets rather than pretending to render tracks.
+
+## Verification notes for these additions
+
+- Cloud type-check and Windows application type-check should be considered passed only when their latest corresponding GitHub Actions jobs report success.
+- Document parsing has bounded code paths and compile coverage, but no corpus-based PDF/DOCX fixture tests, malformed-file fuzzing or scanned-PDF OCR has been implemented.
+- The follow-up queue has not yet received a UI automation test for rapid consecutive sends, app shutdown while queued, user sign-out mid-queue or failure/retry behavior.
+- No paid inference or model capability benchmark was run. Paid usage policy remains disabled.
