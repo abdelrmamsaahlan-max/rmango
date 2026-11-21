@@ -72,7 +72,6 @@ export function getSynapModel(modelId: string) {
     name: "synap",
     baseURL: "https://synap402.com/v1",
     apiKey,
-    supportsStructuredOutputs: true,
   });
   return synap.chatModel(MODEL_ID);
 }
