@@ -22,6 +22,7 @@ type CloudSession = {
   user: { id: string; email?: string };
   studioConnectorId?: string;
   studioConnectorSecret?: string;
+  currentProjectId?: string;
 };
 type McpTool = { name: string; description?: string; inputSchema: Record<string, any> };
 type ApprovalRequest = { requestId: string; name: string; description: string; arguments: Record<string, unknown> };
@@ -236,7 +237,15 @@ async function getCloudState() {
   if (session) {
     try { await getValidCloudSession(); } catch { signedIn = false; email = undefined; }
   }
-  return { configured: true, serviceReady, signedIn, email, apiHost: new URL(apiBaseUrl).host, message: healthError };
+  return {
+    configured: true,
+    serviceReady,
+    signedIn,
+    email,
+    apiHost: new URL(apiBaseUrl).host,
+    message: healthError,
+    currentProjectId: session?.currentProjectId,
+  };
 }
 
 async function getCloudModels() {
@@ -717,6 +726,7 @@ async function uploadCloudProject() {
 
   const projectId = created.project?.id;
   if (typeof projectId !== "string") throw new Error("The cloud service did not return a project ID.");
+  await writeCloudSession({ ...session, currentProjectId: projectId });
 
   const entries = (await projectFiles(root)).filter(item => item.kind === "file").slice(0, 120);
   const uploaded: string[] = [];
