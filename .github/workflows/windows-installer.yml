@@ -8,7 +8,8 @@ on:
       - "v*"
   pull_request:
     branches:
-      - upgrade/project-context-retrieval
+      -       - upgrade/project-context-retrieval
+      - upgrade/agent-workspace-studio
     paths:
       - "app/**"
       - ".github/workflows/windows-installer.yml"
