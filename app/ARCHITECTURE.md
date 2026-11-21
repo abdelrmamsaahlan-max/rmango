@@ -88,7 +88,7 @@ Vite handles React/CSS HMR. Nodemon rebuilds Electron main/preload source and re
 - Full authenticated end-to-end tests are still pending. Model inference is intentionally not tested or enabled until a separate paid budget is approved.
 - Durable workflow/worker execution for tasks longer than bounded chat request timeouts.
 - Admin model policy and cost dashboard.
-- PDF/DOCX parsing, embeddings/vector RAG and project-wide dependency indexing.
+- Embeddings/vector RAG and project-wide dependency indexing. PDF/DOCX text extraction is now supported for bounded attachments; scanned PDFs without selectable text need screenshots.
 - Binary Roblox project file parsing.
 - A visual diff viewer for proposed project file changes.
 
@@ -106,3 +106,12 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - The Studio MCP child process is launched with a limited allowlisted Windows environment rather than the full desktop environment.
 - The selected-project context layer loads an owner-checked project and a bounded metadata-only file manifest. File contents remain on-demand through the read tool, and all project metadata is treated as untrusted.
 - See [Phase 2 audit and architecture plan](../docs/PHASE2-AUDIT.md).
+
+
+## Roblox skills, multimodal attachments and follow-ups
+
+- The cloud AI core uses a versioned skill selector with focused skill packs for gameplay, Luau, networking/DataStores, UI, 3D/worldbuilding, animation, audio, optimization and testing. It injects at most four relevant skill packs without a second model call.
+- Images automatically route to a vision-capable profile. PDF and DOCX are converted to bounded untrusted text on the cloud server before the model sees them.
+- During a running turn, the composer accepts additional text/files and queues up to six follow-ups for sequential processing in the same conversation after the active response. A follow-up does not alter the request already generating; this queue is not crash-persistent yet.
+- Studio MCP provides generation/edit tools for scripts, scenes, procedural models, meshes, materials, textures, animations and asset search/insertion where exposed by the connected Studio version. Mutations still require user approval.
+- The audio skill can author Roblox audio-engine setup and SFX/music integration and search permitted Creator Store assets. It cannot create a finished audio track through this MCP connector.
