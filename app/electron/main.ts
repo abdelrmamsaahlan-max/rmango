@@ -1586,7 +1586,21 @@ handleIpc('chat:load', async () => {
       return [];
     }
 
-    if (ownerId !== activeOwnerId) return [];
+    if (ownerId !== activeOwnerId) {
+      // A legacy unscoped transcript may have belonged to a different signed-in
+      // account. Replace it with an empty account-bound cache instead of showing it.
+      if (activeOwnerId && ownerId === null) {
+        const encrypted = safeStorage.encryptString(JSON.stringify({
+          version: 2,
+          ownerId: activeOwnerId,
+          messages: [],
+        })).toString('base64');
+        const temporaryPath = filePath + '.migrating';
+        await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+        await fs.rename(temporaryPath, filePath);
+      }
+      return [];
+    }
     const cleaned = (messages as ChatMessage[]).filter(message =>
       message && (message.role === 'user' || message.role === 'assistant') &&
       typeof message.content === 'string'
