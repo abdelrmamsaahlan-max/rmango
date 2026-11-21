@@ -653,6 +653,54 @@ async function readProjectFile(root: string, relativePath: string) {
   return fs.readFile(realTarget, 'utf8');
 }
 
+async function getCloudProjectChanges(projectId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId)) throw new Error("Invalid cloud project ID.");
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/changes");
+}
+
+async function reviewCloudProjectChange(projectId: string, changeId: string, decision: "approve" | "reject") {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId) || !/^[0-9a-f-]{36}$/i.test(changeId)) {
+    throw new Error("Invalid cloud project or proposal ID.");
+  }
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/changes/" + changeId, {
+    method: "PATCH",
+    body: JSON.stringify({ decision }),
+  });
+}
+
+async function downloadCloudProjectZip(projectId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId)) throw new Error("Invalid cloud project ID.");
+  let session = await getValidCloudSession();
+  const baseUrl = await getCloudApiBaseUrl();
+  if (!baseUrl) throw new Error("Rmango Cloud is not configured.");
+  const send = () => fetch(baseUrl + "/api/projects/" + projectId + "/download", {
+    headers: { authorization: "Bearer " + session.accessToken },
+    signal: AbortSignal.timeout(120_000),
+  });
+  let response = await send();
+  if (response.status === 401) {
+    session = await refreshCloudSession(session);
+    response = await send();
+  }
+  if (!response.ok) {
+    const raw = await response.text();
+    let errorMessage = raw;
+    try { errorMessage = JSON.parse(raw).error || raw; } catch { /* use response body */ }
+    throw new Error(errorMessage || "Could not download the cloud project.");
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const disposition = response.headers.get("content-disposition") || "";
+  const suggestedName = disposition.match(/filename="([^"]+)"/i)?.[1] || "Rmango-Cloud-Project.zip";
+  const picked = await dialog.showSaveDialog({
+    title: "Download Rmango Cloud Project",
+    defaultPath: path.join(app.getPath("downloads"), suggestedName),
+    filters: [{ name: "ZIP archive", extensions: ["zip"] }],
+  });
+  if (picked.canceled || !picked.filePath) return { canceled: true };
+  await fs.writeFile(picked.filePath, bytes);
+  return { canceled: false, path: picked.filePath, sizeBytes: bytes.length };
+}
+
 async function uploadCloudProject() {
   const settings = await readSettings();
   if (!settings.projectPath) throw new Error("Open a local project folder before uploading it to Rmango Cloud.");
@@ -916,6 +964,14 @@ ipcMain.handle('project:open', async () => {
   return { canceled: false, path: root, files: await projectFiles(root) };
 });
 ipcMain.handle('project:upload-cloud', () => uploadCloudProject());
+ipcMain.handle('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
+ipcMain.handle('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
+  if (!payload || (payload.decision !== "approve" && payload.decision !== "reject")) {
+    throw new Error("A valid approve/reject decision is required.");
+  }
+  return reviewCloudProjectChange(payload.projectId, payload.changeId, payload.decision);
+});
+ipcMain.handle('project:download-cloud', (_event, projectId: string) => downloadCloudProjectZip(projectId));
 ipcMain.handle('project:clear', async () => {
   const settings = await readSettings();
   delete settings.projectPath;
