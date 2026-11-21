@@ -126,7 +126,7 @@ function renderInlineMarkdown(value: string, keyPrefix: string): ReactNode[] {
         <a
           href={url}
           key={keyPrefix + "-a-" + part}
-          onClick={event => { event.preventDefault(); void window.rmango.openExternal(url); }}
+          onClick={event => { event.preventDefault(); void window.rmango.openExternal(url).catch(() => undefined); }}
           rel="noreferrer noopener"
           title={url}
         >{label}</a>
@@ -139,12 +139,37 @@ function renderInlineMarkdown(value: string, keyPrefix: string): ReactNode[] {
   return output;
 }
 
+async function writeClipboardText(value: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+  } catch {
+    // Fall through to the compatible Electron/document copy path.
+  }
+
+  const field = document.createElement('textarea');
+  field.value = value;
+  field.setAttribute('readonly', '');
+  field.setAttribute('aria-hidden', 'true');
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  field.style.pointerEvents = 'none';
+  field.style.left = '-9999px';
+  document.body.appendChild(field);
+  field.select();
+  field.setSelectionRange(0, field.value.length);
+  const copied = document.execCommand('copy');
+  field.remove();
+  if (!copied) throw new Error('Clipboard access is unavailable.');
+}
+
 function MessageCodeBlock({ code, language }: { code: string; language: string }) {
   const [copied, setCopied] = useState(false);
   async function copyCode() {
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(code);
+      await writeClipboardText(code);
       setCopied(true);
     } catch {
       setCopied(false);
@@ -1470,8 +1495,7 @@ function App() {
 
   async function copyTextToClipboard(value: string) {
     try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
-      await navigator.clipboard.writeText(value);
+      await writeClipboardText(value);
       setToast('Copied to clipboard.');
     } catch {
       setToast('Could not access the clipboard in this window.');
