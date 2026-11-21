@@ -19,6 +19,7 @@ import { extractSupportedDocument } from "@/lib/ai/documents";
 import { createIntelligencePlan, getIntelligenceLevelLabel, type IntelligenceLevelSetting } from "@/lib/ai/intelligence-controller";
 import { classifyProviderFailure, formatProviderFailure } from "@/lib/ai/provider-errors";
 import { validateMemoryEvidence } from "@/lib/ai/memory-evidence";
+import { buildAgentGuidanceContext, buildRuntimeCapabilityContext } from "@/lib/ai/agent-guidance";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -149,6 +150,7 @@ export async function POST(request: Request) {
   }
 
   const latestUserPrompt = body.messages.filter(message => message.role === "user").at(-1)?.content || "";
+  const agentGuidance = buildAgentGuidanceContext();
   const hasImageAttachment = (body.attachments || []).some(attachment => attachment.kind === "image");
   const hasDocumentAttachment = (body.attachments || []).some(attachment => [".pdf", ".docx"].includes(extension(attachment.name)));
   const intelligencePlan = createIntelligencePlan({
@@ -173,6 +175,7 @@ export async function POST(request: Request) {
   });
   const systemPrompt = [
     SYSTEM_PROMPT,
+    agentGuidance.systemText,
     "RMANGO INTELLIGENCE CONTROLLER DECISION (routing metadata, not a correctness claim): " +
       JSON.stringify({
         intent: intelligencePlan.intent,
@@ -1373,10 +1376,23 @@ export async function POST(request: Request) {
     }),
   } : {};
 
+  const runtimeCapabilities = buildRuntimeCapabilityContext({
+    intent: intelligencePlan.intent,
+    level: intelligencePlan.level,
+    modelProfile: profile,
+    hasSelectedProject: Boolean(selectedProjectId),
+    registeredProjectToolNames: Object.keys(projectTools),
+    activeProjectToolNames: Object.keys(activeProjectTools),
+    registeredStudioToolNames: Object.keys(studioTools),
+    activeStudioToolNames: Object.keys(activeStudioTools),
+    debugHypothesisToolActive: Object.keys(debugHypothesisTools).length > 0,
+  });
+  const effectiveSystemPrompt = [systemPrompt, runtimeCapabilities.systemText].join("\\n\\n");
+
   try {
     const result = streamText({
       model: gateway(choice.primary.id),
-      system: systemPrompt,
+      system: effectiveSystemPrompt,
       messages: requestMessages,
       tools: { ...activeProjectTools, ...activeStudioTools, ...debugHypothesisTools },
       stopWhen: stepCountIs(Math.min(workflow.maxSteps, intelligencePlan.budget.maxSteps)),
@@ -1475,6 +1491,11 @@ export async function POST(request: Request) {
               modelId: actualModelId,
               profile,
               selectedSkills: skills.ids,
+              agentGuidance: {
+                ...agentGuidance.metadata,
+                selectedSpecialistSkills: skills.ids,
+                runtimeCapabilities: runtimeCapabilities.metadata,
+              },
               responsePreview: finalText.slice(0, 3_000),
             },
             updated_at: new Date().toISOString(),
