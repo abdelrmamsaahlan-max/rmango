@@ -275,6 +275,18 @@ async function proposeProjectFileChangeStep(
   return { proposalId: proposal.id, relativePath: safePath, status: "pending", sha256: proposedHash };
 }
 
+function assertMemoryContainsNoSecrets(title: string, content: string, sourceRef?: string) {
+  const combined = [title, content, sourceRef || ""].join("\n");
+  const secretPatterns = [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/i,
+    /\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|password)\s*[:=]\s*["']?[^\s"'\u0060,;]{6,}/i,
+    /\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{15,})\b/i,
+  ];
+  if (secretPatterns.some(pattern => pattern.test(combined))) {
+    throw new Error("Project memories cannot contain passwords, API keys, access tokens, or private-key material.");
+  }
+}
+
 async function saveProjectMemoryStep(
   context: ProjectAgentContext,
   memoryType: "decision" | "architecture" | "bug" | "constraint" | "preference" | "status" | "other",
@@ -284,6 +296,11 @@ async function saveProjectMemoryStep(
 ) {
   "use step";
   await assertCurrentTaskStep(context);
+  if (!title.trim() || title.length > 180 || !content.trim() || content.length > 4_000) {
+    throw new Error("Project memories need a title (max 180 characters) and concise content (max 4,000 characters).");
+  }
+  if (sourceRef && sourceRef.length > 240) throw new Error("Memory source reference exceeds the allowed length.");
+  assertMemoryContainsNoSecrets(title, content, sourceRef);
   const admin = createAdminClient();
   const { data: existing } = await admin.from("project_memories")
     .select("id")
