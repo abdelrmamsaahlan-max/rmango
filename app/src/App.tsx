@@ -3,7 +3,7 @@ import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
-  MessageSquare, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send,
+  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Plus, RefreshCw, Search, Send,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3
 } from 'lucide-react';
 import type {
@@ -339,9 +339,13 @@ function App() {
     if (!pendingApproval || approvalBusy) return;
     setApprovalBusy(true);
     try {
-      await window.rmango.respondToolApproval(pendingApproval.requestId, approved);
-      setToast(approved ? 'Approved. Rmango is sending the action to Roblox Studio.' : 'Action denied. Nothing was changed by that request.');
+      const response = await window.rmango.respondToolApproval(pendingApproval.requestId, approved);
       setPendingApproval(null);
+      if (!response.ok) {
+        setToast('That approval request expired. Ask Rmango to retry the action.');
+        return;
+      }
+      setToast(approved ? 'Approved. Rmango is sending the action to Roblox Studio.' : 'Action denied. Nothing was changed by that request.');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not submit the approval response.');
       setApprovalBusy(false);
