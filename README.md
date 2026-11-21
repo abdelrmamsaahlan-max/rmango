@@ -26,7 +26,7 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 3. Verify each Windows Release contains both its versioned installer and `latest.yml`; a workflow artifact alone is not an in-app update.
 4. Keep `SYNAP_API_KEY` configured as an encrypted server-only environment variable and monitor the provider's free-tier limits.
 
-Cloud inference has a cost. Fresh deployments default to a disabled global policy; an administrator must explicitly enable usage and set daily/monthly USD caps before inference can start. The current production project has a small enabled budget, but database caps are not a substitute for separate Vercel AI Gateway and provider billing limits. Per-user request/token quotas provide additional limits.
+Fresh deployments default to a disabled global policy; an administrator must explicitly enable usage and set daily/monthly USD caps before inference can start. The database spend guard remains independent from Synap's upstream free-tier request/token limits. Per-user request/token quotas provide additional limits.
 
 ## Download and install the Windows app
 
