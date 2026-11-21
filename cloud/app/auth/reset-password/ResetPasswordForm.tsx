@@ -35,14 +35,19 @@ export default function ResetPasswordForm({ supabaseUrl, publishableKey }: Props
         const query = url.searchParams;
         const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
         const linkError = fragment.get("error_description") || query.get("error_description");
+        const accessToken = fragment.get("access_token");
+        const refreshToken = fragment.get("refresh_token");
+        const tokenHash = query.get("token_hash");
+        const linkType = fragment.get("type") || query.get("type");
+
+        // Recovery tokens must not remain in browser history, screenshots, or copied URLs.
+        if (linkError || accessToken || refreshToken || tokenHash) {
+          window.history.replaceState({}, document.title, url.pathname);
+        }
 
         if (linkError) {
           throw new Error("This recovery link is invalid or expired. Request a new password reset email from RMango.");
         }
-
-        const accessToken = fragment.get("access_token");
-        const refreshToken = fragment.get("refresh_token");
-        const linkType = fragment.get("type") || query.get("type");
 
         if (accessToken && refreshToken && linkType === "recovery") {
           const { error } = await supabase.auth.setSession({
@@ -50,8 +55,11 @@ export default function ResetPasswordForm({ supabaseUrl, publishableKey }: Props
             refresh_token: refreshToken,
           });
           if (error) throw error;
+          const { data: verified, error: verifyError } = await supabase.auth.getUser();
+          if (verifyError || !verified.user) {
+            throw new Error("This recovery link is invalid or expired. Request a new password reset email from RMango.");
+          }
         } else {
-          const tokenHash = query.get("token_hash");
           if (tokenHash && linkType === "recovery") {
             const { error } = await supabase.auth.verifyOtp({
               token_hash: tokenHash,
