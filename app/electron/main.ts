@@ -61,6 +61,7 @@ type SettingsFile = {
   appearance: AppearanceTheme;
   density: 'comfortable' | 'compact';
   animationsEnabled: boolean;
+  reducedMotion: boolean;
   fontSize: 'small' | 'medium' | 'large';
   sendOnEnter: boolean;
   desktopNotifications: boolean;
@@ -134,6 +135,7 @@ const DEFAULT_SETTINGS: SettingsFile = {
   appearance: 'dark',
   density: 'comfortable',
   animationsEnabled: true,
+  reducedMotion: false,
   fontSize: 'medium',
   sendOnEnter: true,
   desktopNotifications: false,
@@ -147,6 +149,7 @@ function normaliseSettings(value: Partial<SettingsFile> | null | undefined): Set
     appearance: input.appearance === 'light' || input.appearance === 'system' || input.appearance === 'dark' ? input.appearance : DEFAULT_SETTINGS.appearance,
     density: input.density === 'compact' || input.density === 'comfortable' ? input.density : DEFAULT_SETTINGS.density,
     animationsEnabled: typeof input.animationsEnabled === 'boolean' ? input.animationsEnabled : DEFAULT_SETTINGS.animationsEnabled,
+    reducedMotion: typeof input.reducedMotion === 'boolean' ? input.reducedMotion : DEFAULT_SETTINGS.reducedMotion,
     fontSize: input.fontSize === 'small' || input.fontSize === 'large' || input.fontSize === 'medium' ? input.fontSize : DEFAULT_SETTINGS.fontSize,
     sendOnEnter: typeof input.sendOnEnter === 'boolean' ? input.sendOnEnter : DEFAULT_SETTINGS.sendOnEnter,
     desktopNotifications: typeof input.desktopNotifications === 'boolean' ? input.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
@@ -1485,6 +1488,7 @@ handleIpc('app:get-state', async () => {
     appearance: settings.appearance,
     density: settings.density,
     animationsEnabled: settings.animationsEnabled,
+    reducedMotion: settings.reducedMotion,
     fontSize: settings.fontSize,
     sendOnEnter: settings.sendOnEnter,
     desktopNotifications: settings.desktopNotifications,
@@ -1506,6 +1510,10 @@ handleIpc('settings:update', async (_event, patch: SettingsPatch) => {
   if ('animationsEnabled' in patch) {
     if (typeof patch.animationsEnabled !== 'boolean') throw new Error('Animation preference must be on or off.');
     next.animationsEnabled = patch.animationsEnabled;
+  }
+  if ('reducedMotion' in patch) {
+    if (typeof patch.reducedMotion !== 'boolean') throw new Error('Reduced-motion preference must be on or off.');
+    next.reducedMotion = patch.reducedMotion;
   }
   if ('fontSize' in patch) {
     if (patch.fontSize !== 'small' && patch.fontSize !== 'medium' && patch.fontSize !== 'large') throw new Error('Choose Small, Medium, or Large text.');
