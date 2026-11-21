@@ -619,7 +619,11 @@ function App() {
       ]);
       setCloudProjectChanges(changeList.changes || []);
       setCloudProjects(projects);
-      setToast('Uploaded ' + result.uploaded + ' source files to your private cloud project.' + (result.skipped.length ? ' ' + result.skipped.length + ' files were skipped.' : ''));
+      setToast(
+        'Synced "' + result.projectName + '": ' + result.uploaded + ' files uploaded or updated, ' +
+        result.unchanged + ' unchanged, ' + result.removed + ' removed.' +
+        (result.skipped.length ? ' ' + result.skipped.length + ' files could not be synced.' : '')
+      );
       if (result.skipped.length) {
         setActivities(current => [
           ...current,
