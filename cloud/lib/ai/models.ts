@@ -155,14 +155,23 @@ export async function resolveProfile(profile: ModelProfile) {
     throw new Error("No currently available model supports the " + PROFILE_LABELS[profile] + " profile. Ask an administrator to configure a model.");
   }
 
+  const primaryCost = scoreCost(primary);
   const configuredFallbacks = (optionalEnv(FALLBACK_ENV[profile]) || "")
     .split(",")
     .map(value => value.trim())
     .filter(Boolean)
-    .filter(id => modelMap.has(id) && id !== primary.id);
+    .map(id => modelMap.get(id))
+    .filter((model): model is GatewayModel => Boolean(model))
+    .filter(model => model.id !== primary.id && Number.isFinite(scoreCost(model)) && scoreCost(model) <= primaryCost)
+    .map(model => model.id);
+
+  const automaticFallback = pickCandidate(
+    catalog.filter(model => model.id !== primary.id && Number.isFinite(scoreCost(model)) && scoreCost(model) <= primaryCost),
+    profile,
+  );
   const fallbacks = configuredFallbacks.length
     ? configuredFallbacks
-    : [pickCandidate(catalog.filter(model => model.id !== primary.id), profile)?.id].filter((value): value is string => Boolean(value));
+    : [automaticFallback?.id].filter((value): value is string => Boolean(value));
 
   return {
     primary: normalise(primary, profile),
