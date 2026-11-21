@@ -178,6 +178,7 @@ declare global {
       createCloudProject: (payload: { name: string; description?: string }) => Promise<CloudProject>;
       updateCloudProject: (payload: { projectId: string; name?: string; description?: string }) => Promise<CloudProject>;
       deleteCloudProject: (projectId: string) => Promise<{ ok: boolean; deletedProjectId: string; deletedFileCount: number }>;
+      setCurrentCloudProjectId: (projectId?: string | null) => Promise<{ ok: boolean }>;
       loadCloudConversation: (conversationId: string) => Promise<{ conversation: CloudConversation; messages: ChatMessage[] }>;
       createCloudConversation: (payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => Promise<CloudConversation>;
       setCurrentConversationId: (conversationId?: string | null) => Promise<{ ok: boolean }>;
