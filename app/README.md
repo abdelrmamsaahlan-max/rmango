@@ -41,7 +41,7 @@ Installed Windows builds check GitHub Releases shortly after startup and every f
 
 ## Windows SmartScreen and code signing
 
-The Windows workflow supports Authenticode signing when a trusted publisher certificate is provided through the repository secrets \`RMANGO_SIGNING_PFX_BASE64\` and \`RMANGO_SIGNING_PFX_PASSWORD\`. Without a certificate, the workflow can build an unsigned installer; Windows may show an Unknown publisher or SmartScreen reputation warning. The application does not disable or bypass Windows security controls. A trusted code-signing certificate is the correct way to establish publisher reputation; do not turn off Defender or SmartScreen to run an installer.
+The Windows workflow supports Authenticode signing when a trusted publisher certificate is provided through the repository secrets `RMANGO_SIGNING_PFX_BASE64` and `RMANGO_SIGNING_PFX_PASSWORD`. Without a certificate, the workflow can build an unsigned installer; Windows may show an Unknown publisher or SmartScreen reputation warning. The application does not disable or bypass Windows security controls. A trusted code-signing certificate is the correct way to establish publisher reputation; do not turn off Defender or SmartScreen to run an installer.
 
 ## Automatic updates
 
