@@ -195,6 +195,7 @@ export type UpdateState = {
   progress?: number;
   message?: string;
   error?: string;
+  releaseNotes?: string;
 };
 
 declare global {
