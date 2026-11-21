@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Local-first mango-themed Roblox Studio AI agent with Ollama and approval-gated MCP tools.",
+  "description": "Mango-themed Roblox Studio AI desktop client powered by remote Rmango Cloud inference.",
   "main": "dist-electron/main.js",
   "author": "Rmango",
   "license": "UNLICENSED",
@@ -51,7 +51,8 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "package.json"
+      "package.json",
+      "cloud-config.json"
     ],
     "win": {
       "target": [
