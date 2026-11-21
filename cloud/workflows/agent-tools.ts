@@ -287,6 +287,67 @@ function assertMemoryContainsNoSecrets(title: string, content: string, sourceRef
   }
 }
 
+async function getProjectLearningSignalsStep(context: ProjectAgentContext) {
+  "use step";
+  await assertCurrentTaskStep(context, true);
+  const admin = createAdminClient();
+  const { data: evaluations, error } = await admin.from("agent_learning_events")
+    .select("task_id,signal_data,created_at")
+    .eq("project_id", context.projectId)
+    .eq("owner_id", context.ownerId)
+    .eq("signal_type", "task_evaluated")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw new Error("Could not load prior task evaluation signals.");
+
+  const rows = evaluations || [];
+  if (!rows.length) {
+    return {
+      sampleSize: 0,
+      runtimeVerifiedRate: null,
+      playtestPassRate: null,
+      cleanConsoleRate: null,
+      failedStudioToolRate: null,
+      userFeedbackCount: 0,
+      helpfulRate: null,
+    };
+  }
+
+  const taskIds = rows.map(row => row.task_id);
+  const { data: ratings, error: ratingError } = await admin.from("agent_learning_events")
+    .select("task_id,signal_data")
+    .eq("project_id", context.projectId)
+    .eq("owner_id", context.ownerId)
+    .eq("signal_type", "user_feedback")
+    .in("task_id", taskIds);
+  if (ratingError) throw new Error("Could not load prior task feedback.");
+
+  const attemptedPlaytests = rows.filter(row => row.signal_data?.playtestAttempted === true);
+  const inspectedConsoles = rows.filter(row => row.signal_data?.consoleInspected === true);
+  const studioCalls = rows.reduce((sum, row) => sum + Math.max(0, Number(row.signal_data?.studioToolCount) || 0), 0);
+  const studioFailures = rows.reduce((sum, row) => sum + Math.max(0, Number(row.signal_data?.failedStudioToolCount) || 0), 0);
+  const ratingRows = ratings || [];
+  const helpfulCount = ratingRows.filter(row => row.signal_data?.helpful === true).length;
+
+  return {
+    sampleSize: rows.length,
+    runtimeVerifiedRate: Number((rows.filter(row => row.signal_data?.runtimeVerified === true).length / rows.length).toFixed(3)),
+    playtestPassRate: attemptedPlaytests.length
+      ? Number((attemptedPlaytests.filter(row => row.signal_data?.playtestPassed === true).length / attemptedPlaytests.length).toFixed(3))
+      : null,
+    cleanConsoleRate: inspectedConsoles.length
+      ? Number((inspectedConsoles.filter(row => row.signal_data?.consoleClean === true).length / inspectedConsoles.length).toFixed(3))
+      : null,
+    failedStudioToolRate: studioCalls
+      ? Number((studioFailures / studioCalls).toFixed(3))
+      : null,
+    userFeedbackCount: ratingRows.length,
+    helpfulRate: ratingRows.length
+      ? Number((helpfulCount / ratingRows.length).toFixed(3))
+      : null,
+  };
+}
+
 async function saveProjectMemoryStep(
   context: ProjectAgentContext,
   memoryType: "decision" | "architecture" | "bug" | "constraint" | "preference" | "status" | "other",
@@ -516,6 +577,11 @@ export function createProjectAgentTools(context: ProjectAgentContext, studioTool
       description: "Retrieve durable confirmed project decisions, architecture facts, constraints, bugs and preferences.",
       inputSchema: z.object({ search: z.string().trim().max(160).optional() }),
       execute: ({ search }) => listProjectMemoriesStep(context, search),
+    }),
+    get_project_learning_signals: tool({
+      description: "Retrieve privacy-limited aggregate success, playtest, console, Studio-tool and user-rating trends from this project. These are historical quality signals, not model-training data.",
+      inputSchema: z.object({}),
+      execute: () => getProjectLearningSignalsStep(context),
     }),
     propose_project_file_change: tool({
       description: "Create a pending cloud source-file proposal. The user must approve it before the cloud copy is changed.",
