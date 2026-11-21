@@ -207,7 +207,7 @@ export function selectRmangoSkills(
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score || a.skill.id.localeCompare(b.skill.id));
 
-  const byId = new Map(SKILLS.map(skill => [skill.id, skill]));
+  const byId = new Map<string, RmangoSkill>(SKILLS.map(skill => [skill.id, skill] as const));
   const mandatoryIds: string[] = [];
   if (isBuildRequest) mandatoryIds.push("testing-and-debugging");
   if (isLargeRequest) mandatoryIds.push("gameplay-architecture");
