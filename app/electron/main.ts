@@ -570,6 +570,19 @@ async function createCloudConversation(payload: { title?: string; projectId?: st
   return result.conversation;
 }
 
+async function setCurrentCloudProject(projectId?: string | null) {
+  if (projectId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+    throw new Error('Invalid cloud project ID.');
+  }
+  const session = await readCloudSession();
+  if (!session) return { ok: false };
+  const next = { ...session };
+  if (projectId) next.currentProjectId = projectId;
+  else delete next.currentProjectId;
+  await writeCloudSession(next);
+  return { ok: true };
+}
+
 async function setCurrentCloudConversation(conversationId?: string | null) {
   if (conversationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) {
     throw new Error('Invalid conversation ID.');
@@ -1556,6 +1569,7 @@ handleIpc('cloud:conversations:create', (_event, payload: { title?: string; proj
   if (!payload || !allowedProfiles.includes(payload.modelProfile)) throw new Error('Invalid conversation settings.');
   return createCloudConversation(payload);
 });
+handleIpc('cloud:project:set-active', (_event, projectId?: string | null) => setCurrentCloudProject(projectId));
 handleIpc('cloud:conversation:set-active', (_event, conversationId?: string | null) => setCurrentCloudConversation(conversationId));
 
 handleIpc('project:open', async () => {
