@@ -1358,7 +1358,16 @@ function App() {
           {cloudState?.signedIn && <>
             <div className="account-card">
               <div className="account-avatar"><MangoMark size={27}/></div>
-              <div className="account-copy"><strong>{cloudState.email || 'Rmango account'}</strong><span>{cloudState.serviceReady ? 'Cloud services online' : 'Account connected · backend setup required'}</span></div>
+              <div className="account-copy">
+                <strong>{cloudState.displayName || cloudState.email || 'Rmango account'}</strong>
+                <span>{cloudState.email || 'Account email unavailable'}</span>
+                <span>{cloudState.accountVerified
+                  ? (cloudState.emailVerified ? 'Account verified · email confirmed' : 'Account verified · email not confirmed')
+                  : 'Saved session · account verification unavailable'}</span>
+                <span>{cloudState.serviceReady ? 'Cloud services online' : 'Account connected · cloud services need attention'}</span>
+              </div>
+              <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
+            </div>
               <button type="button" className="cancel-button" onClick={() => void handleSignOut()}>Sign out</button>
             </div>
 
