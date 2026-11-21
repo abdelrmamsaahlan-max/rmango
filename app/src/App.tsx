@@ -101,6 +101,7 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   const [cloudLoading, setCloudLoading] = useState(true);
+  const [studioCloudLinked, setStudioCloudLinked] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -157,6 +158,7 @@ function App() {
   async function refreshMcpState() {
     const state = await window.rmango.getMcpState();
     setStudioTools(state.tools || []);
+    setStudioCloudLinked(Boolean(state.cloudLinked));
     setAppState(prev => prev ? { ...prev, studioConnected: state.connected, studioToolCount: state.toolCount } : prev);
   }
 
@@ -177,14 +179,20 @@ function App() {
     if (authBusy) return;
     setAuthBusy(true);
     try {
-      const result = authMode === 'sign-in'
-        ? await window.rmango.cloudSignIn({ email: authEmail.trim(), password: authPassword })
-        : await window.rmango.cloudSignUp({ email: authEmail.trim(), password: authPassword, displayName: authDisplayName.trim() || undefined });
-      if (authMode === 'sign-up' && result.requiresEmailConfirmation) {
-        setToast('Check your email to confirm your Rmango account, then sign in.');
-        setAuthMode('sign-in');
-        setAuthPassword('');
-        return;
+      if (authMode === 'sign-in') {
+        await window.rmango.cloudSignIn({ email: authEmail.trim(), password: authPassword });
+      } else {
+        const result = await window.rmango.cloudSignUp({
+          email: authEmail.trim(),
+          password: authPassword,
+          displayName: authDisplayName.trim() || undefined,
+        });
+        if (result.requiresEmailConfirmation) {
+          setToast('Check your email to confirm your Rmango account, then sign in.');
+          setAuthMode('sign-in');
+          setAuthPassword('');
+          return;
+        }
       }
       setAuthPassword('');
       const state = await refreshCloudState();
@@ -237,7 +245,10 @@ function App() {
       const result = await window.rmango.connectRoblox();
       if (result.ok) {
         await refreshMcpState();
-        setToast('Connected to Roblox Studio · ' + result.toolCount + ' tools discovered');
+        await refreshMcpState();
+        setToast(result.cloudLinked
+          ? 'Roblox Studio linked to Rmango Cloud · ' + result.toolCount + ' tools discovered'
+          : (result.cloudMessage || ('Studio connected locally · sign in to link cloud AI · ' + result.toolCount + ' tools')));
       } else {
         setToast(result.error || 'Could not connect to Roblox Studio.');
       }
