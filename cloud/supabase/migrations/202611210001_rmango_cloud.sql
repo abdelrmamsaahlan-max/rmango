@@ -168,11 +168,14 @@ create index if not exists studio_commands_poll_idx on public.studio_commands(co
 -- Global admin-managed usage policy. Users cannot modify this table.
 create table if not exists public.usage_policies (
   id boolean primary key default true check (id = true),
-  enabled boolean not null default true,
+  -- Disabled until an administrator configures and authorizes explicit spend caps.
+  enabled boolean not null default false,
   daily_request_limit integer not null default 40 check (daily_request_limit > 0),
   monthly_request_limit integer not null default 800 check (monthly_request_limit > 0),
   daily_token_limit bigint not null default 120000 check (daily_token_limit > 0),
   monthly_token_limit bigint not null default 1500000 check (monthly_token_limit > 0),
+  daily_spend_limit_usd numeric(14,6) not null default 0 check (daily_spend_limit_usd >= 0),
+  monthly_spend_limit_usd numeric(14,6) not null default 0 check (monthly_spend_limit_usd >= 0),
   max_output_tokens integer not null default 4096 check (max_output_tokens between 256 and 8192),
   updated_at timestamptz not null default now()
 );
@@ -183,6 +186,7 @@ create table if not exists public.usage_reservations (
   owner_id uuid not null references auth.users(id) on delete cascade,
   model_profile text not null,
   estimated_tokens integer not null check (estimated_tokens >= 0),
+  estimated_cost_usd numeric(14,8) not null default 0 check (estimated_cost_usd >= 0),
   created_at timestamptz not null default now()
 );
 create index if not exists usage_reservations_owner_created_idx on public.usage_reservations(owner_id, created_at);
@@ -291,7 +295,8 @@ create or replace function public.reserve_ai_request(
   p_user_id uuid,
   p_request_id uuid,
   p_model_profile text,
-  p_estimated_tokens integer
+  p_estimated_tokens integer,
+  p_estimated_cost_usd numeric
 ) returns jsonb
 language plpgsql
 security definer
@@ -304,6 +309,8 @@ declare
   v_month_requests bigint;
   v_today_tokens bigint;
   v_month_tokens bigint;
+  v_today_cost numeric(14,8);
+  v_month_cost numeric(14,8);
 begin
   if current_setting('request.jwt.claim.role', true) <> 'service_role' then raise exception 'service_role_required'; end if;
   if v_user_id is null then raise exception 'invalid_user'; end if;
@@ -318,8 +325,13 @@ begin
     where owner_id = v_user_id and created_at < now() - interval '2 hours';
 
   select * into v_policy from public.usage_policies where id = true;
-  if not found or not v_policy.enabled then
-    return jsonb_build_object('allowed', false, 'reason', 'service_disabled');
+  if not found or not v_policy.enabled
+     or v_policy.daily_spend_limit_usd <= 0
+     or v_policy.monthly_spend_limit_usd <= 0 then
+    return jsonb_build_object('allowed', false, 'reason', 'admin_spend_policy_not_enabled');
+  end if;
+  if p_estimated_cost_usd is null or p_estimated_cost_usd < 0 then
+    return jsonb_build_object('allowed', false, 'reason', 'model_cost_unavailable');
   end if;
 
   select count(*) into v_today_requests from public.usage_events
@@ -330,6 +342,10 @@ begin
     where owner_id = v_user_id and created_at >= date_trunc('day', now());
   select coalesce(sum(input_tokens + output_tokens), 0) into v_month_tokens from public.usage_events
     where owner_id = v_user_id and created_at >= date_trunc('month', now());
+  select coalesce(sum(estimated_cost_usd), 0) into v_today_cost from public.usage_events
+    where owner_id = v_user_id and created_at >= date_trunc('day', now());
+  select coalesce(sum(estimated_cost_usd), 0) into v_month_cost from public.usage_events
+    where owner_id = v_user_id and created_at >= date_trunc('month', now());
 
   v_today_requests := v_today_requests + (select count(*) from public.usage_reservations
     where owner_id = v_user_id and created_at >= date_trunc('day', now()));
@@ -338,6 +354,10 @@ begin
   v_today_tokens := v_today_tokens + (select coalesce(sum(estimated_tokens),0) from public.usage_reservations
     where owner_id = v_user_id and created_at >= date_trunc('day', now()));
   v_month_tokens := v_month_tokens + (select coalesce(sum(estimated_tokens),0) from public.usage_reservations
+    where owner_id = v_user_id and created_at >= date_trunc('month', now()));
+  v_today_cost := v_today_cost + (select coalesce(sum(estimated_cost_usd),0) from public.usage_reservations
+    where owner_id = v_user_id and created_at >= date_trunc('day', now()));
+  v_month_cost := v_month_cost + (select coalesce(sum(estimated_cost_usd),0) from public.usage_reservations
     where owner_id = v_user_id and created_at >= date_trunc('month', now()));
 
   if v_today_requests >= v_policy.daily_request_limit then
@@ -352,15 +372,24 @@ begin
   if v_month_tokens + p_estimated_tokens > v_policy.monthly_token_limit then
     return jsonb_build_object('allowed', false, 'reason', 'monthly_token_limit');
   end if;
+  if v_today_cost + p_estimated_cost_usd > v_policy.daily_spend_limit_usd then
+    return jsonb_build_object('allowed', false, 'reason', 'daily_spend_limit');
+  end if;
+  if v_month_cost + p_estimated_cost_usd > v_policy.monthly_spend_limit_usd then
+    return jsonb_build_object('allowed', false, 'reason', 'monthly_spend_limit');
+  end if;
 
-  insert into public.usage_reservations(request_id, owner_id, model_profile, estimated_tokens)
-    values (p_request_id, v_user_id, p_model_profile, p_estimated_tokens);
+  insert into public.usage_reservations(request_id, owner_id, model_profile, estimated_tokens, estimated_cost_usd)
+    values (p_request_id, v_user_id, p_model_profile, p_estimated_tokens, p_estimated_cost_usd);
 
   return jsonb_build_object(
     'allowed', true,
     'max_output_tokens', v_policy.max_output_tokens,
     'daily_requests_remaining', greatest(v_policy.daily_request_limit - v_today_requests - 1, 0),
-    'monthly_requests_remaining', greatest(v_policy.monthly_request_limit - v_month_requests - 1, 0)
+    'monthly_requests_remaining', greatest(v_policy.monthly_request_limit - v_month_requests - 1, 0),
+    'max_output_tokens', v_policy.max_output_tokens,
+    'daily_spend_remaining_usd', greatest(v_policy.daily_spend_limit_usd - v_today_cost - p_estimated_cost_usd, 0),
+    'monthly_spend_remaining_usd', greatest(v_policy.monthly_spend_limit_usd - v_month_cost - p_estimated_cost_usd, 0)
   );
 end;
 $$;
