@@ -231,7 +231,7 @@ export async function POST(request: Request) {
     p_request_id: requestId,
     p_model_profile: profile,
     p_estimated_tokens: estimatedTokens,
-    p_estimated_cost_usd: recordedCost,
+    p_estimated_cost_usd: estimatedCost,
   });
 
   if (reserveError) {
@@ -336,7 +336,8 @@ export async function POST(request: Request) {
         const text = (await blob.text()).slice(0, 40_000);
         return { fileName: file.file_name, content: text, truncated: text.length >= 40_000 };
       },
-    }),    propose_project_file_change: tool({
+    }),
+    propose_project_file_change: tool({
       description: "Create a pending, reviewable file change proposal in the selected cloud Roblox project. This does not modify the project until the user explicitly accepts the proposal.",
       inputSchema: z.object({
         projectId: z.string().uuid(),
@@ -347,7 +348,7 @@ export async function POST(request: Request) {
       execute: async ({ projectId, relativePath, content, summary }) => {
         const normalized = safeProjectRelativePath(relativePath);
         if (!normalized) throw new Error("The proposed file path is not safe.");
-        const fileName = segments[segments.length - 1];
+        const fileName = normalized.split("/").pop() || "";
         if (!textExtensions.has(extension(fileName))) {
           throw new Error("Only supported source and text files can be proposed in this version.");
         }
@@ -506,7 +507,7 @@ export async function POST(request: Request) {
           p_provider: "vercel-ai-gateway",
           p_input_tokens: inputTokens,
           p_output_tokens: outputTokens,
-          p_estimated_cost_usd: estimatedCost,
+          p_estimated_cost_usd: recordedCost,
         });
       },
       onError: async () => {
