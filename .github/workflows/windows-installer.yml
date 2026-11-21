@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - upgrade/security-continuous-learning-updater
     tags:
       - "v*"
   pull_request:
@@ -87,11 +88,12 @@ jobs:
         run: |
           $configPath = "app-src/cloud-config.json"
           $apiUrl = ($env:RMANGO_CLOUD_API_URL ?? "").Trim().TrimEnd("/")
-          # Pull-request builds are artifact-only: never publish a release from an unmerged PR.
-          if ("${{ github.event_name }}" -eq "pull_request") {
+          # Only main/tag builds may publish a public release. PR and feature-branch builds are artifacts only.
+          $isPublicRelease = ("${{ github.ref }}" -eq "refs/heads/main" -or "${{ github.ref_type }}" -eq "tag")
+          if (-not $isPublicRelease) {
             @{ apiBaseUrl = "" } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
             "configured=false" >> $env:GITHUB_OUTPUT
-            Write-Host "PR build selected: installer will be uploaded as a workflow artifact only."
+            Write-Host "Non-release test build selected: installer will be uploaded as a workflow artifact only."
           } elseif ($apiUrl) {
             $parsed = [Uri]::new($apiUrl)
             if ($parsed.Scheme -ne "https" -or -not $parsed.IsAbsoluteUri) {
@@ -101,7 +103,9 @@ jobs:
             "configured=true" >> $env:GITHUB_OUTPUT
             Write-Host "Configured Rmango Cloud endpoint: $($parsed.Host)"
           } else {
-            throw "Refusing to build a public Windows release without RMANGO_CLOUD_API_URL. Configure the deployed Rmango Cloud HTTPS URL first."
+            @{ apiBaseUrl = "" } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
+            "configured=false" >> $env:GITHUB_OUTPUT
+            Write-Warning "Cloud URL is not configured. This run will verify a build artifact only; it will NOT publish a public installer release."
           }
 
       - name: Import optional Windows code-signing certificate
@@ -109,13 +113,12 @@ jobs:
         env:
           RMANGO_SIGNING_PFX_BASE64: ${{ secrets.RMANGO_SIGNING_PFX_BASE64 }}
           RMANGO_SIGNING_PFX_PASSWORD: ${{ secrets.RMANGO_SIGNING_PFX_PASSWORD }}
-          RMANGO_SIGNING_PUBLISHER_NAME: ${{ vars.RMANGO_SIGNING_PUBLISHER_NAME }}
         run: |
           $encoded = ($env:RMANGO_SIGNING_PFX_BASE64 -replace '\s', '')
           $hasCertificate = $false
-          $isPullRequest = "${{ github.event_name }}" -eq "pull_request"
+          $isPublicRelease = ("${{ github.ref }}" -eq "refs/heads/main" -or "${{ github.ref_type }}" -eq "tag")
 
-          if (-not $isPullRequest -and (-not $encoded -or -not $env:RMANGO_SIGNING_PFX_PASSWORD -or -not $env:RMANGO_SIGNING_PUBLISHER_NAME)) {
+          if ($isPublicRelease -and (-not $encoded -or -not $env:RMANGO_SIGNING_PFX_PASSWORD -or -not $env:RMANGO_SIGNING_PUBLISHER_NAME)) {
             throw "A public release requires RMANGO_SIGNING_PFX_BASE64, RMANGO_SIGNING_PFX_PASSWORD, and RMANGO_SIGNING_PUBLISHER_NAME. Unsigned releases are blocked."
           }
 
@@ -171,7 +174,7 @@ jobs:
             $package.build.win.verifyUpdateCodeSignature = $true
             $package.build.win.forceCodeSigning = $true
           } else {
-            if ("${{ github.event_name }}" -ne "pull_request") {
+            if ("${{ github.ref }}" -eq "refs/heads/main" -or "${{ github.ref_type }}" -eq "tag") {
               throw "Refusing to package an unsigned Windows release."
             }
             $package.build.win.publisherName = $null
@@ -265,7 +268,7 @@ jobs:
               throw "Packaged application executable is not signed by the configured publisher."
             }
           } elseif ($signature.Status -eq "Valid") {
-            Write-Host "PR artifact is signed; this is not a public release."
+            Write-Host "Test artifact is signed; it is not a public release."
           }
 
       - name: Verify public GitHub Release contains the update feed
@@ -312,13 +315,13 @@ jobs:
               $hasCertificate = $true
               Write-Host "Windows signing certificate loaded into the isolated build runner."
             } catch {
-              if (-not $isPullRequest) { throw }
-              Write-Warning "PR-only artifact has no usable signing certificate; it is not a public release."
+              if ($isPublicRelease) { throw }
+              Write-Warning "Non-release test artifact has no usable signing certificate; it will remain unsigned."
             }
-          } elseif (-not $isPullRequest) {
+          } elseif ($isPublicRelease) {
             throw "The public-release signing certificate could not be loaded."
           } else {
-            Write-Warning "PR-only test artifact will be unsigned and must not be distributed as a public release."
+            Write-Warning "Non-release test artifact will be unsigned and must not be distributed as a public installer."
           }
 
           if ($hasCertificate) {
