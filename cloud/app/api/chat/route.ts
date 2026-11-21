@@ -13,6 +13,7 @@ import { buildAgentWorkflowContext } from "@/lib/ai/orchestration";
 import { compactMessagesToContextWindow } from "@/lib/ai/context";
 import { rankProjectItems, deduplicateProjectMemories } from "@/lib/ai/project-relevance";
 import { indexCloudProjectFile } from "@/lib/ai/project-graph-storage";
+import { detectProjectDependencyCycles } from "@/lib/ai/project-graph-analysis";
 import { boundedTraceData, redactTraceValue } from "@/lib/ai/trace";
 import { extractSupportedDocument } from "@/lib/ai/documents";
 
@@ -804,12 +805,18 @@ export async function POST(request: Request) {
           for (const edge of edgeResult.data || []) {
             degree.set(edge.source_file_id, (degree.get(edge.source_file_id) || 0) + 1);
           }
+          const cycleAnalysis = detectProjectDependencyCycles(allFiles, edgeResult.data || []);
           return {
             project,
             coverage,
             symbolCount: symbolResult.count || 0,
             indexedDependencyEdges: (edgeResult.data || []).length,
             edgeListingMayBeTruncated: (edgeResult.data || []).length === 2000,
+            circularDependencies: cycleAnalysis.cycles,
+            circularDependencyCount: cycleAnalysis.cycleCount,
+            cycleListingTruncated: cycleAnalysis.cyclesTruncated,
+            resolvedDependencyEdges: cycleAnalysis.resolvedEdges,
+            unresolvedDependencyEdges: cycleAnalysis.unresolvedEdges,
             mostConnected: [...degree.entries()]
               .sort((a, b) => b[1] - a[1])
               .slice(0, 20)

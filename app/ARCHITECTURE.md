@@ -149,3 +149,5 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - Task traces now use the server service-role client with the authenticated owner ID, correcting previous silently rejected inserts under the intentionally read-only `agent_events` user policy.
 - Tool traces record names, bounded/redacted arguments and results, elapsed time and outcomes. Common bearer/provider/GitHub tokens and sensitive keys are redacted; binary payloads are omitted. Retention defaults to 90 days and is configurable per deployment with `RMANGO_AGENT_EVENT_RETENTION_DAYS` (clamped to 7–365).
 - Task history exposes the last 12 trace events and expandable redacted diagnostics. The end-of-run quality-gate event reports tool failures but keeps independent acceptance checks pending; tool success is never treated as proof that a Roblox feature passed tests.
+
+- The overview command also detects bounded circular-dependency paths when stored target hints resolve to known project file paths. Ambiguous or unresolved dynamic references are counted separately and excluded from cycle claims.
