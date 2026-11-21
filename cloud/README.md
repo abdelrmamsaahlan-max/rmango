@@ -47,11 +47,11 @@ Never paste either value into chat, commit it, or put it in a source file. Keep 
 4. Run the workflow only when you intend to deploy. The selected branch's cloud build must pass first.
 5. Read the deployment URL in the logs or Cloudflare Workers & Pages.
 
-The workflow installs dependencies, checks the Cloudflare credentials, builds the OpenNext Worker, and deploys the Worker named `rmango-cloud`. It does not edit the desktop app's production API URL. Pull-request CI runs `npm run cf-check`, which builds the OpenNext output and runs `wrangler deploy --dry-run` to validate the final Worker package without uploading or deploying it.
+The workflow installs dependencies, checks the Cloudflare credentials, builds the OpenNext Worker, and deploys to the existing Worker named `rmango`. This replaces its current dashboard-created starter script with the RMango application. The manual workflow requires the `confirm_replace_rmango` checkbox to be enabled. It does not edit the desktop app's production API URL. Pull-request CI runs `npm run cf-check`, which builds the OpenNext output and runs `wrangler deploy --dry-run` to validate the final Worker package without uploading or deploying it.
 
 ### Configure Supabase runtime secrets
 
-After the first Worker deploy, open **Workers & Pages → rmango-cloud → Settings → Variables and Secrets** and add these as encrypted secrets using the existing Supabase project values:
+After the first Worker deploy, open **Workers & Pages → rmango → Settings → Variables and Secrets** and add these as encrypted secrets using the existing Supabase project values:
 
 | Secret | Purpose |
 |---|---|
