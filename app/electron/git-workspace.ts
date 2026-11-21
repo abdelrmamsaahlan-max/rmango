@@ -39,8 +39,8 @@ export function parseGitStatus(output: string): ParsedGitStatus {
     changes.push({
       path: filePath,
       status,
-      staged: !untracked && status[0] !== " ",
-      unstaged: !untracked && status[1] !== " ",
+      staged: !untracked && !conflicted && status[0] !== " ",
+      unstaged: !untracked && !conflicted && status[1] !== " ",
       untracked,
       conflicted,
       renamed: /R|C/.test(status),

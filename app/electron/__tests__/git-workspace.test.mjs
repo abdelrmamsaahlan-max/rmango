@@ -14,8 +14,8 @@ test("parses branch, staged, unstaged, untracked and conflicted files", () => {
   assert.equal(parsed.branch, "feature/inventory");
   assert.equal(parsed.ahead, 2);
   assert.equal(parsed.behind, 1);
-  assert.equal(parsed.staged, 3);
-  assert.equal(parsed.unstaged, 2);
+  assert.equal(parsed.staged, 2);
+  assert.equal(parsed.unstaged, 1);
   assert.equal(parsed.untracked, 1);
   assert.equal(parsed.conflicted, 1);
   assert.equal(parsed.changes[0].path, "src/InventoryService.luau");
