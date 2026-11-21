@@ -686,7 +686,7 @@ export async function POST(request: Request) {
         };
         try {
           for await (const part of result.fullStream) {
-            if (part.type === "text" && part.text) { emit({ type: "text", text: part.text }); continue; }
+            if (part.type === "text-delta" && part.textDelta) { emit({ type: "text", text: part.textDelta }); continue; }
             if (part.type === "start") {
               emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Started a request through the hosted AI Gateway.", status: "running", ok: false } });
               continue;
@@ -698,6 +698,11 @@ export async function POST(request: Request) {
             if (part.type === "tool-result") {
               const failed = Boolean((part as typeof part & { isError?: boolean }).isError);
               emit({ type: "activity", activity: { id: part.toolCallId, name: activityToolName(part.toolName), detail: activityToolDetail(part.input, failed ? "failed" : "completed"), status: failed ? "failed" : "completed", ok: !failed } });
+              continue;
+            }
+            if (part.type === "tool-error") {
+              const toolError = part as typeof part & { toolCallId: string; toolName: string; input: unknown };
+              emit({ type: "activity", activity: { id: toolError.toolCallId, name: activityToolName(toolError.toolName), detail: activityToolDetail(toolError.input, "failed"), status: "failed", ok: false } });
               continue;
             }
             if (part.type === "finish") {
