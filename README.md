@@ -48,7 +48,7 @@ Wrangler securely prompts for each Supabase value. Never put the Supabase secret
 After the deployment, Wrangler prints your Worker URL, normally:
 
 ```text
-https://rmango-cloud.<your-account-subdomain>.workers.dev
+https://rmango.abdosony222.workers.dev
 ```
 
 Open `https://<your-worker-url>/api/health`. It should report `status: "ready"` and `aiReady: true` after the Supabase configuration and RMango usage policy are ready.
