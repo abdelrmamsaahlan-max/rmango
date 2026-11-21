@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: rmango-windows-installer-\${{ github.ref }}
+  group: rmango-windows-installer-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -73,20 +73,36 @@ jobs:
       - name: Import optional Windows code-signing certificate
         shell: pwsh
         env:
-          RMANGO_SIGNING_PFX_BASE64: \${{ secrets.RMANGO_SIGNING_PFX_BASE64 }}
-          RMANGO_SIGNING_PFX_PASSWORD: \${{ secrets.RMANGO_SIGNING_PFX_PASSWORD }}
+          RMANGO_SIGNING_PFX_BASE64: ${{ secrets.RMANGO_SIGNING_PFX_BASE64 }}
+          RMANGO_SIGNING_PFX_PASSWORD: ${{ secrets.RMANGO_SIGNING_PFX_PASSWORD }}
         run: |
-          if ($env:RMANGO_SIGNING_PFX_BASE64 -and $env:RMANGO_SIGNING_PFX_PASSWORD) {
-            $certificatePath = Join-Path $env:RUNNER_TEMP "rmango-signing.pfx"
-            $bytes = [Convert]::FromBase64String($env:RMANGO_SIGNING_PFX_BASE64)
-            [System.IO.File]::WriteAllBytes($certificatePath, $bytes)
-            "WIN_CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
-            "WIN_CSC_KEY_PASSWORD=$env:RMANGO_SIGNING_PFX_PASSWORD" >> $env:GITHUB_ENV
+          $encoded = ($env:RMANGO_SIGNING_PFX_BASE64 -replace '\s', '')
+          $hasCertificate = $false
+
+          if ($encoded -and $env:RMANGO_SIGNING_PFX_PASSWORD -and $encoded -match '^[A-Za-z0-9+/]+={0,2}$') {
+            try {
+              $bytes = [Convert]::FromBase64String($encoded)
+              if ($bytes.Length -gt 0) {
+                $certificatePath = Join-Path $env:RUNNER_TEMP "rmango-signing.pfx"
+                [System.IO.File]::WriteAllBytes($certificatePath, $bytes)
+                "WIN_CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
+                "WIN_CSC_KEY_PASSWORD=$env:RMANGO_SIGNING_PFX_PASSWORD" >> $env:GITHUB_ENV
+                $hasCertificate = $true
+                Write-Host "Windows signing certificate file imported."
+              }
+            } catch {
+              Write-Warning "The optional signing PFX could not be decoded. Continuing with an unsigned build."
+            }
+          } elseif ($encoded -or $env:RMANGO_SIGNING_PFX_PASSWORD) {
+            Write-Warning "The optional signing secrets are incomplete or malformed. Continuing with an unsigned build."
+          } else {
+            Write-Warning "No publisher certificate configured. The installer and its updates will be unsigned."
+          }
+
+          if ($hasCertificate) {
             "RMANGO_HAS_SIGNING_CERT=true" >> $env:GITHUB_ENV
-            Write-Host "Windows signing certificate imported."
           } else {
             "RMANGO_HAS_SIGNING_CERT=false" >> $env:GITHUB_ENV
-            Write-Warning "No publisher certificate configured. The installer and its updates will be unsigned."
           }
 
       - name: Set release version
@@ -95,9 +111,9 @@ jobs:
         run: |
           $packagePath = "app-src/package.json"
           $package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
-          $requestedTag = "\${{ inputs.tag_name }}".Trim()
-          $refType = "\${{ github.ref_type }}"
-          $refName = "\${{ github.ref_name }}"
+          $requestedTag = "${{ inputs.tag_name }}".Trim()
+          $refType = "${{ github.ref_type }}"
+          $refName = "${{ github.ref_name }}"
 
           if ($requestedTag) {
             $version = $requestedTag -replace '^v', ''
@@ -109,7 +125,7 @@ jobs:
               throw "The base package version '$($package.version)' is not a valid major.minor.patch version."
             }
             # Each main-branch build receives a strictly increasing patch number.
-            $version = "$($base.Groups['major'].Value).$($base.Groups['minor'].Value).\${{ github.run_number }}"
+            $version = "$($base.Groups['major'].Value).$($base.Groups['minor'].Value).${{ github.run_number }}"
           }
 
           if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
@@ -143,14 +159,14 @@ jobs:
       - name: Build, create update manifest, and publish GitHub Release
         working-directory: app-src
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: npm run dist:win:publish
 
       - name: Verify setup executable and update manifest
         id: verify
         shell: pwsh
         run: |
-          $version = "\${{ steps.version.outputs.version }}"
+          $version = "${{ steps.version.outputs.version }}"
           $installerPattern = "Rmango-Setup-$version-x64.exe"
           $installer = Get-ChildItem -Path "app-src/release" -Filter $installerPattern -File | Select-Object -First 1
           if (-not $installer) {
@@ -186,9 +202,9 @@ jobs:
       - name: Verify public GitHub Release contains the update feed
         shell: pwsh
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "\${{ steps.version.outputs.tag }}"
+          $tag = "${{ steps.version.outputs.tag }}"
           $uri = "https://api.github.com/repos/abdelrmamsaahlan-max/rmango/releases/tags/$tag"
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
@@ -197,7 +213,7 @@ jobs:
           }
           $release = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
           $assetNames = @($release.assets | ForEach-Object { $_.name })
-          $expectedInstaller = "Rmango-Setup-\${{ steps.version.outputs.version }}-x64.exe"
+          $expectedInstaller = "Rmango-Setup-${{ steps.version.outputs.version }}-x64.exe"
           if ($assetNames -notcontains $expectedInstaller) {
             throw "The GitHub Release does not contain $expectedInstaller."
           }
@@ -210,7 +226,7 @@ jobs:
       - name: Save setup EXE as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Rmango-Windows-Setup-\${{ steps.version.outputs.version }}
-          path: \${{ steps.verify.outputs.installer_path }}
+          name: Rmango-Windows-Setup-${{ steps.version.outputs.version }}
+          path: ${{ steps.verify.outputs.installer_path }}
           if-no-files-found: error
           retention-days: 14
