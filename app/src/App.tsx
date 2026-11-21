@@ -214,7 +214,7 @@ function App() {
             setCloudTasks(tasks);
             if (cloud.currentConversationId) {
               const restored = await window.rmango.loadCloudConversation(cloud.currentConversationId);
-              if (!restoredMessages.length) restoredMessages = restored.messages || [];
+              if (restored.messages.length) restoredMessages = restored.messages;
               setCloudProjectId(restored.conversation.project_id || undefined);
             }
           } catch (error) {
@@ -380,6 +380,24 @@ function App() {
       }
       setAuthPassword('');
       const state = await refreshCloudState();
+      setMessages([]);
+      setActivities([]);
+      if (state.signedIn && state.currentConversationId) {
+        try {
+          const restored = await window.rmango.loadCloudConversation(state.currentConversationId);
+          setConversationId(restored.conversation.id);
+          setMessages(restored.messages);
+          setCloudProjectId(restored.conversation.project_id || undefined);
+        } catch (error) {
+          setConversationId(undefined);
+          setToast(error instanceof Error ? error.message : 'Signed in, but the last conversation could not be restored.');
+        }
+      } else {
+        setConversationId(undefined);
+      }
+      if (state.signedIn) {
+        try { setCloudTasks(await window.rmango.getCloudTasks()); } catch { setCloudTasks([]); }
+      }
       if (appState?.studioConnected) await refreshMcpState();
       setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
       if (state.serviceReady) setSettingsOpen(false);
@@ -423,6 +441,10 @@ function App() {
       setCloudConversations([]);
       setCloudTasks([]);
       setConversationId(undefined);
+      setMessages([]);
+      setActivities([]);
+      setFollowupQueue([]);
+      followupQueueRef.current = [];
       if (appState?.studioConnected) await refreshMcpState();
       setToast('Signed out of Rmango Cloud.');
     } catch (error) {
