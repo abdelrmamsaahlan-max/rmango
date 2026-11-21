@@ -628,6 +628,7 @@ async function executeTaskWorkflow(
   conversationId: string | null,
   taskText: string,
   plan: string,
+  indexSummary: ProjectIndexSummary,
   profile: ModelProfile,
   runToken: string,
 ) {
@@ -1097,6 +1098,7 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
         task.conversation_id,
         task.task_text,
         result.plan || "",
+        result.indexSummary,
         profile,
         runToken,
       );
