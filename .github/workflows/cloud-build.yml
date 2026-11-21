@@ -10,6 +10,7 @@ on:
   pull_request:
     branches:
       - main
+      - upgrade/project-context-retrieval
     paths:
       - "cloud/**"
       - ".github/workflows/cloud-build.yml"
