@@ -427,7 +427,7 @@ async function getCloudState() {
     const infrastructureReady = health.status === 'ready';
     serviceReady = infrastructureReady && health.aiReady === true;
     if (!infrastructureReady) {
-      healthError = health.error || 'Cloud backend needs its database and Synap provider to be configured.';
+      healthError = health.error || 'Cloud backend needs its database and Cloudflare Workers AI binding to be configured.';
     } else if (!serviceReady) {
       healthError = health.error || 'Cloud AI inference is not enabled for this deployment.';
     }
