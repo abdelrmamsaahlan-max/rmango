@@ -69,12 +69,14 @@ create table if not exists public.project_files (
   project_id uuid not null references public.projects(id) on delete cascade,
   owner_id uuid not null references auth.users(id) on delete cascade,
   storage_path text not null unique,
+  relative_path text not null,
   file_name text not null,
   mime_type text not null,
   size_bytes bigint not null check (size_bytes >= 0),
   sha256 text,
   indexed_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  unique (project_id, relative_path)
 );
 create index if not exists project_files_project_idx on public.project_files(owner_id, project_id);
 
