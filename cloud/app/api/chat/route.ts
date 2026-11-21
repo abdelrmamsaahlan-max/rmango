@@ -13,6 +13,7 @@ import { buildAgentWorkflowContext } from "@/lib/ai/orchestration";
 import { compactMessagesToContextWindow } from "@/lib/ai/context";
 import { rankProjectItems, deduplicateProjectMemories } from "@/lib/ai/project-relevance";
 import { indexCloudProjectFile } from "@/lib/ai/project-graph-storage";
+import { boundedTraceData, redactTraceValue } from "@/lib/ai/trace";
 import { extractSupportedDocument } from "@/lib/ai/documents";
 
 export const runtime = "nodejs";
@@ -519,20 +520,39 @@ export async function POST(request: Request) {
     data: Record<string, unknown> = {},
   ) => {
     if (!agentTaskId) return;
-    try {
-      await supabase.from("agent_events").insert({
-        task_id: agentTaskId,
-        owner_id: user.id,
-        event_type: eventType.slice(0, 60),
-        message: message.replace(/[\u0000-\u001F]+/g, " ").slice(0, 500),
-        data,
+    const safeMessage = String(redactTraceValue(message) || "")
+      .replace(/[\u0000-\u001F]+/g, " ").slice(0, 500);
+    const safeData = boundedTraceData(data);
+    // agent_events deliberately denies user-role inserts. Use the service client
+    // only after this request has authenticated and attach the verified owner ID.
+    const { error } = await admin.from("agent_events").insert({
+      task_id: agentTaskId,
+      owner_id: user.id,
+      event_type: eventType.slice(0, 60),
+      message: safeMessage,
+      data: safeData,
+    });
+    if (error) {
+      console.warn("RMango task trace insert failed", {
+        eventType,
+        code: error.code || "unknown",
       });
-    } catch {
-      // Durable activity is best-effort; it must never interrupt a real model response.
     }
   };
 
   if (agentTaskId) {
+    const retentionDaysValue = Number(optionalEnv("RMANGO_AGENT_EVENT_RETENTION_DAYS") || 90);
+    const retentionDays = Number.isFinite(retentionDaysValue)
+      ? Math.max(7, Math.min(365, Math.floor(retentionDaysValue)))
+      : 90;
+    const retentionCutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+    const { error: retentionError } = await admin.from("agent_events")
+      .delete().eq("owner_id", user.id).lt("created_at", retentionCutoff);
+    if (retentionError) {
+      console.warn("RMango task trace retention cleanup failed", {
+        code: retentionError.code || "unknown",
+      });
+    }
     await recordAgentEvent("started", "Started a coordinated Roblox development task.", {
       profile,
       strategy: workflow.strategy,
@@ -1030,6 +1050,10 @@ export async function POST(request: Request) {
     ? { gateway: { models: choice.fallbackIds } }
     : undefined;
 
+  const toolTraceStats = { calls: 0, successes: 0, failures: 0, testLikeResults: 0 };
+  const toolStartTimes = new Map<string, number>();
+  const taskStartedAt = Date.now();
+
   try {
     const result = streamText({
       model: gateway(choice.primary.id),
@@ -1053,6 +1077,13 @@ export async function POST(request: Request) {
         );
         const recordedCost = actualCost ?? estimatedCost;
         const finalText = text || "";
+        await recordAgentEvent("model_completed", "The model request finished and usage was recorded.", {
+          modelId: actualModelId,
+          inputTokens,
+          outputTokens,
+          durationMs: Math.max(0, Date.now() - taskStartedAt),
+          estimatedCostUsd: recordedCost,
+        });
         await supabase.from("messages").insert({
           conversation_id: conversationId,
           owner_id: user.id,
@@ -1215,24 +1246,57 @@ export async function POST(request: Request) {
             if (part.type === "tool-call") {
               const name = activityToolName(part.toolName);
               const detail = activityToolDetail(part.input, "running");
+              toolTraceStats.calls += 1;
+              toolStartTimes.set(part.toolCallId, Date.now());
               emit({ type: "activity", activity: { id: part.toolCallId, name, detail, status: "running", ok: false } });
-              await recordAgentEvent("tool_started", name + ": " + detail, { tool: part.toolName });
+              await recordAgentEvent("before_tool", name + ": " + detail, {
+                tool: part.toolName,
+                toolCallId: part.toolCallId,
+                arguments: redactTraceValue(part.input),
+              });
               continue;
             }
             if (part.type === "tool-result") {
-              const failed = Boolean((part as typeof part & { isError?: boolean }).isError);
+              const tracePart = part as typeof part & { isError?: boolean; output?: unknown; result?: unknown };
+              const failed = Boolean(tracePart.isError);
               const name = activityToolName(part.toolName);
               const detail = activityToolDetail(part.input, failed ? "failed" : "completed");
+              const startedAt = toolStartTimes.get(part.toolCallId);
+              const durationMs = startedAt ? Math.max(0, Date.now() - startedAt) : null;
+              toolStartTimes.delete(part.toolCallId);
+              if (failed) toolTraceStats.failures += 1;
+              else {
+                toolTraceStats.successes += 1;
+                if (/(test|playtest|diagnostic|output|profiler)/i.test(part.toolName)) {
+                  toolTraceStats.testLikeResults += 1;
+                }
+              }
               emit({ type: "activity", activity: { id: part.toolCallId, name, detail, status: failed ? "failed" : "completed", ok: !failed } });
-              await recordAgentEvent(failed ? "tool_failed" : "tool_completed", name + ": " + detail, { tool: part.toolName });
+              await recordAgentEvent(failed ? "after_tool_failed" : "after_tool", name + ": " + detail, {
+                tool: part.toolName,
+                toolCallId: part.toolCallId,
+                durationMs,
+                outcome: failed ? "failed" : "completed",
+                result: redactTraceValue(tracePart.output ?? tracePart.result ?? null),
+              });
               continue;
             }
             if (part.type === "tool-error") {
-              const toolError = part as typeof part & { toolCallId: string; toolName: string; input: unknown };
+              const toolError = part as typeof part & { toolCallId: string; toolName: string; input: unknown; error?: unknown };
               const name = activityToolName(toolError.toolName);
               const detail = activityToolDetail(toolError.input, "failed");
+              const startedAt = toolStartTimes.get(toolError.toolCallId);
+              const durationMs = startedAt ? Math.max(0, Date.now() - startedAt) : null;
+              toolStartTimes.delete(toolError.toolCallId);
+              toolTraceStats.failures += 1;
               emit({ type: "activity", activity: { id: toolError.toolCallId, name, detail, status: "failed", ok: false } });
-              await recordAgentEvent("tool_failed", name + ": " + detail, { tool: toolError.toolName });
+              await recordAgentEvent("after_tool_failed", name + ": " + detail, {
+                tool: toolError.toolName,
+                toolCallId: toolError.toolCallId,
+                durationMs,
+                outcome: "failed",
+                error: redactTraceValue(toolError.error ?? "Tool execution failed."),
+              });
               continue;
             }
             if (part.type === "finish") {
@@ -1255,6 +1319,29 @@ export async function POST(request: Request) {
               const message = part.error instanceof Error ? part.error.message : "The hosted model stream returned an error.";
               emit({ type: "error", message });
             }
+          }
+          if (agentTaskId) {
+            const gateStatus = workflow.strategy === "planning"
+              ? "not_applicable"
+              : toolTraceStats.failures > 0
+                ? "attention_required"
+                : "verification_pending";
+            await recordAgentEvent(
+              "quality_gate",
+              workflow.strategy === "planning"
+                ? "Planning completed without implementation checks."
+                : toolTraceStats.failures > 0
+                  ? "One or more tool operations failed; independent verification is still required."
+                  : "No failed tool operation was observed, but independent acceptance tests are not confirmed.",
+              {
+                status: gateStatus,
+                toolCalls: toolTraceStats.calls,
+                toolSuccesses: toolTraceStats.successes,
+                toolFailures: toolTraceStats.failures,
+                testLikeToolResults: toolTraceStats.testLikeResults,
+                independentAcceptanceChecksPassed: false,
+              },
+            );
           }
           emit({ type: "done" });
         } catch (error) {

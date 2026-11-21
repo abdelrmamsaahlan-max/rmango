@@ -1149,3 +1149,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .studio-disconnect-quiet:hover:not(:disabled){border-color:#8c5d4e;background:#2c1d1b;color:#ffc8b3}
 .connection-pill:not(.connected){color:#bdc3ad;border-color:#57553a;background:#24271b}
 .connection-pill:not(.connected) .status-dot{background:#d8b455;box-shadow:0 0 7px rgba(216,180,85,.24)}
+
+.task-trace-payload{width:100%;margin:2px 0 0 10px;padding:4px 6px;border:1px solid #304333;border-radius:5px;background:#101d14}
+.task-trace-payload summary{font-size:7px;color:#92ae8a}
+.task-trace-payload pre{max-height:180px;overflow:auto;margin:5px 0 0;color:#b5c7ae;font:7px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}

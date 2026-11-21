@@ -1777,9 +1777,20 @@ function App() {
                         })}</div>
                       </details>}
                       {task.events.length > 0 && <details className="task-events">
-                        <summary>{task.events.length} recorded operations</summary>
-                        <div>{task.events.slice(-5).map(event =>
-                          <span key={event.id}><i/> {event.message}</span>
+                        <summary>{task.events.length} recorded operations · inspect trace</summary>
+                        <div>{task.events.slice(-12).map(event =>
+                          <span key={event.id}>
+                            <i/>
+                            <strong>{event.event_type.replaceAll('_', ' ')}</strong>
+                            {' — '}{event.message}
+                            <small>{displayTime(event.created_at)}</small>
+                            {event.data && Object.keys(event.data).length > 0 && (
+                              <details className="task-trace-payload">
+                                <summary>Redacted diagnostic data</summary>
+                                <pre>{JSON.stringify(event.data, null, 2)}</pre>
+                              </details>
+                            )}
+                          </span>
                         )}</div>
                       </details>}
                       {unverified && <span className="task-history-error">Code or tool actions may have run, but passing tests have not been confirmed.</span>}

@@ -15,7 +15,7 @@ test("redacts sensitive keys and common bearer, provider and GitHub tokens", () 
   assert.ok(!encoded.includes("abc.def.ghi"));
   assert.ok(!encoded.includes("sk-1234567890abcdefghijkl"));
   assert.ok(!encoded.includes("ghp_123456789012345678901234"));
-  assert.equal((safe.password as string), "[REDACTED]");
+  assert.equal(safe.password, "[REDACTED]");
 });
 
 test("omits binary data and bounds depth, arrays and large strings", () => {
@@ -23,7 +23,7 @@ test("omits binary data and bounds depth, arrays and large strings", () => {
     image: "huge-image-payload",
     nested: { code: "x".repeat(10_000) },
     values: Array.from({ length: 100 }, (_, i) => i),
-  }) as Record<string, any>;
+  });
   assert.equal(safe.image, "[OMITTED_BINARY_DATA]");
   assert.equal(safe.nested.code.length, 700);
   assert.equal(safe.values.length, 20);

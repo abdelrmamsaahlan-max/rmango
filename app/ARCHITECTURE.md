@@ -137,3 +137,15 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - Context retrieval emits a live activity item with the number of selected file metadata entries and memory notes. The durable task event records the same counts and whether the manifest is partial, making context selection auditable without logging file contents.
 - The relevance helper bounds query text and tokenizes it once per retrieval rather than repeatedly scanning the full request for every candidate.
 - Historical PDF/DOCX/text extracts from the recent conversation window are also ranked against the latest follow-up before reuse. The existing six-message lookup and 36,000-character total cap remain in place; attachment content remains marked as untrusted user-level context.
+
+
+## Incremental project graph and task execution traces
+
+- The cloud workspace maintains per-file symbol and import/require metadata in `project_file_symbols` and `project_file_edges`. The database function replaces one file's graph rows atomically, and graph rows cascade when the indexed file is deleted.
+- The bounded first-pass parser recognizes common Luau function/type/module declarations, TypeScript/JavaScript declarations, relative imports, string requires, `script.Parent` requires, and `game:GetService(...)` module paths. It is a structural heuristic, not a full parser or semantic call graph; dynamic references and unusual runtime resolution remain incomplete.
+- New file uploads and approved cloud changes refresh only the affected file. Previously uploaded files are indexed lazily when read, or by desktop sync if their SHA matches but `indexed_at` is null. Source scanning is bounded to 512 KB per file with fixed per-file symbol/edge limits.
+- The AI can inspect graph coverage, locate indexed symbols, and query inbound/outbound file dependencies through `inspect_project_graph`. It reports coverage and partial-index warnings.
+- Apply `cloud/supabase/migrations/20261121220000_rmango_project_graph.sql` to the target Supabase project before expecting graph storage/querying to work. File storage remains available while graph indexing reports pending.
+- Task traces now use the server service-role client with the authenticated owner ID, correcting previous silently rejected inserts under the intentionally read-only `agent_events` user policy.
+- Tool traces record names, bounded/redacted arguments and results, elapsed time and outcomes. Common bearer/provider/GitHub tokens and sensitive keys are redacted; binary payloads are omitted. Retention defaults to 90 days and is configurable per deployment with `RMANGO_AGENT_EVENT_RETENTION_DAYS` (clamped to 7–365).
+- Task history exposes the last 12 trace events and expandable redacted diagnostics. The end-of-run quality-gate event reports tool failures but keeps independent acceptance checks pending; tool success is never treated as proof that a Roblox feature passed tests.
