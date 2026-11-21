@@ -111,7 +111,7 @@ export type StudioApprovalRequest = {
   arguments: Record<string, unknown>;
 };
 
-export type AgentActivity = { name: string; detail: string; ok: boolean };
+export type AgentActivity = { id?: string; requestId?: string; name: string; detail: string; ok: boolean; status?: 'running' | 'completed' | 'failed' | 'cancelled' };
 
 export type UpdateState = {
   status: 'idle' | 'unsupported' | 'checking' | 'downloading' | 'downloaded' | 'not-available' | 'error';
@@ -157,6 +157,7 @@ declare global {
         requestId?: string;
       }) => Promise<{ requestId: string; content: string; activity: AgentActivity[]; conversationId?: string; modelId?: string; profile: CloudProfile }>;
       onCloudChatDelta: (callback: (event: { requestId: string; delta: string }) => void) => () => void;
+      onCloudChatActivity: (callback: (event: { requestId: string; activity: AgentActivity }) => void) => () => void;
       onToolApproval: (callback: (request: StudioApprovalRequest) => void) => () => void;
       respondToolApproval: (requestId: string, approved: boolean) => Promise<{ ok: boolean }>;
       getUpdateState: () => Promise<UpdateState>;
