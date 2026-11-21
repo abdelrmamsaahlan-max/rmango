@@ -228,8 +228,13 @@ async function getCloudState() {
   let healthError: string | undefined;
   try {
     const health = await cloudApiRequest<any>('/api/health', {}, false);
-    serviceReady = health.status === 'ready';
-    if (!serviceReady) healthError = 'Cloud backend needs its database and Vercel AI Gateway to be configured.';
+    const infrastructureReady = health.status === 'ready';
+    serviceReady = infrastructureReady && health.aiReady === true;
+    if (!infrastructureReady) {
+      healthError = health.error || 'Cloud backend needs its database and Vercel AI Gateway to be configured.';
+    } else if (!serviceReady) {
+      healthError = health.error || 'Cloud AI inference is not enabled for this deployment.';
+    }
   } catch (error) {
     healthError = error instanceof Error ? error.message : 'Cloud backend is unavailable.';
   }

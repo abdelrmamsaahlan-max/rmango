@@ -24,9 +24,9 @@ The database usage policy remains `enabled = false` with daily and monthly spend
 ## Remaining deployment setup
 
 1. Ensure `SUPABASE_SECRET_KEY` is configured as an encrypted server-only Vercel environment variable. The legacy `SUPABASE_SERVICE_ROLE_KEY` is accepted during migration.
-2. Deploy the backend and verify `/api/health` reports `status: "ready"` and `databaseReachable: true`.
+2. Deploy the backend and verify `/api/health` reports `status: "ready"` and `databaseReachable: true`. It separately reports `aiReady: false` while the usage policy remains disabled.
 3. Rebuild and verify the Windows installer. The standard public cloud URL is already included; no repository variable is required.
-4. Keep paid AI inference disabled until a separate budget is explicitly approved.
+4. Keep inference disabled until a separate budget is explicitly approved. With the policy disabled, RMango shows that AI is not enabled and intentionally refuses model requests.
 
 ## Vercel setup
 

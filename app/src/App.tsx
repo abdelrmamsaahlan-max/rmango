@@ -698,7 +698,7 @@ function App() {
     : !cloudState?.configured
       ? 'CLOUD NOT CONFIGURED'
       : !cloudState.serviceReady
-        ? 'CLOUD SETUP REQUIRED'
+        ? (cloudState.message?.toLowerCase().includes('inference is disabled') ? 'AI BUDGET NOT ENABLED' : 'CLOUD SETUP REQUIRED')
         : cloudState.signedIn
           ? 'CLOUD AI READY'
           : 'SIGN IN REQUIRED';

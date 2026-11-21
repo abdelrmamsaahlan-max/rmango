@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   if (configuration.databaseConfigured) {
     try {
       // Read the global policy using the server-only key. The policy is the
-      // final spend gate; health must not advertise AI readiness while disabled.
+      // final spend gate; report it separately from infrastructure readiness.
       const { data: policy, error } = await createAdminClient()
         .from("usage_policies")
         .select("id,enabled,daily_spend_limit_usd,monthly_spend_limit_usd")
@@ -33,10 +33,10 @@ export async function GET(request: Request) {
     }
   }
 
-  const ready = configuration.gatewayConfigured &&
+  const infrastructureReady = configuration.gatewayConfigured &&
     configuration.databaseConfigured &&
-    databaseReachable &&
-    inferenceEnabled;
+    databaseReachable;
+  const aiReady = infrastructureReady && inferenceEnabled;
 
   let error: string | undefined;
   if (!configuration.gatewayConfigured) {
@@ -46,15 +46,16 @@ export async function GET(request: Request) {
   } else if (!databaseReachable) {
     error = "Rmango could not read the Supabase usage policy. Check the server key, database connection, and applied migration.";
   } else if (!inferenceEnabled) {
-    error = "Cloud AI is safely disabled because the global usage policy is disabled or its spend limits are zero. An administrator must explicitly authorize a budget before inference can start.";
+    error = "The cloud backend is online, but AI inference is disabled because the global usage policy is off or its spend limits are zero. An administrator must explicitly authorize a budget before inference can start.";
   }
 
   return NextResponse.json({
     service: "rmango-cloud",
-    status: ready ? "ready" : "configuration_required",
+    status: infrastructureReady ? "ready" : "configuration_required",
+    aiReady,
     ...configuration,
     databaseReachable,
     inferenceEnabled,
     error,
-  }, { status: ready ? 200 : 503 });
+  }, { status: infrastructureReady ? 200 : 503 });
 }
