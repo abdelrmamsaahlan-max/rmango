@@ -341,13 +341,13 @@ export async function POST(request: Request) {
     }
   }
 
-  // Reuse a bounded window of earlier text/document extracts when follow-ups
-  // refer to an attachment again. All rows are owner- and conversation-scoped.
+  // Reuse earlier text/document extracts only when they are relevant to this
+  // follow-up. Rows and extracted text remain owner- and conversation-scoped.
   // Original documents and image blobs are never copied into Postgres message JSON.
   let previousAttachmentContextText = "";
   const { data: previousMessages, error: previousMessagesError } = await supabase
     .from("messages")
-    .select("content")
+    .select("content,created_at")
     .eq("conversation_id", conversationId)
     .eq("owner_id", user.id)
     .eq("role", "user")
@@ -357,7 +357,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not retrieve recent attachment context for this conversation." }, { status: 503 });
   }
 
-  let previousAttachmentChars = 0;
+  const previousAttachmentCandidates: Array<{ name: string; text: string; created_at: string }> = [];
   for (const previous of previousMessages || []) {
     const stored = previous.content && typeof previous.content === "object"
       ? previous.content as Record<string, unknown>
@@ -366,18 +366,34 @@ export async function POST(request: Request) {
     for (const item of entries) {
       if (!item || typeof item !== "object") continue;
       const entry = item as Record<string, unknown>;
-      if (typeof entry.name !== "string" || typeof entry.text !== "string") continue;
-      const remaining = 36_000 - previousAttachmentChars;
-      if (remaining <= 0) break;
-      const excerpt = entry.text.slice(0, Math.min(8_000, remaining));
-      if (!excerpt) continue;
-      previousAttachmentContextText +=
-        "\n\nBEGIN_PREVIOUS_UNTRUSTED_ATTACHMENT " + JSON.stringify(entry.name.slice(0, 200)) + "\n" +
-        excerpt +
-        "\nEND_PREVIOUS_UNTRUSTED_ATTACHMENT";
-      previousAttachmentChars += excerpt.length;
+      if (typeof entry.name !== "string" || typeof entry.text !== "string" || !entry.text) continue;
+      previousAttachmentCandidates.push({
+        name: entry.name.slice(0, 200),
+        text: entry.text.slice(0, 8_000),
+        created_at: String(previous.created_at || ""),
+      });
     }
-    if (previousAttachmentChars >= 36_000) break;
+  }
+
+  const rankedPreviousAttachments = rankProjectItems(
+    previousAttachmentCandidates,
+    latestUserPrompt,
+    {
+      getText: entry => entry.name + "\n" + entry.text,
+      updatedAt: entry => entry.created_at,
+    },
+  );
+  let previousAttachmentChars = 0;
+  for (const entry of rankedPreviousAttachments) {
+    const remaining = 36_000 - previousAttachmentChars;
+    if (remaining <= 0) break;
+    const excerpt = entry.text.slice(0, Math.min(8_000, remaining));
+    if (!excerpt) continue;
+    previousAttachmentContextText +=
+      "\n\nBEGIN_PREVIOUS_UNTRUSTED_ATTACHMENT " + JSON.stringify(entry.name) + "\n" +
+      excerpt +
+      "\nEND_PREVIOUS_UNTRUSTED_ATTACHMENT";
+    previousAttachmentChars += excerpt.length;
   }
   if (previousAttachmentContextText) {
     contentParts[0].text = String(contentParts[0].text || "") + previousAttachmentContextText;
