@@ -75,6 +75,8 @@ function inferMimeType(file: File) {
   if (file.type) return file.type;
   const ext = file.name.split('.').pop()?.toLowerCase();
   const textExts = ['lua', 'luau', 'txt', 'md', 'csv', 'toml', 'yaml', 'yml', 'js', 'jsx', 'ts', 'tsx', 'css', 'html', 'xml'];
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (ext === 'json') return 'application/json';
   if (textExts.includes(ext || '')) return 'text/plain';
   return 'application/octet-stream';
@@ -942,7 +944,7 @@ function App() {
                 </div>
               )}
             </div>}
-            {busy && <div className="composer-live-status"><span className="composer-live-dot"/><span>Rmango is working. You can send another instruction or attach files; they will be read at the next task checkpoint.</span><button type="button" className="composer-stop-button" onClick={() => void handleCancelMessage()} title="Stop current response" aria-label="Stop current response"><Square size={12} fill="currentColor"/></button></div>}
+            {busy && <div className="composer-live-status"><span className="composer-live-dot"/><span>Rmango is working. You can send another instruction or attach files; they will be sent after this response in the same chat.</span></div>}
             {followupQueue.length > 0 && <div className="followup-queue">
               <div className="followup-queue-heading"><strong>FOLLOW-UP QUEUE</strong><span>{followupQueue.length}/6</span></div>
               {followupQueue.map(item => <div className="followup-queue-item" key={item.id}>
