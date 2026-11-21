@@ -96,7 +96,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
     mime_type: mimeType,
     size_bytes: bytes.length,
     sha256: actualHash,
-    indexed_at: new Date().toISOString(),
+    indexed_at: null,
+    index_version: 0,
   }, { onConflict: "project_id,relative_path" });
   if (indexError) return NextResponse.json({ error: "The file was stored but its project index could not be updated. Contact Rmango support." }, { status: 503 });
 
