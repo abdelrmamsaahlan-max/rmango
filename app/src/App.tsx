@@ -1409,11 +1409,11 @@ function App() {
 
       <div className="workspace-layout">
         <nav className="activity-rail">
-          <button className="rail-button active" title="Workspace"><Bot size={18}/></button>
-          <button className={"rail-button " + (leftSidebarOpen ? "active" : "")} title="Project files" onClick={() => setLeftSidebarOpen(value => !value)}><Folder size={18}/></button>
-          <button className="rail-button" title="Cloud projects" onClick={() => { setLeftSidebarOpen(true); setCloudProjectSearch(''); }}><Layers3 size={18}/></button>
-          <button className="rail-button" title="AI chat" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
-          <button className="rail-button" title="Studio tools" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
+          <button className="rail-button active" title="Workspace" aria-label="Workspace" onClick={() => { setLeftSidebarOpen(true); setRightPanelOpen(false); }}><Bot size={18}/></button>
+          <button className={"rail-button " + (leftSidebarOpen ? "active" : "")} title="Project files" aria-label="Project files" onClick={() => setLeftSidebarOpen(value => !value)}><Folder size={18}/></button>
+          <button className="rail-button" title="Cloud projects" aria-label="Cloud projects" onClick={() => { setLeftSidebarOpen(true); setCloudProjectSearch(''); }}><Layers3 size={18}/></button>
+          <button className="rail-button" title="AI chat" aria-label="Focus chat composer" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
+          <button className="rail-button" title="Session inspector" aria-label="Session inspector" onClick={() => setRightPanelOpen(true)}><Wrench size={18}/></button>
           <div className="rail-spacer"/>
           <button className="rail-button" title="Settings" onClick={() => { setSettingsSection('general'); setSettingsOpen(true); }}><Settings2 size={18}/></button>
         </nav>
@@ -1546,7 +1546,7 @@ function App() {
 
         <main className="main-panel">
           <div className="main-toolbar">
-            <div className="tab-active"><MessageSquare size={14}/> Rmango Agent <span className="tab-live">CLOUD AI</span></div>
+            <div className="main-toolbar-leading"><div className="tab-active"><MessageSquare size={14}/> Chat <span className="tab-live">RMANGO AI</span></div>{appState?.projectPath && <span className="toolbar-context"><Folder size={12}/>{appState.projectPath.split(/[\\/]/).filter(Boolean).pop()}</span>}</div>
             <div className="toolbar-actions">
               <button type="button" className="new-chat-button" onClick={() => void handleNewConversation()} disabled={!cloudState?.signedIn || !cloudReady || busy} title="Start a new conversation"><Plus size={13}/> New chat</button>
               <span className="model-chip"><Sparkles size={12}/>{currentProfile?.profileLabel || 'Cloud model'}</span>
@@ -1559,9 +1559,9 @@ function App() {
               {messages.length === 0 ? (
                 <div className="welcome-block">
                   <div className="welcome-orb"><div className="welcome-logo"><MangoMark size={66}/></div><span className="orb-spark spark-one"/><span className="orb-spark spark-two"/><span className="orb-spark spark-three"/></div>
-                  <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX BUILD PARTNER <span className="eyebrow-line"/></div>
-                  <h1>Make something<br/><em>mango-nificent.</em></h1>
-                  <p>Inspect your place, understand your scripts, design maps and build Roblox systems with remotely hosted AI models.</p>
+                  <div className="welcome-eyebrow"><span className="eyebrow-line"/> YOUR ROBLOX DEVELOPMENT WORKSPACE <span className="eyebrow-line"/></div>
+                  <h1>What are we<br/><em>building today?</em></h1>
+                  <p>Describe what you want to create or fix. RMango can inspect your project, work with Roblox Studio, and help turn ideas into working game systems.</p>
 
                   {!cloudReady && <div className="setup-card">
                     <div className="setup-card-icon"><Sparkles size={19}/></div>
@@ -1685,9 +1685,9 @@ function App() {
         </main>
 
         {rightPanelOpen && <aside className="right-sidebar">
-          <div className="right-heading"><span>WORKSPACE MAP</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close workspace panel"><X size={15}/></button></div>
+          <div className="right-heading"><span>SESSION INSPECTOR</span><button className="subtle-icon" onClick={() => setRightPanelOpen(false)} title="Close workspace panel"><X size={15}/></button></div>
           <div className="workspace-map-shell">
-            <div className="workspace-map-caption"><span>LIVE SYSTEM OVERVIEW</span><span className="map-caption-status"><i className={cloudReady && studioReady ? 'all-live' : ''}/>{cloudReady && studioReady ? 'ALL SYSTEMS READY' : cloudReady && studioConnected ? 'AI ONLINE · OPEN A PLACE' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioReady ? 'STUDIO READY · AI OFFLINE' : studioConnected ? 'MCP BRIDGE ONLY' : 'WAITING FOR SERVICES'}</span></div>
+            <div className="workspace-map-caption"><span>LIVE WORKSPACE STATUS</span><span className="map-caption-status"><i className={cloudReady && studioReady ? 'all-live' : ''}/>{cloudReady && studioReady ? 'ALL SYSTEMS READY' : cloudReady && studioConnected ? 'AI ONLINE · OPEN A PLACE' : cloudReady ? 'AI ONLINE · STUDIO OFFLINE' : studioReady ? 'STUDIO READY · AI OFFLINE' : studioConnected ? 'MCP BRIDGE ONLY' : 'WAITING FOR SERVICES'}</span></div>
             <div className="workspace-map">
               <button type="button" className="map-node project-node" onClick={() => void handleOpenProject()}>
                 <span className="map-node-icon"><FolderOpen size={18}/></span>
