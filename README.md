@@ -112,3 +112,5 @@ Current source-file import is limited to 120 files, 512 KB per file and supporte
 - `cloud/supabase/migrations/`: owner-scoped cloud database, RLS, storage and usage limits.
 - `.github/workflows/cloud-build.yml`: cloud-backend typecheck/production build.
 - `.github/workflows/windows-installer.yml`: Windows packaging and GitHub auto-update releases.
+
+Security PR CI now targets the RMango UI base branch explicitly. Public release signing remains required; pull-request installers remain test-only.
