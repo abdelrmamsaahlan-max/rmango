@@ -11,7 +11,7 @@ const schema = z.object({
 function genericResponse() {
   return NextResponse.json({
     ok: true,
-    message: "If this address has an account awaiting verification, a new confirmation email has been sent. Check your inbox and spam folder.",
+    message: "If this address has an account awaiting verification, we will send a new confirmation email. Check your inbox and spam folder.",
   }, {
     headers: { "Cache-Control": "no-store, max-age=0" },
   });
