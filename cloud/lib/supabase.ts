@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
-import { requiredEnv } from "@/lib/env";
+import { getSupabaseServerKey, requiredEnv } from "@/lib/env";
 
 export type AuthContext = {
   supabase: SupabaseClient;
@@ -8,17 +8,20 @@ export type AuthContext = {
 };
 
 export function createAdminClient() {
-  return createClient(
-    requiredEnv("SUPABASE_URL"),
-    requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-        detectSessionInUrl: false,
-      },
+  const serverKey = getSupabaseServerKey();
+  if (!serverKey) {
+    throw new Error(
+      "Cloud backend is not configured: add the server-only SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY) to the cloud environment.",
+    );
+  }
+
+  return createClient(requiredEnv("SUPABASE_URL"), serverKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
     },
-  );
+  });
 }
 
 export function createAuthClient(accessToken?: string) {

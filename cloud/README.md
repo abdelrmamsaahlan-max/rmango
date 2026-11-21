@@ -15,15 +15,17 @@ This folder is the hosted backend for the Rmango Windows desktop client. **All l
 
 The cloud backend is deployed at `https://rmango-cloud.vercel.app` with Vercel OIDC enabled. The dedicated Supabase project `rmango-cloud` (ref `jqkcrtnbxewyqrdpnqap`, Frankfurt) is active and its initial migration has been applied.
 
-Encrypted `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` variables are present in Vercel. The server-only `SUPABASE_SERVICE_ROLE_KEY` is still required before database-backed admin operations can be considered ready. The GitHub Actions variable `RMANGO_CLOUD_API_URL` is still needed before publishing a cloud-configured desktop installer.
+Encrypted `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` variables were present in the previous deployment audit. RMango now accepts the recommended server-only `SUPABASE_SECRET_KEY` and the legacy `SUPABASE_SERVICE_ROLE_KEY` for backward compatibility. The health endpoint also verifies an actual read from `usage_policies`, rather than trusting environment-variable presence alone. Recheck the live health endpoint after this deployment.
+
+The Windows installer includes `https://rmango-cloud.vercel.app` as its default public API URL. The optional GitHub Actions variable `RMANGO_CLOUD_API_URL` can override it for another deployment, but is no longer required for the standard RMango build.
 
 The database usage policy remains `enabled = false` with daily and monthly spend caps set to zero. No paid model inference has been enabled or tested.
 
 ## Remaining deployment setup
 
-1. Add `SUPABASE_SERVICE_ROLE_KEY` as an encrypted server-only Vercel environment variable and redeploy.
-2. Add `RMANGO_CLOUD_API_URL=https://rmango-cloud.vercel.app` as a GitHub Actions repository variable.
-3. Rebuild and verify the cloud-configured Windows installer.
+1. Ensure `SUPABASE_SECRET_KEY` is configured as an encrypted server-only Vercel environment variable. The legacy `SUPABASE_SERVICE_ROLE_KEY` is accepted during migration.
+2. Deploy the backend and verify `/api/health` reports `status: "ready"` and `databaseReachable: true`.
+3. Rebuild and verify the Windows installer. The standard public cloud URL is already included; no repository variable is required.
 4. Keep paid AI inference disabled until a separate budget is explicitly approved.
 
 ## Vercel setup
@@ -51,7 +53,7 @@ The migration creates:
 - A global admin-managed usage policy with daily and monthly request/token limits.
 - A private `rmango-files` storage bucket and owner-only row/object policies.
 
-The service-role key is only used in cloud server code for atomic usage accounting. Never add it to the desktop app, any `NEXT_PUBLIC_*` variable or a public GitHub Actions variable.
+The Supabase Secret API key (or legacy service-role key) is used only by cloud server code for privileged database operations. Never add it to the desktop app, any `NEXT_PUBLIC_*` variable or a public GitHub Actions variable.
 
 ## Server environment variables
 
@@ -61,7 +63,8 @@ Set in the Vercel project's server environment only:
 |---|---:|---|
 | `SUPABASE_URL` | Yes | Rmango Supabase project URL |
 | `SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase public/publishable client key used by the server to validate user sessions |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-only service role, used only for usage-reservation RPCs |
+| `SUPABASE_SECRET_KEY` | Yes | Recommended server-only Supabase secret API key (`sb_secret_...`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Legacy | Backward-compatible server-only key for existing deployments |
 | `VERCEL_OIDC_TOKEN` | Automatic on Vercel | Authentication to AI Gateway; no static AI key |
 | `RMANGO_MODEL_FAST` | Optional | Admin-selected Gateway model ID for Rmango Fast |
 | `RMANGO_MODEL_DEVELOPER` | Optional | Admin-selected Gateway model ID for Rmango Developer |
@@ -75,11 +78,7 @@ No AI provider or AI Gateway API key is supported in the production configuratio
 
 ## GitHub desktop build configuration
 
-After Vercel is deployed, set the GitHub repository Actions variable:
-
-- `RMANGO_CLOUD_API_URL` = the public HTTPS base URL of the Rmango Cloud deployment, without a trailing slash.
-
-The Windows workflow copies only this public URL into `app/cloud-config.json`. It does not put database secrets, OIDC tokens or AI-provider credentials into the desktop package.
+The standard public cloud URL is committed in `app/cloud-config.json`. You may set the optional GitHub Actions variable `RMANGO_CLOUD_API_URL` to override it for another deployment. The Windows workflow validates that the URL is HTTPS and never copies database secrets, OIDC tokens or AI-provider credentials into the desktop package.
 
 The desktop code has a compile-time/runtime override `RMANGO_CLOUD_API_URL` for managed deployment environments, but normal installed builds use the packaged public URL.
 

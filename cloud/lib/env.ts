@@ -9,10 +9,23 @@ export function optionalEnv(name: string): string | undefined {
   return value || undefined;
 }
 
+export function getSupabaseServerKey(): string | undefined {
+  // Supabase recommends the newer sb_secret_ key for server-side access.
+  // Keep the legacy service_role variable as a migration fallback.
+  return optionalEnv("SUPABASE_SECRET_KEY") || optionalEnv("SUPABASE_SERVICE_ROLE_KEY");
+}
+
 export function publicApiStatus(requestOidcAvailable = false) {
+  const supabaseUrlConfigured = Boolean(optionalEnv("SUPABASE_URL"));
+  const publishableKeyConfigured = Boolean(optionalEnv("SUPABASE_PUBLISHABLE_KEY"));
+  const serverKeyConfigured = Boolean(getSupabaseServerKey());
+
   return {
     deployment: process.env.VERCEL_ENV || "self-hosted",
-    gatewayConfigured: Boolean(process.env.VERCEL_OIDC_TOKEN) || requestOidcAvailable,
-    databaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.SUPABASE_SERVICE_ROLE_KEY),
+    gatewayConfigured: Boolean(optionalEnv("VERCEL_OIDC_TOKEN")) || requestOidcAvailable,
+    supabaseUrlConfigured,
+    publishableKeyConfigured,
+    serverKeyConfigured,
+    databaseConfigured: supabaseUrlConfigured && publishableKeyConfigured && serverKeyConfigured,
   };
 }

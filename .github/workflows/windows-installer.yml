@@ -77,20 +77,27 @@ jobs:
           RMANGO_CLOUD_API_URL: ${{ vars.RMANGO_CLOUD_API_URL }}
         run: |
           $configPath = "app-src/cloud-config.json"
+          # An Actions variable can override the endpoint, but the committed public
+          # RMango URL is the safe default for normal builds.
           $apiUrl = ($env:RMANGO_CLOUD_API_URL ?? "").Trim().TrimEnd("/")
-          if ($apiUrl) {
-            $parsed = [Uri]::new($apiUrl)
-            if ($parsed.Scheme -ne "https" -or -not $parsed.IsAbsoluteUri) {
-              throw "RMANGO_CLOUD_API_URL must be an absolute HTTPS URL."
+          if (-not $apiUrl -and (Test-Path $configPath)) {
+            try {
+              $existingConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+              $apiUrl = ([string]$existingConfig.apiBaseUrl).Trim().TrimEnd("/")
+            } catch {
+              throw "app/cloud-config.json is not valid JSON: $($_.Exception.Message)"
             }
-            @{ apiBaseUrl = $apiUrl } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
-            "configured=true" >> $env:GITHUB_OUTPUT
-            Write-Host "Configured Rmango Cloud endpoint: $($parsed.Host)"
-          } else {
-            @{ apiBaseUrl = "" } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
-            "configured=false" >> $env:GITHUB_OUTPUT
-            Write-Warning "Cloud URL is not configured. This run will verify a build artifact only; it will NOT publish a public installer release."
           }
+          if (-not $apiUrl) {
+            throw "No Rmango Cloud URL is configured. Set RMANGO_CLOUD_API_URL or provide apiBaseUrl in app/cloud-config.json."
+          }
+          $parsed = [Uri]::new($apiUrl)
+          if ($parsed.Scheme -ne "https" -or -not $parsed.IsAbsoluteUri) {
+            throw "RMANGO_CLOUD_API_URL must be an absolute HTTPS URL."
+          }
+          @{ apiBaseUrl = $apiUrl } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
+          "configured=true" >> $env:GITHUB_OUTPUT
+          Write-Host "Configured Rmango Cloud endpoint: $($parsed.Host)"
 
       - name: Import optional Windows code-signing certificate
         shell: pwsh
