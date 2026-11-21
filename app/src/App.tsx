@@ -351,6 +351,7 @@ function App() {
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
+  const [conversationSearch, setConversationSearch] = useState('');
   const [cloudTasks, setCloudTasks] = useState<CloudAgentTask[]>([]);
   const [cloudProjects, setCloudProjects] = useState<CloudProject[]>([]);
   const [cloudProjectSearch, setCloudProjectSearch] = useState('');
@@ -756,6 +757,13 @@ function App() {
       ? cloudProjects.filter(project => project.name.toLocaleLowerCase().includes(query) || project.description.toLocaleLowerCase().includes(query))
       : cloudProjects;
   }, [cloudProjects, cloudProjectSearch]);
+
+  const filteredCloudConversations = useMemo(() => {
+    const query = conversationSearch.trim().toLocaleLowerCase();
+    return query
+      ? cloudConversations.filter(item => (item.title || 'New chat').toLocaleLowerCase().includes(query))
+      : cloudConversations;
+  }, [cloudConversations, conversationSearch]);
 
   async function handleNewConversation() {
     if (busy || loadingConversationId) return;
@@ -1730,8 +1738,12 @@ function App() {
               ? <div className="conversation-empty">Sign in to sync chat history.</div>
               : cloudConversations.length === 0
                 ? <div className="conversation-empty">Your cloud conversations will appear here.</div>
-                : <div className="conversation-list">
-                  {cloudConversations.slice(0, 20).map(item =>
+                : <>
+                  {cloudConversations.length > 4 && <div className="cloud-project-search conversation-search"><Search size={12}/><input value={conversationSearch} onChange={event => setConversationSearch(event.target.value)} placeholder="Search chats" aria-label="Search recent chats"/></div>}
+                  {filteredCloudConversations.length === 0
+                    ? <div className="conversation-empty">No chats match your search.</div>
+                    : <div className="conversation-list">
+                  {filteredCloudConversations.slice(0, 20).map(item =>
                     <button
                       type="button"
                       className={'conversation-item ' + (item.id === conversationId ? 'active' : '')}
@@ -1746,6 +1758,7 @@ function App() {
                     </button>
                   )}
                 </div>}
+                </>}
           </div>
           <div className="sidebar-bottom">
             <div className="section-row"><span>CONNECTIONS</span><span className={'tiny-status ' + (studioConnected ? 'on' : '')}/></div>
@@ -2053,7 +2066,7 @@ function App() {
               : <div className="activity-empty"><Layers3 size={15}/><span>Coordinated agent tasks will be saved here.</span></div>}
           </section>
           <section className="inspector-section activity-section">
-            <div className="section-title"><span>RECENT ACTIVITY</span><button className="subtle-icon" onClick={() => setActivities([])} title="Clear activity"><RefreshCw size={13}/></button></div>
+            <div className="section-title"><span>RECENT ACTIVITY</span><button className="subtle-icon" onClick={() => setActivities([])} title="Clear activity" aria-label="Clear activity"><Trash2 size={13}/></button></div>
             {activities.length
               ? activities.slice(-7).reverse().map((item, index) =>
                   <div className="activity-item" key={item.name + '-' + index}>
