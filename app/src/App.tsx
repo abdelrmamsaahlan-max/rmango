@@ -113,26 +113,29 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeRequestIdRef = useRef<string | null>(null);
   const cancelledRequestIdRef = useRef<string | null>(null);
+  const pendingDeltasRef = useRef<Map<string, string>>(new Map());
+  const completedRequestsRef = useRef<Set<string>>(new Set());
+  const deltaFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
-    // Coalesce network chunks into one renderer update per animation frame.
-    const pendingDeltas = new Map<string, string>();
-    let deltaFrame: number | null = null;
-    let effectDisposed = false;
+    // Coalesce chunks into one render per frame. Keep request completion state
+    // so delayed IPC events cannot append duplicate text after the final response.
     const flushDeltas = () => {
-      deltaFrame = null;
-      if (effectDisposed || pendingDeltas.size === 0) return;
-      const batch = new Map(pendingDeltas);
-      pendingDeltas.clear();
+      deltaFrameRef.current = null;
+      if (pendingDeltasRef.current.size === 0) return;
+      const batch = new Map(pendingDeltasRef.current);
+      pendingDeltasRef.current.clear();
       setMessages(current => current.map(message => {
-        const delta = batch.get(message.id || '');
+        const id = message.id || '';
+        const delta = completedRequestsRef.current.has(id) ? undefined : batch.get(id);
         return delta ? { ...message, content: message.content + delta } : message;
       }));
     };
     const unsubscribeDeltas = window.rmango.onCloudChatDelta(({ requestId, delta }) => {
-      pendingDeltas.set(requestId, (pendingDeltas.get(requestId) || '') + delta);
-      if (deltaFrame === null) deltaFrame = window.requestAnimationFrame(flushDeltas);
+      if (completedRequestsRef.current.has(requestId)) return;
+      pendingDeltasRef.current.set(requestId, (pendingDeltasRef.current.get(requestId) || '') + delta);
+      if (deltaFrameRef.current === null) deltaFrameRef.current = window.requestAnimationFrame(flushDeltas);
     });
     const unsubscribeProjectUpload = window.rmango.onProjectUploadProgress(progress => {
       setProjectUploadProgress(progress);
@@ -163,8 +166,9 @@ function App() {
 
     return () => {
       unsubscribeUpdates();
-      effectDisposed = true;
-      if (deltaFrame !== null) window.cancelAnimationFrame(deltaFrame);
+      if (deltaFrameRef.current !== null) window.cancelAnimationFrame(deltaFrameRef.current);
+      deltaFrameRef.current = null;
+      pendingDeltasRef.current.clear();
       unsubscribeDeltas();
       unsubscribeProjectUpload();
     };
@@ -485,6 +489,8 @@ function App() {
     const requestId = crypto.randomUUID();
     activeRequestIdRef.current = requestId;
     cancelledRequestIdRef.current = null;
+    completedRequestsRef.current.delete(requestId);
+    pendingDeltasRef.current.delete(requestId);
     const shownAttachments: ChatAttachment[] = pending.map(({ id, name, mimeType, kind, size, previewUrl }) => ({
       id, name, mimeType, kind, size, previewUrl,
     }));
@@ -518,24 +524,31 @@ function App() {
         projectId: cloudProjectId,
         requestId,
       });
+      completedRequestsRef.current.add(requestId);
+      pendingDeltasRef.current.delete(requestId);
       if (result.conversationId) setConversationId(result.conversationId);
       setActivities(result.activity || []);
       setMessages(current => current.map(message =>
         message.id === requestId ? { ...message, content: result.content, modelProfile: result.profile } : message
       ));
     } catch (error) {
+      completedRequestsRef.current.add(requestId);
+      const trailingDelta = pendingDeltasRef.current.get(requestId) || '';
+      pendingDeltasRef.current.delete(requestId);
       const wasCancelled = cancelledRequestIdRef.current === requestId;
       if (wasCancelled) {
-        setMessages(current => current.map(item =>
-          item.id === requestId ? { ...item, content: item.content || 'Response stopped.' } : item
-        ));
+        setMessages(current => current.map(item => {
+          if (item.id !== requestId) return item;
+          const partial = item.content + trailingDelta;
+          return { ...item, content: partial || 'Response stopped.' };
+        }));
       } else {
         const message = error instanceof Error ? error.message : 'The Rmango cloud request failed.';
-        setMessages(current => current.map(item =>
-          item.id === requestId
-            ? { ...item, content: item.content ? item.content + '\n\n' + message : 'I could not complete that request.\n\n' + message }
-            : item
-        ));
+        setMessages(current => current.map(item => {
+          if (item.id !== requestId) return item;
+          const partial = item.content + trailingDelta;
+          return { ...item, content: partial ? partial + '\n\n' + message : 'I could not complete that request.\n\n' + message };
+        }));
       }
       if (pending.length) setAttachments(current => [...pending, ...current].slice(0, 8));
     } finally {
