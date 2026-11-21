@@ -25,8 +25,8 @@ export function parseGitStatus(output: string): ParsedGitStatus {
   let branch = branchLine.slice(3).split("...")[0].trim();
   branch = branch.replace(/^No commits yet on /, "");
   if (branch === "HEAD (no branch)") branch = "(detached HEAD)";
-  const aheadMatch = branchLine.match(/\[ahead (\d+)/);
-  const behindMatch = branchLine.match(/\[behind (\d+)/);
+  const aheadMatch = branchLine.match(/\bahead (\d+)/);
+  const behindMatch = branchLine.match(/\bbehind (\d+)/);
   const changes: GitFileChange[] = [];
 
   for (const line of lines) {
