@@ -10,7 +10,10 @@ export async function GET(request: Request) {
   if (response) return response;
 
   try {
-    const catalogue = await getModelProfiles();
+    // Vercel exposes the deployment OIDC token on each function request.
+    // Passing it explicitly also avoids relying on a module-scope env snapshot.
+    const oidcToken = request.headers.get("x-vercel-oidc-token");
+    const catalogue = await getModelProfiles(oidcToken);
     return NextResponse.json({
       profiles: catalogue.profiles,
       availableModelCount: catalogue.availableModelCount,
