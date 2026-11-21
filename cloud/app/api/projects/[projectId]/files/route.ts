@@ -22,12 +22,21 @@ const schema = z.object({
 function safeRelativePath(value: string) {
   const normalized = value.replace(/\\/g, "/");
   const segments = normalized.split("/");
-  if (normalized.startsWith("/") || normalized.includes("\0") || segments.some(segment => !segment || segment === "." || segment === "..")) {
-    return null;
-  }
+  const invalidWindowsName = (segment: string) =>
+    /[<>:"|?*\u0000-\u001f\u007f]/.test(segment) ||
+    /[. ]$/.test(segment) ||
+    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(segment);
+
+  if (
+    normalized.startsWith("/") ||
+    normalized.includes("\0") ||
+    segments.some(segment =>
+      !segment || segment === "." || segment === ".." || invalidWindowsName(segment)
+    )
+  ) return null;
+
   return normalized;
 }
-
 export async function GET(request: Request, context: { params: Promise<{ projectId: string }> }) {
   const { context: auth, response } = await getAuthErrorResponse(request);
   if (response) return response;
