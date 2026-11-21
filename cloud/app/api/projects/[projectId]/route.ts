@@ -82,8 +82,24 @@ export async function DELETE(
   if (filesError) return NextResponse.json({ error: "Could not inspect project storage before deletion." }, { status: 503 });
 
   const paths = (files || []).map(file => String(file.storage_path || "")).filter(Boolean);
-  for (let offset = 0; offset < paths.length; offset += 100) {
-    const { error } = await context!.supabase.storage.from("rmango-files").remove(paths.slice(offset, offset + 100));
+
+  // Checkpoints store backup objects outside project_files, so include those
+  // private objects in project deletion rather than leaving orphaned snapshots.
+  const { data: checkpointFiles, error: checkpointFilesError } = await context!.supabase
+    .from("project_checkpoint_files")
+    .select("backup_storage_path")
+    .eq("project_id", projectId)
+    .eq("owner_id", context!.user.id)
+    .limit(10_000);
+  if (checkpointFilesError) {
+    return NextResponse.json({ error: "Could not inspect recovery storage before deletion." }, { status: 503 });
+  }
+  const backupPaths = (checkpointFiles || [])
+    .map(file => String(file.backup_storage_path || ""))
+    .filter(Boolean);
+  const storagePaths = [...paths, ...backupPaths];
+  for (let offset = 0; offset < storagePaths.length; offset += 100) {
+    const { error } = await context!.supabase.storage.from("rmango-files").remove(storagePaths.slice(offset, offset + 100));
     if (error) {
       return NextResponse.json({
         error: "Could not remove all private project files. The project database record was kept so you can retry safely.",
@@ -103,5 +119,5 @@ export async function DELETE(
     }, { status: 503 });
   }
 
-  return NextResponse.json({ ok: true, deletedProjectId: projectId, deletedFileCount: paths.length });
+  return NextResponse.json({ ok: true, deletedProjectId: projectId, deletedFileCount: paths.length, deletedCheckpointObjectCount: backupPaths.length });
 }

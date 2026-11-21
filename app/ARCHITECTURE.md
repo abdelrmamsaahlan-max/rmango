@@ -115,3 +115,65 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - During a running turn, the composer accepts additional text/files and queues up to six follow-ups for sequential processing in the same conversation after the active response. A follow-up does not alter the request already generating; this queue is not crash-persistent yet.
 - Studio MCP provides generation/edit tools for scripts, scenes, procedural models, meshes, materials, textures, animations and asset search/insertion where exposed by the connected Studio version. Mutations still require user approval.
 - The audio skill can author Roblox audio-engine setup and SFX/music integration and search permitted Creator Store assets. It cannot create a finished audio track through this MCP connector.
+
+
+## Workflow plans, verification state and context-window handling
+
+- The cloud chat coordinator classifies a request into quick, planning, agent, debug or deep-engineering behavior. Multi-step strategies persist an ordered plan with dependencies and observable acceptance criteria in the existing agent-task result JSON; no new database status constraint is required.
+- The task row's legacy `status` is a request-lifecycle field. It must not be interpreted as proof that implementation passed acceptance checks. The separate `result.verification.status` is authoritative: ordinary agent/debug/deep responses finish as `unverified` until independent evidence is recorded; planning-only requests use `not_applicable`.
+- The desktop task history displays the saved plan and makes the verification state visible instead of presenting a completed model response as a verified implementation.
+- Before quota reservation and inference, the chat route estimates text context and applies a conservative reserve for image inputs. When the live model catalogue reports a context window, it drops only the oldest complete user turns, preserves the latest request, reserves output tokens plus a safety margin, and rejects a request that still cannot fit. The character-based tokenizer is explicitly approximate; provider-reported usage remains the source for completed-request usage records.
+- This is bounded request-time compaction, not a durable background worker or vector retrieval system. The current workflow plan is persisted and visible, but live per-step editing, worker leases, automatic acceptance-test orchestration and long-running crash recovery remain future work.
+
+
+## Task-aware project context retrieval
+
+- Selected-project context now ranks file paths and saved memory against the latest user request instead of relying only on alphabetical path order and newest-first memory order.
+- The context loader reads bounded metadata only (up to 500 file rows and 60 memory rows), ranks it locally, and includes at most 80 file entries and 20 distinct memory notes. File contents remain on-demand through the existing owner-checked `read_project_file` tool.
+- Memory retrieval deduplicates repeated notes by project memory type and title, preferring the newest row returned by the database. The explicit `list_project_memories` tool uses the same ranking and deduplication with an optional search phrase.
+- Ranking is deterministic lexical relevance plus a small recency signal, not embeddings or semantic vector search. If no useful query terms exist, existing source ordering is preserved. Deeper project search still uses `search_project_files`.
+
+
+- Context retrieval emits a live activity item with the number of selected file metadata entries and memory notes. The durable task event records the same counts and whether the manifest is partial, making context selection auditable without logging file contents.
+- The relevance helper bounds query text and tokenizes it once per retrieval rather than repeatedly scanning the full request for every candidate.
+- Historical PDF/DOCX/text extracts from the recent conversation window are also ranked against the latest follow-up before reuse. The existing six-message lookup and 36,000-character total cap remain in place; attachment content remains marked as untrusted user-level context.
+
+
+## Incremental project graph and task execution traces
+
+- The cloud workspace maintains per-file symbol and import/require metadata in `project_file_symbols` and `project_file_edges`. The database function replaces one file's graph rows atomically, and graph rows cascade when the indexed file is deleted.
+- The bounded first-pass parser recognizes common Luau function/type/module declarations, TypeScript/JavaScript declarations, relative imports, string requires, `script.Parent` requires, and `game:GetService(...)` module paths. It is a structural heuristic, not a full parser or semantic call graph; dynamic references and unusual runtime resolution remain incomplete.
+- New file uploads and approved cloud changes refresh only the affected file. Previously uploaded files are indexed lazily when read, or by desktop sync if their SHA matches but `indexed_at` is null. Source scanning is bounded to 512 KB per file with fixed per-file symbol/edge limits.
+- The AI can inspect graph coverage, locate indexed symbols, and query inbound/outbound file dependencies through `inspect_project_graph`. It reports coverage and partial-index warnings.
+- Apply `cloud/supabase/migrations/20261121220000_rmango_project_graph.sql` to the target Supabase project before expecting graph storage/querying to work. File storage remains available while graph indexing reports pending.
+- Task traces now use the server service-role client with the authenticated owner ID, correcting previous silently rejected inserts under the intentionally read-only `agent_events` user policy.
+- Tool traces record names, bounded/redacted arguments and results, elapsed time and outcomes. Common bearer/provider/GitHub tokens and sensitive keys are redacted; binary payloads are omitted. Retention defaults to 90 days and is configurable per deployment with `RMANGO_AGENT_EVENT_RETENTION_DAYS` (clamped to 7–365).
+- Task history exposes the last 12 trace events and expandable redacted diagnostics. The end-of-run quality-gate event reports tool failures but keeps independent acceptance checks pending; tool success is never treated as proof that a Roblox feature passed tests.
+
+- The overview command also detects bounded circular-dependency paths when stored target hints resolve to known project file paths. Ambiguous or unresolved dynamic references are counted separately and excluded from cycle claims.
+
+- Project deletion also removes checkpoint backup objects from private storage before cascading checkpoint metadata, preventing orphaned recovery blobs.
+- Approved-change checkpoints are currently one-file recovery points. Restore checks the recorded post-change SHA before writing and records a new checkpoint of the current state first; this gives a conflict-safe undo/redo path for individual approved cloud file changes, not a multi-file atomic transaction.
+
+
+## Read-only local Git workspace
+
+- The desktop reads Git status for the user-selected folder using fixed `git status --porcelain=v1 --branch` arguments via `spawn(..., shell: false)`. It also reads staged and unstaged unified diffs with external diff and text conversion disabled.
+- Process runtime and output are bounded. Git absence and non-repository folders return an explicit unavailable state. File names are parsed and rendered as data, never concatenated into a command.
+- The project explorer displays branch, ahead/behind, staged, unstaged, untracked and conflicted counts, a bounded changed-file list and a bounded diff preview.
+- This first integration is deliberately read-only: no staging, commits, branch switches, checkouts, rollbacks, pushes, hooks, worktrees or GitHub operations are run automatically.
+
+- Before an approved cloud edit is recorded as successful, RMango now downloads the just-uploaded private object and verifies its SHA-256 against the proposed content. It also checks that the project-file index row contains the same hash and storage path. A failed read-back triggers a best-effort restore from the checkpoint and is reported as a failure, not a pass.
+- Checkpoint restoration uses the same read-back hash verification before updating file metadata. On mismatch it attempts to put the previously live bytes back, and reports a recovery conflict if that cannot also be verified.
+
+- The task inspector now displays the actual controller decision recorded in each task: intent, chosen intelligence level, model profile and whether it was automatic or manually selected, along with the applied step/file/memory/output budgets, verification depth and routing signals. Research tasks explicitly show when live external documentation access was unavailable.
+
+
+## Project memory provenance and revisions
+
+- Legacy notes are explicitly classified `legacy_unverified`; AI-created notes are `model_unverified` unless an exact source excerpt is supplied.
+- RMango checks that the source file belongs to the same project/owner, is a supported bounded text file, the downloaded bytes match the indexed SHA-256, and the exact excerpt is present.
+- A successful check records `source_excerpt` / `excerpt_present`. This verifies excerpt presence only; it does not prove the AI's interpretation or conclusion.
+- Database updates preserve the prior memory contents in `project_memory_revisions`; the current row exposes a revision count. Source-file hash changes or deletion invalidate excerpt-backed status.
+- The `list_project_memory_revisions` tool exposes earlier versions. Deployments without the new migration remain in legacy mode; changed same-title notes are inserted as new rows rather than overwriting the earlier note.
+- Apply `cloud/supabase/migrations/20261121224500_rmango_memory_provenance.sql` before expecting provenance labels or database revision history to persist.

@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthErrorResponse } from "@/lib/supabase";
+import { indexCloudProjectFile } from "@/lib/ai/project-graph-storage";
 
 export const runtime = "nodejs";
 
@@ -54,7 +55,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
 
   const { data: currentFile, error: fileError } = await supabase
     .from("project_files")
-    .select("id,sha256")
+    .select("id,sha256,storage_path,file_name,mime_type,size_bytes")
     .eq("project_id", projectId)
     .eq("owner_id", user.id)
     .eq("relative_path", proposal.relative_path)
@@ -80,14 +81,169 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
 
   const storagePath = user.id + "/" + projectId + "/" + Buffer.from(proposal.relative_path).toString("base64url");
   const mimeType = mimeForExtension(extension(proposal.file_name));
+
+  // Create a durable recovery point before changing the live object. The file's
+  // pre-change bytes are hash-verified before they are copied into private storage.
+  const checkpointId = randomUUID();
+  const checkpointBackupPath = user.id + "/" + projectId + "/.rmango-checkpoints/" +
+    checkpointId + "/" + Buffer.from(proposal.relative_path).toString("base64url");
+  let originalBytes: Buffer | null = null;
+  let originalHash: string | null = null;
+
+  const { error: checkpointError } = await supabase.from("project_checkpoints").insert({
+    id: checkpointId,
+    project_id: projectId,
+    owner_id: user.id,
+    source_change_id: changeId,
+    label: "Before changing " + proposal.relative_path,
+    checkpoint_kind: "before_change",
+    status: "creating",
+  });
+  if (checkpointError) {
+    return NextResponse.json({ error: "Could not create a recovery checkpoint. No project file was changed." }, { status: 503 });
+  }
+
+  if (currentFile) {
+    const { data: existingBlob, error: backupReadError } = await supabase.storage
+      .from("rmango-files").download(currentFile.storage_path);
+    if (backupReadError || !existingBlob) {
+      await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+      return NextResponse.json({ error: "Could not read the original file for a recovery checkpoint. No project file was changed." }, { status: 503 });
+    }
+    originalBytes = Buffer.from(await existingBlob.arrayBuffer());
+    originalHash = createHash("sha256").update(originalBytes).digest("hex");
+    if (currentFile.sha256 && originalHash !== currentFile.sha256) {
+      await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+      return NextResponse.json({ error: "The stored original file does not match its indexed SHA-256. No changes were applied." }, { status: 409 });
+    }
+    if (originalBytes.length > 512_000) {
+      await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+      return NextResponse.json({ error: "The original file exceeds the recovery checkpoint limit. No changes were applied." }, { status: 413 });
+    }
+
+    const { error: backupError } = await supabase.storage.from("rmango-files").upload(
+      checkpointBackupPath,
+      originalBytes,
+      { contentType: currentFile.mime_type || "text/plain", upsert: false, cacheControl: "3600" },
+    );
+    if (backupError) {
+      await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+      return NextResponse.json({ error: "Could not save the original file checkpoint. No project file was changed." }, { status: 503 });
+    }
+  }
+
+  const { error: checkpointFileError } = await supabase.from("project_checkpoint_files").insert({
+    checkpoint_id: checkpointId,
+    project_id: projectId,
+    owner_id: user.id,
+    relative_path: proposal.relative_path,
+    file_name: currentFile?.file_name || proposal.file_name,
+    mime_type: currentFile?.mime_type || mimeType,
+    existed_before: Boolean(currentFile),
+    backup_storage_path: currentFile ? checkpointBackupPath : null,
+    source_storage_path: currentFile?.storage_path || storagePath,
+    original_sha256: originalHash,
+    applied_sha256: actualHash,
+    size_bytes: originalBytes?.length || 0,
+  });
+  if (checkpointFileError) {
+    if (currentFile) await supabase.storage.from("rmango-files").remove([checkpointBackupPath]);
+    await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+    return NextResponse.json({ error: "Could not save checkpoint metadata. No project file was changed." }, { status: 503 });
+  }
+
+  // Re-check the indexed version immediately before the write. If a concurrent
+  // update arrived while the snapshot was being prepared, preserve it untouched.
+  const { data: latestFile, error: latestFileError } = await supabase.from("project_files")
+    .select("sha256")
+    .eq("project_id", projectId)
+    .eq("owner_id", user.id)
+    .eq("relative_path", proposal.relative_path)
+    .maybeSingle();
+  if (latestFileError || (latestFile?.sha256 || null) !== (currentFile?.sha256 || null)) {
+    await supabase.from("project_checkpoints").update({ status: "conflict" })
+      .eq("id", checkpointId).eq("owner_id", user.id);
+    return NextResponse.json({ error: "The file changed while its checkpoint was being prepared. The newer version was not overwritten; a recovery record was retained.", checkpointId }, { status: 409 });
+  }
+
   const { error: storageError } = await supabase.storage.from("rmango-files").upload(storagePath, bytes, {
     contentType: mimeType,
     upsert: true,
     cacheControl: "3600",
   });
-  if (storageError) return NextResponse.json({ error: "Could not apply the proposed file to private storage." }, { status: 503 });
+  if (storageError) {
+    let rollbackError: unknown = null;
+    if (currentFile && originalBytes) {
+      const restored = await supabase.storage.from("rmango-files").upload(storagePath, originalBytes, {
+        contentType: currentFile.mime_type || "text/plain",
+        upsert: true,
+      });
+      rollbackError = restored.error;
+    } else if (!currentFile) {
+      const removed = await supabase.storage.from("rmango-files").remove([storagePath]);
+      rollbackError = removed.error;
+    }
+    if (rollbackError) {
+      await supabase.from("project_checkpoints").update({ status: "restore_conflict" })
+        .eq("id", checkpointId).eq("owner_id", user.id);
+      return NextResponse.json({
+        error: "The object upload failed and automatic cleanup could not be confirmed. The recovery snapshot was retained.",
+        checkpointId,
+      }, { status: 503 });
+    }
+    if (currentFile) await supabase.storage.from("rmango-files").remove([checkpointBackupPath]);
+    await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+    return NextResponse.json({ error: "Could not apply the proposed file. The original file was preserved." }, { status: 503 });
+  }
 
-  const { error: indexError } = await supabase.from("project_files").upsert({
+  // A successful storage upload response is not sufficient: download the
+  // private object and verify the actual persisted bytes before indexing.
+  const { data: readBackBlob, error: readBackError } = await supabase.storage
+    .from("rmango-files").download(storagePath);
+  const readBackHash = readBackBlob
+    ? createHash("sha256").update(Buffer.from(await readBackBlob.arrayBuffer())).digest("hex")
+    : null;
+  if (readBackError || readBackHash !== actualHash) {
+    let rollbackError: unknown = null;
+    if (currentFile && originalBytes) {
+      const restored = await supabase.storage.from("rmango-files").upload(storagePath, originalBytes, {
+        contentType: currentFile.mime_type || "text/plain",
+        upsert: true,
+        cacheControl: "3600",
+      });
+      rollbackError = restored.error;
+      if (!rollbackError) {
+        const { data: rollbackBlob, error: rollbackReadError } = await supabase.storage
+          .from("rmango-files").download(storagePath);
+        const rollbackHash = rollbackBlob
+          ? createHash("sha256").update(Buffer.from(await rollbackBlob.arrayBuffer())).digest("hex")
+          : null;
+        if (rollbackReadError || rollbackHash !== originalHash) rollbackError = rollbackReadError || new Error("Original bytes failed read-back verification.");
+      }
+    } else if (!currentFile) {
+      const removed = await supabase.storage.from("rmango-files").remove([storagePath]);
+      rollbackError = removed.error;
+      if (!rollbackError) {
+        const { data: unexpectedBlob } = await supabase.storage.from("rmango-files").download(storagePath);
+        if (unexpectedBlob) rollbackError = new Error("The newly created object still exists after cleanup.");
+      }
+    }
+    if (rollbackError) {
+      await supabase.from("project_checkpoints").update({ status: "restore_conflict" })
+        .eq("id", checkpointId).eq("owner_id", user.id);
+      return NextResponse.json({
+        error: "The uploaded object failed SHA-256 read-back verification and automatic recovery could not be confirmed. The checkpoint was retained for manual recovery.",
+        checkpointId,
+      }, { status: 503 });
+    }
+    if (currentFile) await supabase.storage.from("rmango-files").remove([checkpointBackupPath]);
+    await supabase.from("project_checkpoints").delete().eq("id", checkpointId).eq("owner_id", user.id);
+    return NextResponse.json({
+      error: "The uploaded object failed SHA-256 read-back verification. The original file was restored and verified; no change was applied.",
+    }, { status: 503 });
+  }
+
+  const { data: appliedFile, error: indexError } = await supabase.from("project_files").upsert({
     project_id: projectId,
     owner_id: user.id,
     storage_path: storagePath,
@@ -96,14 +252,60 @@ export async function PATCH(request: Request, context: { params: Promise<{ proje
     mime_type: mimeType,
     size_bytes: bytes.length,
     sha256: actualHash,
-    indexed_at: new Date().toISOString(),
-  }, { onConflict: "project_id,relative_path" });
-  if (indexError) return NextResponse.json({ error: "The file was stored but its project index could not be updated. Contact Rmango support." }, { status: 503 });
+    indexed_at: null,
+  }, { onConflict: "project_id,relative_path" }).select("id,sha256,storage_path").single();
+  if (indexError || !appliedFile || appliedFile.sha256 !== actualHash || appliedFile.storage_path !== storagePath) {
+    // If the metadata commit failed after the object write, put back the exact
+    // snapshot. If this was a newly-created path, remove the unindexed object.
+    let rollbackError: unknown = null;
+    if (currentFile && originalBytes) {
+      const restored = await supabase.storage.from("rmango-files").upload(storagePath, originalBytes, {
+        contentType: currentFile.mime_type || "text/plain",
+        upsert: true,
+        cacheControl: "3600",
+      });
+      rollbackError = restored.error;
+    } else if (!currentFile) {
+      const removed = await supabase.storage.from("rmango-files").remove([storagePath]);
+      rollbackError = removed.error;
+    }
+    await supabase.from("project_checkpoints").update({
+      status: rollbackError ? "restore_conflict" : "failed",
+    }).eq("id", checkpointId).eq("owner_id", user.id);
+    return NextResponse.json({
+      error: rollbackError
+        ? "The file object was written but its index failed, and automatic recovery also failed. Use the retained checkpoint for manual recovery."
+        : "The project index failed; the original file was restored and the proposal was not applied.",
+      checkpointId,
+    }, { status: 503 });
+  }
+
+  const { error: checkpointReadyError } = await supabase.from("project_checkpoints")
+    .update({ status: "ready" }).eq("id", checkpointId).eq("owner_id", user.id);
+  if (checkpointReadyError) {
+    console.warn("RMango applied file but could not finalize its checkpoint status", { checkpointId, code: checkpointReadyError.code || "unknown" });
+  }
+
+  // Indexing is recoverable and must not make an already applied source change
+  // appear to be unreviewed. A missing graph migration leaves the index pending.
+  const graphIndex = await indexCloudProjectFile(supabase, appliedFile.id, proposal.relative_path, proposal.proposed_content);
 
   const { error: reviewError } = await supabase.from("project_changes")
     .update({ status: "approved", reviewed_at: new Date().toISOString() })
     .eq("id", changeId).eq("owner_id", user.id).eq("status", "pending");
   if (reviewError) return NextResponse.json({ error: "The file was applied but the proposal status could not be saved." }, { status: 503 });
 
-  return NextResponse.json({ ok: true, status: "approved", relativePath: proposal.relative_path, sha256: actualHash });
+  return NextResponse.json({
+    ok: true,
+    status: "approved",
+    relativePath: proposal.relative_path,
+    sha256: actualHash,
+    checkpointId,
+    graphIndex: {
+      status: graphIndex.indexed ? "indexed" : "pending",
+      symbols: graphIndex.symbolCount,
+      dependencies: graphIndex.edgeCount,
+      reason: graphIndex.reason || null,
+    },
+  });
 }

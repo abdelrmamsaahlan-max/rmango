@@ -5,13 +5,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { boundGitDiff, parseGitStatus } from "./git-workspace.js";
+import { formatCloudSendError } from "./cloud-errors.js";
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import electronUpdater from 'electron-updater';
 
 const { autoUpdater } = electronUpdater;
 
-type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+type CloudProfile = 'auto' | 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+type IntelligenceLevelSetting = 'auto' | 'instant' | 'focused' | 'advanced' | 'deep' | 'research';
 type ChatMessage = {
   id?: string;
   role: 'user' | 'assistant';
@@ -67,6 +70,7 @@ type SettingsFile = {
   desktopNotifications: boolean;
   autoUpdatesEnabled: boolean;
   defaultCloudProfile: CloudProfile;
+  intelligenceLevel: IntelligenceLevelSetting;
   saveLocalChatHistory: boolean;
   showInspectorByDefault: boolean;
 };
@@ -145,7 +149,8 @@ const DEFAULT_SETTINGS: SettingsFile = {
   sendOnEnter: true,
   desktopNotifications: false,
   autoUpdatesEnabled: true,
-  defaultCloudProfile: 'developer',
+  defaultCloudProfile: 'auto',
+  intelligenceLevel: 'auto',
   saveLocalChatHistory: true,
   showInspectorByDefault: true,
 };
@@ -162,7 +167,8 @@ function normaliseSettings(value: Partial<SettingsFile> | null | undefined): Set
     sendOnEnter: typeof input.sendOnEnter === 'boolean' ? input.sendOnEnter : DEFAULT_SETTINGS.sendOnEnter,
     desktopNotifications: typeof input.desktopNotifications === 'boolean' ? input.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
     autoUpdatesEnabled: typeof input.autoUpdatesEnabled === 'boolean' ? input.autoUpdatesEnabled : DEFAULT_SETTINGS.autoUpdatesEnabled,
-    defaultCloudProfile: input.defaultCloudProfile === 'fast' || input.defaultCloudProfile === 'developer' || input.defaultCloudProfile === 'think' || input.defaultCloudProfile === 'vision' || input.defaultCloudProfile === 'agent' ? input.defaultCloudProfile : DEFAULT_SETTINGS.defaultCloudProfile,
+    defaultCloudProfile: input.defaultCloudProfile === 'auto' || input.defaultCloudProfile === 'fast' || input.defaultCloudProfile === 'developer' || input.defaultCloudProfile === 'think' || input.defaultCloudProfile === 'vision' || input.defaultCloudProfile === 'agent' ? input.defaultCloudProfile : DEFAULT_SETTINGS.defaultCloudProfile,
+    intelligenceLevel: input.intelligenceLevel === 'auto' || input.intelligenceLevel === 'instant' || input.intelligenceLevel === 'focused' || input.intelligenceLevel === 'advanced' || input.intelligenceLevel === 'deep' || input.intelligenceLevel === 'research' ? input.intelligenceLevel : DEFAULT_SETTINGS.intelligenceLevel,
     saveLocalChatHistory: typeof input.saveLocalChatHistory === 'boolean' ? input.saveLocalChatHistory : DEFAULT_SETTINGS.saveLocalChatHistory,
     showInspectorByDefault: typeof input.showInspectorByDefault === 'boolean' ? input.showInspectorByDefault : DEFAULT_SETTINGS.showInspectorByDefault,
   };
@@ -634,6 +640,7 @@ async function sendCloudMessage(payload: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   attachments?: Attachment[];
   profile: CloudProfile;
+  intelligenceLevel: IntelligenceLevelSetting;
   projectId?: string;
   conversationId?: string;
   requestId?: string;
@@ -669,11 +676,11 @@ async function sendCloudMessage(payload: {
     }
     if (!response.ok) {
       const raw = await response.text();
-      let message = raw;
-      try { const parsed = JSON.parse(raw); message = parsed.error || parsed.message || raw; } catch { /* text error */ }
+      let payload: unknown = raw;
+      try { payload = JSON.parse(raw); } catch { /* handled by the safe error formatter */ }
       if (response.status === 401) throw new Error('Your Rmango cloud session expired. Sign in again.');
-      if (response.status === 429) throw new Error(message || 'Your Rmango cloud usage limit has been reached.');
-      throw new Error(message || ('Rmango Cloud returned HTTP ' + response.status + '.'));
+      if (response.status === 429) throw new Error(formatCloudSendError(payload));
+      throw new Error(formatCloudSendError(payload, response.status));
     }
     if (!response.body) throw new Error('The cloud AI returned an empty stream.');
 
@@ -719,7 +726,7 @@ async function sendCloudMessage(payload: {
       } else if (event.type === 'activity') {
         emitActivity(event.activity);
       } else if (event.type === 'error') {
-        throw new Error(typeof event.message === 'string' ? event.message : 'The cloud AI stream failed.');
+        throw new Error(formatCloudSendError(event));
       }
     };
 
@@ -1209,6 +1216,110 @@ async function projectFiles(root: string, depth = 0): Promise<Array<{ name: stri
   return result;
 }
 
+type GitCommandOutput = { text: string; truncated: boolean };
+
+function runFixedGit(root: string, args: string[], maxBytes: number): Promise<GitCommandOutput> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: root,
+      windowsHide: true,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: "0",
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+      },
+    });
+    const stdout: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderr = "";
+    let truncated = false;
+    let settled = false;
+    const timer = setTimeout(() => {
+      child.kill();
+      if (!settled) {
+        settled = true;
+        reject(new Error("Git inspection timed out after 12 seconds."));
+      }
+    }, 12_000);
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (stdoutBytes >= maxBytes) { truncated = true; return; }
+      const remaining = maxBytes - stdoutBytes;
+      const part = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+      stdout.push(part);
+      stdoutBytes += part.length;
+      if (part.length < chunk.length) truncated = true;
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderr.length < 2_000) stderr += chunk.toString("utf8").slice(0, 2_000 - stderr.length);
+    });
+    child.on("error", error => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    child.on("close", code => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || "Git inspection failed with exit code " + String(code) + "."));
+        return;
+      }
+      resolve({ text: Buffer.concat(stdout).toString("utf8"), truncated });
+    });
+  });
+}
+
+async function selectedGitRoot(): Promise<string> {
+  const settings = await readSettings();
+  if (!settings.projectPath) throw new Error("Open a local project folder before inspecting Git.");
+  const root = await fs.realpath(settings.projectPath);
+  const info = await fs.stat(root);
+  if (!info.isDirectory()) throw new Error("The selected project path is not a directory.");
+  return root;
+}
+
+async function getGitWorkspaceState() {
+  try {
+    const root = await selectedGitRoot();
+    const result = await runFixedGit(root, [
+      "-c", "core.fsmonitor=false",
+      "status", "--porcelain=v1", "--branch", "--untracked-files=all",
+    ], 48_000);
+    return { available: true, ...parseGitStatus(result.text), listingTruncated: result.truncated, reason: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not inspect Git.";
+    const reason = /not a git repository/i.test(message)
+      ? "This folder is not a Git repository yet."
+      : /ENOENT|not recognized|not found/i.test(message)
+        ? "Git was not found on this device. Install Git and reopen RMango."
+        : message.slice(0, 300);
+    return {
+      available: false, branch: "", ahead: 0, behind: 0, staged: 0,
+      unstaged: 0, untracked: 0, conflicted: 0, changes: [],
+      listingTruncated: false, reason,
+    };
+  }
+}
+
+async function getGitWorkspaceDiff() {
+  const root = await selectedGitRoot();
+  const [unstaged, staged] = await Promise.all([
+    runFixedGit(root, ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", "--unified=3", "--no-color"], 60_000),
+    runFixedGit(root, ["-c", "core.fsmonitor=false", "diff", "--cached", "--no-ext-diff", "--no-textconv", "--unified=3", "--no-color"], 60_000),
+  ]);
+  return {
+    unstaged: boundGitDiff(unstaged.text),
+    staged: boundGitDiff(staged.text),
+    note: "Read-only preview. Untracked files do not appear in git diff until staged. RMango does not stage, commit, switch branches or push.",
+  };
+}
+
 function insideRoot(root: string, target: string) {
   const rel = path.relative(path.resolve(root), path.resolve(target));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
@@ -1238,6 +1349,21 @@ async function readProjectFile(root: string, relativePath: string) {
 async function getCloudProjectChanges(projectId: string) {
   if (!/^[0-9a-f-]{36}$/i.test(projectId)) throw new Error("Invalid cloud project ID.");
   return cloudApiRequest<any>("/api/projects/" + projectId + "/changes");
+}
+
+async function getCloudProjectCheckpoints(projectId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId)) throw new Error("Invalid cloud project ID.");
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/checkpoints");
+}
+
+async function restoreCloudProjectCheckpoint(projectId: string, checkpointId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(projectId) || !/^[0-9a-f-]{36}$/i.test(checkpointId)) {
+    throw new Error("Invalid cloud project or checkpoint ID.");
+  }
+  return cloudApiRequest<any>("/api/projects/" + projectId + "/checkpoints/" + checkpointId + "/restore", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
 }
 
 async function reviewCloudProjectChange(projectId: string, changeId: string, decision: "approve" | "reject") {
@@ -1330,6 +1456,7 @@ async function uploadCloudProject() {
     relative_path: string;
     sha256: string | null;
     size_bytes: number;
+    indexed_at: string | null;
   }> }>("/api/projects/" + projectId + "/files", {}, true);
   const remoteByPath = new Map((remote.files || []).map(file => [file.relative_path, file]));
   const allEntries = (await projectFiles(root)).filter(item => item.kind === "file");
@@ -1349,7 +1476,7 @@ async function uploadCloudProject() {
       const bytes = Buffer.from(content, "utf8");
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const existing = remoteByPath.get(relativePath);
-      if (existing?.sha256 === sha256) {
+      if (existing?.sha256 === sha256 && existing.indexed_at) {
         unchanged.push(relativePath);
       } else {
         await cloudApiRequest("/api/projects/" + projectId + "/files", {
@@ -1741,6 +1868,9 @@ handleIpc('cloud:conversations:create', (_event, payload: { title?: string; proj
 handleIpc('cloud:project:set-active', (_event, projectId?: string | null) => setCurrentCloudProject(projectId));
 handleIpc('cloud:conversation:set-active', (_event, conversationId?: string | null) => setCurrentCloudConversation(conversationId));
 
+handleIpc('git:status', () => getGitWorkspaceState());
+handleIpc('git:diff', () => getGitWorkspaceDiff());
+
 handleIpc('project:open', async () => {
   const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
   if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
@@ -1751,6 +1881,9 @@ handleIpc('project:open', async () => {
 });
 handleIpc('project:upload-cloud', () => uploadCloudProject());
 handleIpc('project:changes', (_event, projectId: string) => getCloudProjectChanges(projectId));
+handleIpc('project:checkpoints', (_event, projectId: string) => getCloudProjectCheckpoints(projectId));
+handleIpc('project:checkpoint-restore', (_event, payload: { projectId: string; checkpointId: string }) =>
+  restoreCloudProjectCheckpoint(payload.projectId, payload.checkpointId));
 handleIpc('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
   if (!payload || (payload.decision !== "approve" && payload.decision !== "reject")) {
     throw new Error("A valid approve/reject decision is required.");
@@ -1931,12 +2064,15 @@ handleIpc('cloud:send', async (_event, payload: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   attachments?: Attachment[];
   profile: CloudProfile;
+  intelligenceLevel?: IntelligenceLevelSetting;
   projectId?: string;
   conversationId?: string;
   requestId?: string;
 }) => {
-  const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
-  if (!payload || !Array.isArray(payload.messages) || !allowedProfiles.includes(payload.profile)) {
+  const allowedProfiles: CloudProfile[] = ['auto', 'fast', 'developer', 'think', 'vision', 'agent'];
+  const allowedLevels: IntelligenceLevelSetting[] = ['auto', 'instant', 'focused', 'advanced', 'deep', 'research'];
+  if (!payload || !Array.isArray(payload.messages) || !allowedProfiles.includes(payload.profile) ||
+      (payload.intelligenceLevel !== undefined && !allowedLevels.includes(payload.intelligenceLevel))) {
     throw new Error('The cloud request is invalid.');
   }
   if (payload.messages.length < 1 || payload.messages.length > 30) {
@@ -1951,6 +2087,7 @@ handleIpc('cloud:send', async (_event, payload: {
     messages,
     attachments,
     profile: payload.profile,
+    intelligenceLevel: payload.intelligenceLevel || 'auto',
     projectId: payload.projectId,
     conversationId: payload.conversationId,
     requestId: payload.requestId,

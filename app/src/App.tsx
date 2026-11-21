@@ -1,20 +1,21 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
-  Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
+  Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder, GitBranch,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
   LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
-  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square,
+  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square, RotateCcw,
   Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info
 } from 'lucide-react';
 import type {
-  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectChange,
-  AgentActivity, CloudProfile, CloudState, CloudUsage, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
+  AppPreferences, AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudAgentTask, CloudConversation, CloudModelProfile, CloudModels, CloudProject, CloudProjectCheckpoint,
+  CloudProjectChange,
+  AgentActivity, CloudProfile, CloudState, CloudUsage, GitWorkspaceDiff, GitWorkspaceState, IntelligenceLevelSetting, ProjectFile, StudioApprovalRequest, StudioInstance, UpdateState
 } from './types';
 
 type ActivityItem = AgentActivity;
 type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
-type PendingFollowup = { id: string; content: string; profile: CloudProfile; attachments: PendingAttachment[]; queuedAt: string };
+type PendingFollowup = { id: string; content: string; profile: CloudProfile; intelligenceLevel: IntelligenceLevelSetting; attachments: PendingAttachment[]; queuedAt: string };
 type ProjectDialogState = { mode: 'create' | 'rename'; projectId?: string; name: string; description: string } | null;
 type SettingsSection = 'general' | 'appearance' | 'ai' | 'usage' | 'account' | 'privacy' | 'notifications' | 'updates' | 'advanced';
 
@@ -38,6 +39,12 @@ const SETTINGS_NAVIGATION: Array<{
 
 const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+function GitDiffPreview({ text }: { text: string }) {
+  return <pre className="git-diff-preview"><code>{text.split(/\r?\n/).map((line, index) => (
+    <span key={index} className={line.startsWith("@@") || line.startsWith("diff --git") ? "git-line-meta" : line.startsWith("+") ? "git-line-added" : line.startsWith("-") ? "git-line-removed" : ""}>{line || " "}</span>
+  ))}</code></pre>;
+}
 
 function MangoMark({ size = 34, className = '' }: { size?: number; className?: string }) {
   return (
@@ -108,7 +115,8 @@ function App() {
   const [cloudState, setCloudState] = useState<CloudState | null>(null);
   const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
   const [cloudUsage, setCloudUsage] = useState<CloudUsage | null>(null);
-  const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
+  const [cloudProfile, setCloudProfile] = useState<CloudProfile>('auto');
+  const [intelligenceLevel, setIntelligenceLevel] = useState<IntelligenceLevelSetting>('auto');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [cloudConversations, setCloudConversations] = useState<CloudConversation[]>([]);
   const [cloudTasks, setCloudTasks] = useState<CloudAgentTask[]>([]);
@@ -120,12 +128,19 @@ function App() {
   const [chatReady, setChatReady] = useState(false);
   const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
   const [cloudProjectChanges, setCloudProjectChanges] = useState<CloudProjectChange[]>([]);
+  const [cloudProjectCheckpoints, setCloudProjectCheckpoints] = useState<CloudProjectCheckpoint[]>([]);
+  const [checkpointLoadError, setCheckpointLoadError] = useState<string | null>(null);
+  const [restoringCheckpointId, setRestoringCheckpointId] = useState<string | null>(null);
   const [projectChangesOpen, setProjectChangesOpen] = useState(false);
   const [reviewingChangeId, setReviewingChangeId] = useState<string | null>(null);
   const [uploadingProject, setUploadingProject] = useState(false);
   const [projectUploadProgress, setProjectUploadProgress] = useState<{ completed: number; total: number; uploaded: number; skipped: number; currentFile: string } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [gitWorkspace, setGitWorkspace] = useState<GitWorkspaceState | null>(null);
+  const [gitDiff, setGitDiff] = useState<GitWorkspaceDiff | null>(null);
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [gitBusy, setGitBusy] = useState(false);
   const [studioTools, setStudioTools] = useState<string[]>([]);
   const [studioReady, setStudioReady] = useState(false);
   const [studioInstances, setStudioInstances] = useState<StudioInstance[]>([]);
@@ -136,6 +151,28 @@ function App() {
   const [followupQueue, setFollowupQueue] = useState<PendingFollowup[]>([]);
   const followupQueueRef = useRef<PendingFollowup[]>([]);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    if (!appState?.projectPath) {
+      setGitWorkspace(null);
+      setGitDiff(null);
+      setGitPanelOpen(false);
+      return () => { current = false; };
+    }
+    setGitWorkspace(null);
+    void window.rmango.getGitWorkspaceState()
+      .then(result => { if (current) setGitWorkspace(result); })
+      .catch(error => {
+        if (current) setGitWorkspace({
+          available: false, branch: "", ahead: 0, behind: 0, staged: 0,
+          unstaged: 0, untracked: 0, conflicted: 0, changes: [],
+          listingTruncated: false,
+          reason: error instanceof Error ? error.message : "Could not inspect Git.",
+        });
+      });
+    return () => { current = false; };
+  }, [appState?.projectPath]);
   const [connecting, setConnecting] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -240,7 +277,8 @@ function App() {
         setSendOnEnter(state.sendOnEnter !== false);
         setDesktopNotifications(Boolean(state.desktopNotifications));
         setAutoUpdatesEnabled(state.autoUpdatesEnabled !== false);
-        setCloudProfile(state.defaultCloudProfile || 'developer');
+        setCloudProfile(state.defaultCloudProfile || 'auto');
+        setIntelligenceLevel(state.intelligenceLevel || 'auto');
         setSaveLocalChatHistory(state.saveLocalChatHistory !== false);
         setShowInspectorByDefault(state.showInspectorByDefault !== false);
         setRightPanelOpen(state.showInspectorByDefault !== false);
@@ -258,6 +296,14 @@ function App() {
             const changeList = await window.rmango.getCloudProjectChanges(cloud.currentProjectId);
             setCloudProjectChanges(changeList.changes || []);
           } catch { /* Existing cloud project may no longer be accessible. */ }
+          try {
+            const checkpointList = await window.rmango.getCloudProjectCheckpoints(cloud.currentProjectId);
+            setCloudProjectCheckpoints(checkpointList.checkpoints || []);
+            setCheckpointLoadError(null);
+          } catch {
+            setCloudProjectCheckpoints([]);
+            setCheckpointLoadError("Recovery history is unavailable until the project-checkpoint migration is deployed.");
+          }
         }
         let restoredMessages = savedMessages || [];
         if (state.studioConnected) void refreshMcpState();
@@ -416,6 +462,8 @@ function App() {
         setActivities([]);
         await window.rmango.setCurrentConversationId(null);
         setCloudProjectChanges([]);
+        setCloudProjectCheckpoints([]);
+        setCheckpointLoadError(null);
         setCloudTasks([]);
         setToast('Created project "' + project.name + '".');
       } else if (projectDialog.projectId) {
@@ -508,7 +556,7 @@ function App() {
       const conversation = await window.rmango.createCloudConversation({
         title: 'New chat',
         projectId: cloudProjectId,
-        modelProfile: cloudProfile,
+        modelProfile: cloudProfile === 'auto' ? 'developer' : cloudProfile,
       });
       setConversationId(conversation.id);
       setCloudState(current => current ? { ...current, currentConversationId: conversation.id } : current);
@@ -658,7 +706,8 @@ function App() {
       sendOnEnter: true,
       desktopNotifications: false,
       autoUpdatesEnabled: true,
-      defaultCloudProfile: 'developer',
+      defaultCloudProfile: 'auto',
+      intelligenceLevel: 'auto',
       saveLocalChatHistory: true,
       showInspectorByDefault: true,
     };
@@ -698,6 +747,12 @@ function App() {
     const previous = cloudProfile;
     setCloudProfile(profile);
     if (!await savePreferences({ defaultCloudProfile: profile })) setCloudProfile(previous);
+  }
+
+  async function handleIntelligenceLevelChange(level: IntelligenceLevelSetting) {
+    const previous = intelligenceLevel;
+    setIntelligenceLevel(level);
+    if (!await savePreferences({ intelligenceLevel: level })) setIntelligenceLevel(previous);
   }
 
   async function handleLocalHistoryChange(enabled: boolean) {
@@ -823,6 +878,14 @@ function App() {
         window.rmango.getCloudProjects(),
       ]);
       setCloudProjectChanges(changeList.changes || []);
+      try {
+        const checkpointList = await window.rmango.getCloudProjectCheckpoints(result.projectId);
+        setCloudProjectCheckpoints(checkpointList.checkpoints || []);
+        setCheckpointLoadError(null);
+      } catch (error) {
+        setCloudProjectCheckpoints([]);
+        setCheckpointLoadError(error instanceof Error ? error.message : 'Recovery history is unavailable.');
+      }
       setCloudProjects(projects);
       setToast(
         'Synced "' + result.projectName + '": ' + result.uploaded + ' files uploaded or updated, ' +
@@ -847,8 +910,18 @@ function App() {
   async function handleLoadProjectChanges() {
     if (!cloudProjectId) return;
     try {
-      const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
-      setCloudProjectChanges(result.changes || []);
+      const changeResult = await window.rmango.getCloudProjectChanges(cloudProjectId);
+      setCloudProjectChanges(changeResult.changes || []);
+      try {
+        const checkpointResult = await window.rmango.getCloudProjectCheckpoints(cloudProjectId);
+        setCloudProjectCheckpoints(checkpointResult.checkpoints || []);
+        setCheckpointLoadError(null);
+      } catch (error) {
+        setCloudProjectCheckpoints([]);
+        setCheckpointLoadError(error instanceof Error
+          ? error.message
+          : 'Recovery history is unavailable. Apply the project-checkpoint migration.');
+      }
       setProjectChangesOpen(true);
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not load cloud project changes.');
@@ -864,8 +937,12 @@ function App() {
         changeId: change.id,
         decision,
       });
-      const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
+      const [result, checkpointResult] = await Promise.all([
+        window.rmango.getCloudProjectChanges(cloudProjectId),
+        window.rmango.getCloudProjectCheckpoints(cloudProjectId).catch(() => ({ checkpoints: [] as CloudProjectCheckpoint[] })),
+      ]);
       setCloudProjectChanges(result.changes || []);
+      setCloudProjectCheckpoints(checkpointResult.checkpoints || []);
       setToast(decision === 'approve'
         ? 'Approved and applied ' + change.relative_path + ' in the cloud workspace.'
         : 'Rejected the proposed change to ' + change.relative_path + '.');
@@ -873,12 +950,44 @@ function App() {
       setToast(error instanceof Error ? error.message : 'Could not review the proposed change.');
       if (cloudProjectId) {
         try {
-          const result = await window.rmango.getCloudProjectChanges(cloudProjectId);
+          const [result, checkpointResult] = await Promise.all([
+            window.rmango.getCloudProjectChanges(cloudProjectId),
+            window.rmango.getCloudProjectCheckpoints(cloudProjectId).catch(() => ({ checkpoints: [] as CloudProjectCheckpoint[] })),
+          ]);
           setCloudProjectChanges(result.changes || []);
+          setCloudProjectCheckpoints(checkpointResult.checkpoints || []);
         } catch { /* Keep the previous review list visible. */ }
       }
     } finally {
       setReviewingChangeId(null);
+    }
+  }
+
+  async function handleRestoreProjectCheckpoint(checkpoint: CloudProjectCheckpoint) {
+    if (!cloudProjectId || restoringCheckpointId || checkpoint.status !== 'ready') return;
+    const file = checkpoint.files[0];
+    const description = file?.relative_path ? " for " + file.relative_path : "";
+    const confirmed = window.confirm(
+      "Restore the saved version" + description + "?\n\nRmango will first create another recovery point so this restore can be undone. If the live file changed since this checkpoint, restoration will be refused."
+    );
+    if (!confirmed) return;
+    setRestoringCheckpointId(checkpoint.id);
+    try {
+      const result = await window.rmango.restoreCloudProjectCheckpoint({
+        projectId: cloudProjectId,
+        checkpointId: checkpoint.id,
+      });
+      const updated = await window.rmango.getCloudProjectCheckpoints(cloudProjectId);
+      setCloudProjectCheckpoints(updated.checkpoints || []);
+      setToast(result.message || "The selected file checkpoint was restored. A new recovery point is available to undo the restore.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not restore this checkpoint.');
+      try {
+        const updated = await window.rmango.getCloudProjectCheckpoints(cloudProjectId);
+        setCloudProjectCheckpoints(updated.checkpoints || []);
+      } catch { /* Keep last known recovery history. */ }
+    } finally {
+      setRestoringCheckpointId(null);
     }
   }
 
@@ -934,11 +1043,38 @@ function App() {
     setToast('Roblox Studio disconnected.');
   }
 
+  async function handleRefreshGitWorkspace() {
+    if (!appState?.projectPath || gitBusy) return;
+    setGitBusy(true);
+    try {
+      setGitWorkspace(await window.rmango.getGitWorkspaceState());
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not inspect Git.");
+    } finally {
+      setGitBusy(false);
+    }
+  }
+
+  async function handleOpenGitDiff() {
+    if (!appState?.projectPath || gitBusy) return;
+    setGitBusy(true);
+    try {
+      setGitDiff(await window.rmango.getGitWorkspaceDiff());
+      setGitPanelOpen(true);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not load Git diff.");
+    } finally {
+      setGitBusy(false);
+    }
+  }
+
   async function handleOpenProject() {
     const result = await window.rmango.openProject();
     if (result.canceled) return;
     setProjectFiles(result.files || []);
     setAppState(prev => prev ? { ...prev, projectPath: result.path || '' } : prev);
+    setGitWorkspace(null);
+    setGitDiff(null);
     setToast('Project folder added to Rmango.');
   }
 
@@ -1023,7 +1159,7 @@ function App() {
     }
   }
 
-  async function sendMessage(content = input, selectedProfile?: CloudProfile, attachmentOverride?: PendingAttachment[], fromQueue = false) {
+  async function sendMessage(content = input, selectedProfile?: CloudProfile, attachmentOverride?: PendingAttachment[], fromQueue = false, selectedLevel?: IntelligenceLevelSetting) {
     const trimmed = content.trim();
     const pending = attachmentOverride ? [...attachmentOverride] : [...attachments];
     if (!trimmed && pending.length === 0) return;
@@ -1049,6 +1185,7 @@ function App() {
         id: crypto.randomUUID(),
         content: trimmed || 'Please inspect the attached files and images.',
         profile: selectedProfile || cloudProfile,
+        intelligenceLevel: selectedLevel || intelligenceLevel,
         attachments: pending,
         queuedAt: timeNow(),
       };
@@ -1098,6 +1235,7 @@ function App() {
         messages: nextMessages.map(({ role, content: text }) => ({ role, content: text })),
         attachments: pending.map(({ name, mimeType, kind, size, data }) => ({ name, mimeType, kind, size, data })),
         profile: selectedProfile || cloudProfile,
+        intelligenceLevel: selectedLevel || intelligenceLevel,
         conversationId,
         projectId: cloudProjectId,
         requestId,
@@ -1164,7 +1302,7 @@ function App() {
     const remaining = followupQueueRef.current.slice(1);
     followupQueueRef.current = remaining;
     setFollowupQueue(remaining);
-    void sendMessage(next.content, next.profile, next.attachments, true);
+    void sendMessage(next.content, next.profile, next.attachments, true, next.intelligenceLevel);
   }, [busy, cloudState?.configured, cloudState?.serviceReady, cloudState?.signedIn, followupQueue.length]);
 
   function removeFollowup(id: string) {
@@ -1420,7 +1558,62 @@ function App() {
               {filteredFiles.length === 0 && <div className="small-empty">No matching files</div>}
             </div>
           </>}
-          <div className="conversation-section">
+          <section className="git-workspace-panel">
+  <div className="git-workspace-heading">
+    <span><GitBranch size={12}/> GIT WORKSPACE</span>
+    <button type="button" className="subtle-icon" title="Refresh Git status" aria-label="Refresh Git status" disabled={!appState?.projectPath || gitBusy} onClick={() => void handleRefreshGitWorkspace()}>
+      {gitBusy ? <LoaderCircle size={12} className="spin"/> : <RefreshCw size={12}/>}
+    </button>
+  </div>
+  {!appState?.projectPath
+    ? <div className="git-workspace-empty">Open a local project folder to inspect Git.</div>
+    : !gitWorkspace
+      ? <div className="git-workspace-empty">Checking Git status…</div>
+      : !gitWorkspace.available
+        ? <div className="git-workspace-empty">{gitWorkspace.reason || "Git status is unavailable."}</div>
+        : <>
+          <div className="git-branch-row">
+            <GitBranch size={12}/>
+            <strong title={gitWorkspace.branch}>{gitWorkspace.branch || "(unknown branch)"}</strong>
+            {(gitWorkspace.ahead > 0 || gitWorkspace.behind > 0) && <span>↑{gitWorkspace.ahead} ↓{gitWorkspace.behind}</span>}
+          </div>
+          <div className="git-change-counts">
+            <span><b>{gitWorkspace.staged}</b> staged</span>
+            <span><b>{gitWorkspace.unstaged}</b> unstaged</span>
+            <span><b>{gitWorkspace.untracked}</b> untracked</span>
+            {gitWorkspace.conflicted > 0 && <span className="git-conflict-count"><b>{gitWorkspace.conflicted}</b> conflicts</span>}
+          </div>
+          {gitWorkspace.changes.length > 0
+            ? <div className="git-file-list">
+                {gitWorkspace.changes.slice(0, 18).map((change, index) => (
+                  <div className="git-file-row" key={change.path + "-" + index} title={change.path}>
+                    <span className={"git-file-status " + (change.conflicted ? "conflict" : change.untracked ? "untracked" : change.staged ? "staged" : "modified")}>{change.status}</span>
+                    <span>{change.path}</span>
+                  </div>
+                ))}
+                {gitWorkspace.changes.length > 18 && <small>+{gitWorkspace.changes.length - 18} more changed paths</small>}
+                {gitWorkspace.listingTruncated && <small>File listing reached its size limit.</small>}
+              </div>
+            : <div className="git-workspace-empty">Working tree clean.</div>}
+          <button type="button" className="git-diff-button" disabled={gitBusy} onClick={() => void handleOpenGitDiff()}>
+            <FileCode2 size={12}/> Inspect staged and unstaged diff
+          </button>
+          {gitPanelOpen && gitDiff && <div className="git-diff-sections">
+            <div className="git-diff-section">
+              <strong>UNSTAGED CHANGES</strong>
+              {gitDiff.unstaged.text ? <GitDiffPreview text={gitDiff.unstaged.text}/> : <div className="git-workspace-empty">No unstaged tracked changes.</div>}
+              {gitDiff.unstaged.truncated && <small>Unstaged diff preview was truncated.</small>}
+            </div>
+            <div className="git-diff-section">
+              <strong>STAGED CHANGES</strong>
+              {gitDiff.staged.text ? <GitDiffPreview text={gitDiff.staged.text}/> : <div className="git-workspace-empty">No staged changes.</div>}
+              {gitDiff.staged.truncated && <small>Staged diff preview was truncated.</small>}
+            </div>
+            <small>{gitDiff.note}</small>
+          </div>}
+        </>}
+</section>
+<div className="conversation-section">
             <div className="conversation-section-heading">
               <span>RECENT CHATS</span>
               <button type="button" title="New conversation" onClick={() => void handleNewConversation()} disabled={!cloudState?.signedIn || !cloudReady || busy}><Plus size={13}/></button>
@@ -1590,6 +1783,7 @@ function App() {
               <div className="composer-footer">
                 <div className="composer-left">
                   <select className="profile-select" value={cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Cloud AI profile" disabled={!cloudState?.signedIn || busy}>
+                    <option value="auto">Auto · choose for each task</option>
                     <option value="fast">Rmango Fast</option>
                     <option value="developer">Rmango Developer</option>
                     <option value="think">Rmango Think</option>
@@ -1731,23 +1925,100 @@ function App() {
               <button className="subtle-icon" title="Refresh task history" onClick={() => void window.rmango.getCloudTasks(cloudProjectId).then(setCloudTasks).catch(error => setToast(error instanceof Error ? error.message : 'Could not refresh task history.'))}><RefreshCw size={13}/></button>
             </div>
             {cloudTasks.length
-              ? cloudTasks.slice(0, 4).map(task =>
-                  <div className="task-history-item" key={task.id}>
-                    <div className="task-history-top">
-                      <span className={'task-status-dot ' + task.status}/>
-                      <strong>{task.status.replace('_', ' ')}</strong>
-                      <time>{displayTime(task.created_at)}</time>
+              ? cloudTasks.slice(0, 4).map(task => {
+                  const result = task.result || {};
+                  const workflow = result.workflow && typeof result.workflow === 'object'
+                    ? result.workflow as Record<string, unknown>
+                    : {};
+                  const verification = result.verification && typeof result.verification === 'object'
+                    ? result.verification as Record<string, unknown>
+                    : {};
+                  const intelligence = workflow.intelligence && typeof workflow.intelligence === 'object'
+                    ? workflow.intelligence as Record<string, unknown>
+                    : {};
+                  const intelligenceBudget = intelligence.budget && typeof intelligence.budget === 'object'
+                    ? intelligence.budget as Record<string, unknown>
+                    : {};
+                  const intelligenceReasons = Array.isArray(intelligence.reasons)
+                    ? intelligence.reasons.filter(item => typeof item === 'string') as string[]
+                    : [];
+                  const intelligenceLevel = typeof intelligence.level === 'string' ? intelligence.level : '';
+                  const intelligenceIntent = typeof intelligence.intent === 'string' ? intelligence.intent.replaceAll('_', ' ') : '';
+                  const intelligenceProfile = typeof intelligence.modelProfile === 'string' ? intelligence.modelProfile : '';
+                  const verificationStatus = typeof verification.status === 'string' ? verification.status : '';
+                  const plan = Array.isArray(workflow.plan)
+                    ? workflow.plan.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>
+                    : [];
+                  const strategy = typeof workflow.strategy === 'string' ? workflow.strategy : 'workflow';
+                  const unverified = verificationStatus === 'unverified';
+                  const taskLabel = unverified
+                    ? 'response finished · verification pending'
+                    : verificationStatus === 'not_applicable' && strategy === 'planning'
+                      ? 'plan prepared · awaiting execution'
+                      : task.status.replace('_', ' ');
+                  return (
+                    <div className="task-history-item" key={task.id}>
+                      <div className="task-history-top">
+                        <span className={'task-status-dot ' + task.status + (unverified ? ' unverified' : '')}/>
+                        <strong>{taskLabel}</strong>
+                        <time>{displayTime(task.created_at)}</time>
+                      </div>
+                      <p>{task.task_text}</p>
+                      {task.error && <span className="task-history-error">{task.error}</span>}
+                      {intelligenceLevel && <details className="task-intelligence-details" open={false}>
+                        <summary><Sparkles size={11}/> {intelligenceLevel.replaceAll('_', ' ')} · {intelligenceIntent || 'task routing'} · {intelligenceProfile} profile</summary>
+                        <div className="task-intelligence-content">
+                          <div className="task-intelligence-budget">
+                            <span><b>{String(intelligenceBudget.maxSteps ?? '—')}</b> max steps</span>
+                            <span><b>{String(intelligenceBudget.maxProjectFiles ?? '—')}</b> project files</span>
+                            <span><b>{String(intelligenceBudget.maxMemoryNotes ?? '—')}</b> memory notes</span>
+                            <span><b>{String(intelligenceBudget.maxOutputTokens ?? '—')}</b> output-token budget</span>
+                          </div>
+                          <small>Verification depth: {String(intelligenceBudget.verificationDepth || 'unspecified')} · Model profile {intelligence.profileWasAutoSelected === true ? 'auto-selected' : 'manually selected'}</small>
+                          {intelligenceBudget.externalSourcesAvailable === false && intelligenceLevel === 'research' && (
+                            <small className="task-intelligence-limitation">No live external documentation search was available for this task.</small>
+                          )}
+                          {intelligenceReasons.length > 0 && <small>Routing signals: {intelligenceReasons.join(' · ')}</small>}
+                        </div>
+                      </details>}
+                      {plan.length > 0 && <details className="task-events">
+                        <summary>{strategy} plan · {plan.length} steps</summary>
+                        <div>{plan.map((item, index) => {
+                          const title = typeof item.title === 'string' ? item.title : 'Step ' + (index + 1);
+                          const description = typeof item.description === 'string' ? item.description : '';
+                          const status = typeof item.status === 'string' ? item.status : 'pending';
+                          const dependsOn = Array.isArray(item.dependsOn)
+                            ? item.dependsOn.filter(value => typeof value === 'string').join(', ')
+                            : '';
+                          return (
+                            <span key={typeof item.id === 'string' ? item.id : index}>
+                              <i/><strong>{title}</strong>{description ? ' — ' + description : ''}
+                              <small>{status.replace('_', ' ')}{dependsOn ? ' · depends on ' + dependsOn : ''}</small>
+                            </span>
+                          );
+                        })}</div>
+                      </details>}
+                      {task.events.length > 0 && <details className="task-events">
+                        <summary>{task.events.length} recorded operations · inspect trace</summary>
+                        <div>{task.events.slice(-12).map(event =>
+                          <span key={event.id}>
+                            <i/>
+                            <strong>{event.event_type.replaceAll('_', ' ')}</strong>
+                            {' — '}{event.message}
+                            <small>{displayTime(event.created_at)}</small>
+                            {event.data && Object.keys(event.data).length > 0 && (
+                              <details className="task-trace-payload">
+                                <summary>Redacted diagnostic data</summary>
+                                <pre>{JSON.stringify(event.data, null, 2)}</pre>
+                              </details>
+                            )}
+                          </span>
+                        )}</div>
+                      </details>}
+                      {unverified && <span className="task-history-error">Code or tool actions may have run, but passing tests have not been confirmed.</span>}
                     </div>
-                    <p>{task.task_text}</p>
-                    {task.error && <span className="task-history-error">{task.error}</span>}
-                    {task.events.length > 0 && <details className="task-events">
-                      <summary>{task.events.length} recorded operations</summary>
-                      <div>{task.events.slice(-5).map(event =>
-                        <span key={event.id}><i/> {event.message}</span>
-                      )}</div>
-                    </details>}
-                  </div>
-                )
+                  );
+                })
               : <div className="activity-empty"><Layers3 size={15}/><span>Coordinated agent tasks will be saved here.</span></div>}
           </section>
           <section className="inspector-section activity-section">
@@ -1821,6 +2092,36 @@ function App() {
                 </div>
               )}
             </div>}
+          <section className="checkpoint-history">
+            <div className="checkpoint-history-heading">
+              <div><strong>RECOVERY POINTS</strong><small>Every approved cloud edit saves the previous file state. Restores create a new point so you can undo them.</small></div>
+              <button type="button" className="subtle-icon" disabled={!cloudProjectId} title="Refresh recovery history" onClick={() => cloudProjectId && void window.rmango.getCloudProjectCheckpoints(cloudProjectId).then(result => { setCloudProjectCheckpoints(result.checkpoints || []); setCheckpointLoadError(null); }).catch(error => setCheckpointLoadError(error instanceof Error ? error.message : 'Could not refresh recovery history.'))}><RefreshCw size={13}/></button>
+            </div>
+            {checkpointLoadError && <div className="checkpoint-empty">{checkpointLoadError}</div>}
+            {!checkpointLoadError && cloudProjectCheckpoints.length === 0 && (
+              <div className="checkpoint-empty">No recovery points yet. Approving a cloud file change creates the first one automatically.</div>
+            )}
+            {cloudProjectCheckpoints.map(checkpoint => {
+              const file = checkpoint.files[0];
+              const restorable = checkpoint.status === 'ready';
+              return (
+                <div className="checkpoint-card" key={checkpoint.id}>
+                  <div className="checkpoint-card-copy">
+                    <strong>{file?.file_name || checkpoint.label}</strong>
+                    <small>{file?.relative_path || checkpoint.label}</small>
+                    <span>{displayTime(checkpoint.created_at)} · {checkpoint.checkpoint_kind.replaceAll('_', ' ')} · {checkpoint.status.replaceAll('_', ' ')}</span>
+                    {file && <span>{file.existed_before ? 'Previous file snapshot saved' : 'Checkpoint records a newly created file'}</span>}
+                  </div>
+                  {restorable && (
+                    <button type="button" className="checkpoint-restore-button" disabled={restoringCheckpointId === checkpoint.id} onClick={() => void handleRestoreProjectCheckpoint(checkpoint)}>
+                      {restoringCheckpointId === checkpoint.id ? <LoaderCircle size={12} className="spin"/> : <RotateCcw size={12}/>}
+                      Restore
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </section>
           <div className="modal-footer">
             <button type="button" className="cancel-button" onClick={() => setProjectChangesOpen(false)}>Close</button>
             {cloudProjectId && <button type="button" className="save-button" onClick={() => void handleDownloadCloudProject()}><Download size={13}/> Download ZIP</button>}
@@ -2000,6 +2301,7 @@ function App() {
                     <label className="settings-select-row settings-default-profile">
                       <span><strong>New conversation profile</strong><small>This is a routing preset, not a separate model or a model-training setting.</small></span>
                       <select className="settings-input" value={cloudProfile} onChange={event => void handleDefaultProfileChange(event.target.value as CloudProfile)}>
+                        <option value="auto">Auto · choose for each task</option>
                         <option value="fast">Fast · quick responses</option>
                         <option value="developer">Developer · Roblox coding</option>
                         <option value="think">Think · deeper reasoning</option>
@@ -2007,6 +2309,25 @@ function App() {
                         <option value="agent">Agent · multi-step tasks</option>
                       </select>
                     </label>
+                  </section>
+
+                  <section className="settings-card">
+                    <div className="settings-card-heading">
+                      <div className="settings-card-icon"><SlidersHorizontal size={17}/></div>
+                      <div><h3>Intelligence level</h3><p>Controls investigation depth, context budget, tool access and verification effort. Auto adapts this to the task.</p></div>
+                    </div>
+                    <label className="settings-select-row settings-default-profile">
+                      <span><strong>Reasoning and investigation</strong><small>This is not an IQ score or a separate trained model. Higher levels use larger task budgets and may take longer or consume more tokens.</small></span>
+                      <select className="settings-input" value={intelligenceLevel} onChange={event => void handleIntelligenceLevelChange(event.target.value as IntelligenceLevelSetting)}>
+                        <option value="auto">Auto · adapt to the request</option>
+                        <option value="instant">Instant · simple questions</option>
+                        <option value="focused">Focused · normal coding</option>
+                        <option value="advanced">Advanced · multi-file work</option>
+                        <option value="deep">Deep Engineering · complex systems</option>
+                        <option value="research">Research & Verification · evidence-heavy tasks</option>
+                      </select>
+                    </label>
+                    {intelligenceLevel === 'research' && <div className="settings-hint">Research mode increases investigation and verification effort. Live external documentation search is not currently enabled in the cloud engine.</div>}
                   </section>
 
                   <section className="settings-card">

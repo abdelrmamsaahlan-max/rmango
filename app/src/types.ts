@@ -1,4 +1,5 @@
-export type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+export type CloudProfile = 'auto' | 'fast' | 'developer' | 'think' | 'vision' | 'agent';
+export type IntelligenceLevelSetting = 'auto' | 'instant' | 'focused' | 'advanced' | 'deep' | 'research';
 
 export type AppPreferences = {
   appearance: 'dark' | 'light' | 'system';
@@ -10,6 +11,7 @@ export type AppPreferences = {
   desktopNotifications: boolean;
   autoUpdatesEnabled: boolean;
   defaultCloudProfile: CloudProfile;
+  intelligenceLevel: IntelligenceLevelSetting;
   saveLocalChatHistory: boolean;
   showInspectorByDefault: boolean;
 };
@@ -51,6 +53,40 @@ export type CloudProjectChange = {
   proposed_sha256: string;
   status: 'pending' | 'approved' | 'rejected' | 'conflict';
   created_at: string;
+};
+
+export type GitWorkspaceChange = {
+  path: string; status: string; staged: boolean; unstaged: boolean;
+  untracked: boolean; conflicted: boolean; renamed: boolean;
+};
+export type GitWorkspaceState = {
+  available: boolean; branch: string; ahead: number; behind: number;
+  staged: number; unstaged: number; untracked: number; conflicted: number;
+  changes: GitWorkspaceChange[]; listingTruncated: boolean; reason: string | null;
+};
+export type GitWorkspaceDiff = {
+  unstaged: { text: string; truncated: boolean };
+  staged: { text: string; truncated: boolean };
+  note: string;
+};
+
+export type CloudProjectCheckpoint = {
+  id: string;
+  label: string;
+  checkpoint_kind: 'before_change' | 'before_restore';
+  status: 'creating' | 'ready' | 'restored' | 'conflict' | 'restore_conflict' | 'failed';
+  created_at: string;
+  restored_at: string | null;
+  source_change_id: string | null;
+  files: Array<{
+    id: string;
+    relative_path: string;
+    file_name: string;
+    existed_before: boolean;
+    original_sha256: string | null;
+    applied_sha256: string | null;
+    size_bytes: number;
+  }>;
 };
 
 export type ProjectUploadProgress = {
@@ -195,6 +231,7 @@ export type UpdateState = {
   progress?: number;
   message?: string;
   error?: string;
+  releaseNotes?: string;
 };
 
 declare global {
@@ -221,9 +258,13 @@ declare global {
       createCloudConversation: (payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => Promise<CloudConversation>;
       setCurrentConversationId: (conversationId?: string | null) => Promise<{ ok: boolean }>;
       openProject: () => Promise<{ canceled?: boolean; path?: string; files?: ProjectFile[] }>;
+      getGitWorkspaceState: () => Promise<GitWorkspaceState>;
+      getGitWorkspaceDiff: () => Promise<GitWorkspaceDiff>;
       clearProject: () => Promise<any>;
       uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; unchanged: number; removed: number; skipped: Array<{ name: string; reason: string }> }>;
       getCloudProjectChanges: (projectId: string) => Promise<{ project: { id: string; name: string }; changes: CloudProjectChange[] }>;
+      getCloudProjectCheckpoints: (projectId: string) => Promise<{ checkpoints: CloudProjectCheckpoint[] }>;
+      restoreCloudProjectCheckpoint: (payload: { projectId: string; checkpointId: string }) => Promise<{ ok: boolean; status: string; relativePath?: string; rollbackCheckpointId?: string; message?: string }>;
       reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => Promise<{ ok: boolean; status: string; relativePath?: string }>;
       downloadCloudProject: (projectId: string) => Promise<{ canceled: boolean; path?: string; sizeBytes?: number }>;
       onProjectUploadProgress: (callback: (event: ProjectUploadProgress) => void) => () => void;
@@ -240,6 +281,7 @@ declare global {
         messages: Array<{ role: 'user' | 'assistant'; content: string }>;
         attachments?: AttachmentPayload[];
         profile: CloudProfile;
+        intelligenceLevel: IntelligenceLevelSetting;
         projectId?: string;
         conversationId?: string;
         requestId?: string;
