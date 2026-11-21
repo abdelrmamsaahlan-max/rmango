@@ -2350,3 +2350,176 @@ body { min-width: 0; min-height: 0; background: var(--bg); }
   .app-shell[data-theme="system"] .quick-copy small,
   .app-shell[data-theme="system"] .activity-item span { color: #7a8791; }
 }
+
+
+/* Rich response rendering: readable technical answers and copy-ready code. */
+.message-markdown { min-width: 0; overflow-wrap: anywhere; }
+.message-markdown > :first-child { margin-top: 0; }
+.message-markdown > :last-child { margin-bottom: 0; }
+.message-markdown p { margin: 0 0 11px; }
+.message-markdown h2,
+.message-markdown h3,
+.message-markdown h4,
+.message-markdown h5 {
+  color: #e7eaf0;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -.25px;
+  margin: 18px 0 8px;
+}
+.message-markdown h2 { font-size: 17px; }
+.message-markdown h3 { font-size: 14px; }
+.message-markdown h4 { font-size: 12px; }
+.message-markdown h5 { font-size: 11px; }
+.message-markdown ul, .message-markdown ol {
+  margin: 6px 0 13px;
+  padding-left: 22px;
+}
+.message-markdown li { margin: 4px 0; padding-left: 3px; }
+.message-markdown li::marker { color: #bba06d; }
+.message-markdown blockquote {
+  margin: 10px 0 14px;
+  padding: 8px 12px;
+  border-left: 2px solid #917344;
+  border-radius: 0 7px 7px 0;
+  background: rgba(255,255,255,.035);
+  color: #aeb8c3;
+}
+.message-markdown hr { border: 0; border-top: 1px solid #303741; margin: 16px 0; }
+.inline-code {
+  padding: 2px 5px;
+  border: 1px solid #343c47;
+  border-radius: 5px;
+  background: #20252d;
+  color: #e7c78d;
+  font-family: var(--mono);
+  font-size: .88em;
+  white-space: break-spaces;
+}
+.message-markdown a {
+  color: #e4bd75;
+  text-decoration: underline;
+  text-decoration-color: rgba(228,189,117,.45);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.message-markdown a:hover { color: #ffe1a5; text-decoration-color: currentColor; }
+.chat-code-block {
+  overflow: hidden;
+  margin: 12px 0 15px;
+  border: 1px solid #303945;
+  border-radius: 10px;
+  background: #0e1218;
+  box-shadow: 0 5px 17px rgba(0,0,0,.12);
+}
+.chat-code-header {
+  min-height: 33px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #2b333e;
+  background: #1a2028;
+  color: #929eab;
+  font: 9px var(--mono);
+  text-transform: lowercase;
+}
+.chat-code-header button {
+  min-height: 24px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #aeb8c4;
+  font: 9px inherit;
+  cursor: pointer;
+}
+.chat-code-header button:hover { border-color: #404a56; background: #252c35; color: #f0d49b; }
+.chat-code-block pre {
+  margin: 0;
+  padding: 13px 14px;
+  overflow-x: auto;
+  color: #d4dce6;
+  font: 11px/1.7 var(--mono);
+  tab-size: 4;
+  scrollbar-width: thin;
+  scrollbar-color: #48525e transparent;
+}
+.chat-code-block code {
+  font: inherit;
+  white-space: pre;
+}
+.message-copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 23px;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #7e8997;
+  opacity: 0;
+  cursor: pointer;
+}
+.message-row:hover .message-copy-button,
+.message-copy-button:focus-visible { opacity: 1; }
+.message-copy-button:hover { border-color: #3c4651; background: #20262e; color: #e6c17e; }
+
+/* Sidebar can collapse on wide screens as well as switch to a drawer. */
+.left-sidebar {
+  min-width: 0;
+  transition: width .18s ease, flex-basis .18s ease, padding .18s ease, opacity .16s ease;
+}
+.left-sidebar.collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  flex: 0 0 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  border-right: 0 !important;
+  overflow: hidden !important;
+  opacity: 0;
+  pointer-events: none;
+}
+.sidebar-collapse-button { opacity: .7; }
+.sidebar-collapse-button:hover { opacity: 1; }
+
+/* Light mode for response blocks, code surfaces and navigation collapse. */
+.app-shell[data-theme="light"] .message-markdown h2,
+.app-shell[data-theme="light"] .message-markdown h3,
+.app-shell[data-theme="light"] .message-markdown h4,
+.app-shell[data-theme="light"] .message-markdown h5 { color: #293640; }
+.app-shell[data-theme="light"] .message-markdown blockquote { background: #eef2f3; color: #596773; }
+.app-shell[data-theme="light"] .message-markdown hr { border-color: #dfe5e8; }
+.app-shell[data-theme="light"] .inline-code { background: #f0f2f4; border-color: #e0e5e8; color: #8b6329; }
+.app-shell[data-theme="light"] .message-markdown a { color: #976b26; }
+.app-shell[data-theme="light"] .chat-code-block { background: #f6f8fa; border-color: #dbe2e7; }
+.app-shell[data-theme="light"] .chat-code-header { background: #edf1f4; border-color: #dde4e8; color: #788691; }
+.app-shell[data-theme="light"] .chat-code-header button { color: #596873; }
+.app-shell[data-theme="light"] .chat-code-header button:hover { background: #e2e8ec; color: #74531f; }
+.app-shell[data-theme="light"] .chat-code-block pre { color: #35434e; }
+.app-shell[data-theme="light"] .message-copy-button { color: #85919b; }
+.app-shell[data-theme="light"] .message-copy-button:hover { background: #edf1f3; border-color: #dbe2e7; color: #80602e; }
+@media (prefers-color-scheme: light) {
+  .app-shell[data-theme="system"] .message-markdown h2,
+  .app-shell[data-theme="system"] .message-markdown h3,
+  .app-shell[data-theme="system"] .message-markdown h4,
+  .app-shell[data-theme="system"] .message-markdown h5 { color: #293640; }
+  .app-shell[data-theme="system"] .inline-code { background: #f0f2f4; border-color: #e0e5e8; color: #8b6329; }
+  .app-shell[data-theme="system"] .chat-code-block { background: #f6f8fa; border-color: #dbe2e7; }
+  .app-shell[data-theme="system"] .chat-code-header { background: #edf1f4; border-color: #dde4e8; color: #788691; }
+  .app-shell[data-theme="system"] .chat-code-block pre { color: #35434e; }
+}
+@media (max-width: 620px) {
+  .message-copy-button { opacity: 1; }
+  .chat-code-block pre { font-size: 10px; padding: 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .left-sidebar { transition: none !important; }
+}
