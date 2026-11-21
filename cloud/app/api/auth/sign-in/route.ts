@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       ? "Email or password was not accepted. Check the email address and try again. If you already created your account and cannot remember the password, use Forgot password to receive a recovery link."
       : authCode === "email_not_confirmed"
         ? "Confirm your Rmango email address before signing in. Check your inbox and spam folder for the confirmation email."
-        : error?.message || "Sign in failed.";
+        : "We could not sign you in right now. Please try again in a moment.";
     return NextResponse.json(
       { error: message },
       { status: 401, headers: { "Cache-Control": "no-store, max-age=0" } },
