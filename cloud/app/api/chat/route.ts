@@ -894,7 +894,7 @@ export async function POST(request: Request) {
           for await (const part of result.fullStream) {
             if (part.type === "text-delta" && part.text) { emit({ type: "text", text: part.text }); continue; }
             if (part.type === "start") {
-              emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Started a request through the hosted AI Gateway.", status: "running", ok: false } });
+              emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Started a request through Cloudflare Workers AI.", status: "running", ok: false } });
               continue;
             }
             if (part.type === "tool-call") {
