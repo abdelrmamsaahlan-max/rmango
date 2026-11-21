@@ -73,7 +73,7 @@ function buildTaskMethod(intent: AgentTaskIntent): string {
 
 function isNegatedAction(text: string, index: number): boolean {
   const prefix = text.slice(Math.max(0, index - 36), index);
-  return /(?:\\bnot|\\bnever|\\bdon't|\\bdo not|\\bwithout|\\bavoid|\\bmustn't|\\bshouldn't)\\s+(?:[\\w-]+\\s+){0,3}$/i.test(prefix);
+  return /(?:\bnot|\bnever|\bdon't|\bdo not|\bwithout|\bavoid|\bmustn't|\bshouldn't)\s+(?:[\w-]+\s+){0,3}$/i.test(prefix);
 }
 
 function matchesPositiveAction(pattern: RegExp, text: string): boolean {
@@ -84,8 +84,8 @@ function matchesPositiveAction(pattern: RegExp, text: string): boolean {
 }
 
 function assessRisk(prompt: string, intent: AgentTaskIntent): AgentTaskRisk {
-  const destructive = /\\b(delete|wipe|purge|destroy|remove all|clear all|reset all|replace all|drop table|erase)\\b/i;
-  const sensitive = /\\b(publish|release|deploy|migrate|production data|datastore migration|payment|purchase grants|permissions|credentials|secrets)\\b/i;
+  const destructive = /\b(delete|wipe|purge|destroy|remove all|clear all|reset all|replace all|drop table|erase)\b/i;
+  const sensitive = /\b(publish|release|deploy|migrate|production data|datastore migration|payment|purchase grants|permissions|credentials|secrets)\b/i;
   if (matchesPositiveAction(destructive, prompt)) return "destructive";
   if (matchesPositiveAction(sensitive, prompt)) return "sensitive";
   if (intent === "build" || intent === "debug") return "reversible";
@@ -96,9 +96,9 @@ function assessComplexity(prompt: string, domains: string[]): number {
   let score = 0;
   score += Math.min(4, domains.length) * 1.25;
   if (LARGE_SCOPE.test(prompt)) score += 2.5;
-  if (/\\b(across|integrat(?:e|ion)|end[- ]to[- ]end|connected systems|multiple files|several modules|full pipeline)\\b/i.test(prompt)) score += 1.5;
-  if (/\\b(persist(?:ence|ent)?|save|load|replicat(?:e|ion)|network|multiplayer|server.?client|security|permissions|economy)\\b/i.test(prompt)) score += 1;
-  if (/\\b(performance|optimi[sz]e|memory leak|race condition|concurren(?:t|cy)|scal(?:e|ability))\\b/i.test(prompt)) score += 1;
+  if (/\b(across|integrat(?:e|ion)|end[- ]to[- ]end|connected systems|multiple files|several modules|full pipeline)\b/i.test(prompt)) score += 1.5;
+  if (/\b(persist(?:ence|ent)?|save|load|replicat(?:e|ion)|network|multiplayer|server.?client|security|permissions|economy)\b/i.test(prompt)) score += 1;
+  if (/\b(performance|optimi[sz]e|memory leak|race condition|concurren(?:t|cy)|scal(?:e|ability))\b/i.test(prompt)) score += 1;
   if (prompt.length > 2_000) score += 0.75;
   if (prompt.length > 6_000) score += 0.75;
   return Math.min(10, Math.round(score * 10) / 10);
@@ -148,14 +148,14 @@ export function buildAgentWorkflowContext(input: {
     "Completion discipline: distinguish proposed, written, tool-confirmed, build-verified, and playtested work. Report failures and unverified behavior plainly. Never claim a test, Studio action, asset import, deployment, or fix that was not actually confirmed.",
     "Keep private reasoning private. Do not expose hidden chain-of-thought; provide concise conclusions, the key evidence, decisions that affect the user, and the next concrete action.",
     "Efficiency: answer simple questions directly. Do not run an agent workflow, inspect unrelated systems, or produce a long plan when a focused answer is enough. If blocked, finish independent safe work and name the exact missing capability or evidence.",
-  ].join("\\n");
+  ].join("\n");
 
   const focusedText = [
     "RMANGO FOCUSED WORKFLOW — answer the user's actual request with the smallest useful amount of work.",
     method,
     cognitiveRules,
     "Use the available tools only when they materially improve accuracy or complete requested work. Keep changes bounded. Never expose private chain-of-thought; show concise conclusions and evidence.",
-  ].join("\\n\\n");
+  ].join("\n\n");
 
   if (!coordinated) {
     return {
@@ -187,7 +187,7 @@ export function buildAgentWorkflowContext(input: {
     "For an offline Studio session, prepare a reviewable proposal and clearly state that live Studio execution awaits reconnection.",
     "Never publish an experience, wipe data, delete substantial hierarchies, overwrite unrelated files, change permissions, or perform other irreversible actions without explicit approval.",
     "Use only the configured RMango hosted inference gateway. Never ask the user to paste provider secrets into project files or chat.",
-  ].join("\\n\\n");
+  ].join("\n\n");
 
   return {
     mode: "coordinated",
