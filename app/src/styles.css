@@ -1101,3 +1101,32 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .task-events>div{display:flex;flex-direction:column;gap:5px;padding:6px 0 1px}
 .task-events span{display:flex;gap:6px;line-height:1.4;color:#94a690}
 .task-events span i{width:4px;height:4px;flex:none;margin-top:3px;border-radius:50%;background:#d7bd69}
+
+
+/* Cloud project workspace */
+.cloud-projects-panel{margin:15px 2px 0;padding:10px 8px 8px;border:1px solid #2c4731;border-radius:9px;background:linear-gradient(150deg,rgba(25,48,30,.88),rgba(17,34,22,.72))}
+.cloud-projects-heading{display:flex;align-items:center;justify-content:space-between;font:8px var(--mono);letter-spacing:.9px;color:#a9b99b;padding:0 3px 7px}
+.cloud-projects-heading button{width:23px;height:22px;border:1px solid #526a40;border-radius:6px;background:#233820;color:#f7d982;display:flex;align-items:center;justify-content:center}
+.cloud-projects-heading button:hover:not(:disabled){border-color:var(--gold);background:#354329;color:#fff2ad}
+.cloud-project-search{height:25px;margin:0 0 6px;padding:0 7px;display:flex;align-items:center;gap:6px;border:1px solid #314d36;border-radius:6px;background:#14271a;color:#93a68d}
+.cloud-project-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:#e8efdc;font-size:9px}
+.cloud-project-search input::placeholder{color:#768d76}
+.cloud-project-list{display:flex;flex-direction:column;gap:3px;max-height:180px;overflow:auto;scrollbar-width:thin;scrollbar-color:#3d5d3d transparent}
+.cloud-project-row{display:flex;align-items:center;gap:3px;padding:3px 3px 3px 0;border:1px solid transparent;border-radius:7px}
+.cloud-project-row.selected{border-color:#56693c;background:#263722}
+.cloud-project-row:hover{background:#203524}
+.cloud-project-select{display:flex;align-items:center;gap:7px;flex:1;min-width:0;text-align:left;border:0;background:transparent;padding:3px;color:#c3d1bb}
+.cloud-project-mark{width:25px;height:25px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:7px;background:#30432a;color:#f6d779}
+.cloud-project-copy{min-width:0;display:flex;flex-direction:column;gap:3px;flex:1}
+.cloud-project-copy strong{font-size:9px;color:#e2ecd9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cloud-project-copy small{font-size:8px;color:#8fa18a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cloud-project-active-dot{width:6px;height:6px;flex:none;border-radius:50%;background:#d7df88;box-shadow:0 0 7px rgba(215,223,136,.4)}
+.cloud-project-actions-mini{display:flex;gap:1px;opacity:.45}
+.cloud-project-row:hover .cloud-project-actions-mini,.cloud-project-row.selected .cloud-project-actions-mini{opacity:1}
+.cloud-project-actions-mini button{width:22px;height:22px;display:flex;align-items:center;justify-content:center;border:0;border-radius:5px;background:transparent;color:#9daf95}
+.cloud-project-actions-mini button:hover:not(:disabled){background:#3b4d2c;color:#ffe5a0}
+.cloud-project-actions-mini button:last-child:hover:not(:disabled){background:#4b2923;color:#ffc1ae}
+.cloud-project-empty{padding:7px 4px 3px;color:#83977f;font-size:8px;line-height:1.5}
+.cloud-project-dialog{max-width:470px}
+.cloud-project-dialog .field-label{display:block;margin:12px 0 6px}
+.project-description-input{min-height:100px;resize:vertical;padding:9px 10px;line-height:1.5}
