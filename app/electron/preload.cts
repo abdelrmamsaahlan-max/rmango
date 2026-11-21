@@ -6,7 +6,6 @@ const api = {
   getAppState: () => ipcRenderer.invoke('app:get-state'),
   setAppearance: (theme: 'dark' | 'light' | 'system') => ipcRenderer.invoke('settings:appearance', theme),
   updateSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:update', patch),
-  updateSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:update', patch),
   getCloudState: () => ipcRenderer.invoke('cloud:state'),
   cloudSignIn: (credentials: { email: string; password: string }) => ipcRenderer.invoke('cloud:sign-in', credentials),
   cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => ipcRenderer.invoke('cloud:sign-up', credentials),
