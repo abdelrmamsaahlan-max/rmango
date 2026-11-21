@@ -387,7 +387,6 @@ begin
     'max_output_tokens', v_policy.max_output_tokens,
     'daily_requests_remaining', greatest(v_policy.daily_request_limit - v_today_requests - 1, 0),
     'monthly_requests_remaining', greatest(v_policy.monthly_request_limit - v_month_requests - 1, 0),
-    'max_output_tokens', v_policy.max_output_tokens,
     'daily_spend_remaining_usd', greatest(v_policy.daily_spend_limit_usd - v_today_cost - p_estimated_cost_usd, 0),
     'monthly_spend_remaining_usd', greatest(v_policy.monthly_spend_limit_usd - v_month_cost - p_estimated_cost_usd, 0)
   );
