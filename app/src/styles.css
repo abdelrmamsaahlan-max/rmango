@@ -452,3 +452,15 @@ button:disabled{cursor:not-allowed;opacity:.5}
 .change-status.pending{border-color:#82692e;color:#f4d77d;background:#3d351d}
 .change-status.approved{border-color:#527c48;color:#c4e9a0;background:#233b22}
 .change-status.rejected,.change-status.conflict{border-color:#845644;color:#f0bda5;background:#3c2821}
+
+
+/* Phase 2: cancellation state is clear without a continuous animation loop. */
+.send-button.cancel-button {
+  background: #8f3434;
+  border-color: #c45b52;
+  color: #fff2ee;
+}
+.send-button.cancel-button:hover {
+  background: #aa403d;
+  border-color: #e07a6c;
+}
