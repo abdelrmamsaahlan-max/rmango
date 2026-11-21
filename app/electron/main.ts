@@ -319,6 +319,64 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+async function connectRoblox() {
+  if (mcpClient) return { ok: true, connected: true, toolCount: connectedTools.length };
+  if (process.platform !== 'win32') {
+    return { ok: false, connected: false, error: 'The bundled Roblox Studio MCP connection is configured for Windows.' };
+  }
+  const localAppData = process.env.LOCALAPPDATA;
+  if (!localAppData) return { ok: false, connected: false, error: 'Windows LOCALAPPDATA was not found.' };
+  const mcpBat = path.join(localAppData, 'Roblox', 'mcp.bat');
+  if (!existsSync(mcpBat)) {
+    return {
+      ok: false,
+      connected: false,
+      error: 'Roblox MCP launcher was not found at ' + mcpBat + '. Update Roblox Studio, then enable Assistant → Manage MCP Servers → Enable Studio as MCP server.',
+    };
+  }
+  try {
+    const transport = new StdioClientTransport({
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', '\"' + mcpBat + '\"'],
+      env: process.env as Record<string, string>,
+    });
+    const client = new Client({ name: 'rmango-desktop', version: app.getVersion() }, { capabilities: {} });
+    await client.connect(transport);
+    const result = await client.listTools();
+    mcpClient = client;
+    mcpTransport = transport;
+    connectedTools = result.tools as McpTool[];
+    selectedStudioId = await discoverStudioId().catch(() => undefined);
+    return {
+      ok: true,
+      connected: true,
+      toolCount: connectedTools.length,
+      tools: connectedTools.map(tool => tool.name),
+      studioId: selectedStudioId,
+    };
+  } catch (error) {
+    mcpClient = null;
+    mcpTransport = null;
+    connectedTools = [];
+    selectedStudioId = undefined;
+    return { ok: false, connected: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function disconnectRoblox() {
+  for (const [requestId, resolve] of approvalResolvers) {
+    resolve(false);
+    approvalResolvers.delete(requestId);
+  }
+  try { await mcpClient?.close(); } catch { /* connection may already have exited */ }
+  try { await mcpTransport?.close(); } catch { /* connection may already have exited */ }
+  mcpClient = null;
+  mcpTransport = null;
+  connectedTools = [];
+  selectedStudioId = undefined;
+  return { ok: true, connected: false };
+}
+
 const READ_ONLY_STUDIO_TOOLS = new Set([
   'list_roblox_studios', 'get_studio_state', 'script_read', 'script_search',
   'script_grep', 'search_game_tree', 'inspect_instance', 'get_console_output',
@@ -419,6 +477,119 @@ async function callStudioTool(name: string, args: Record<string, unknown>) {
   const result = await mcpClient.callTool({ name, arguments: withStudioId(tool, args) });
   if ((result as any).isError) throw new Error(JSON.stringify((result as any).content || result).slice(0, 2_000));
   return result;
+}
+
+async function registerCloudStudioConnector() {
+  if (!mcpClient) return { linked: false, message: "Roblox Studio is not connected." };
+  const session = await readCloudSession();
+  if (!session) return { linked: false, message: "Sign in to Rmango Cloud to link the Studio connector." };
+  const tools = safeToolList().map(tool => ({
+    name: tool.name,
+    description: tool.description || "",
+    inputSchema: tool.inputSchema || { type: "object", properties: {} },
+  }));
+  if (!tools.length) return { linked: false, message: "No supported Studio tools were discovered." };
+
+  const registered = await cloudApiRequest<any>("/api/studio/register", {
+    method: "POST",
+    body: JSON.stringify({ connectorName: "Rmango Desktop · " + app.getVersion(), tools }),
+  });
+  const nextSession: CloudSession = {
+    ...session,
+    studioConnectorId: registered.connectorId,
+    studioConnectorSecret: registered.connectorSecret,
+  };
+  await writeCloudSession(nextSession);
+  startStudioConnectorPolling();
+  return { linked: true, toolCount: registered.toolCount || tools.length };
+}
+
+function stopStudioConnectorPolling() {
+  if (studioPollTimer) {
+    clearInterval(studioPollTimer);
+    studioPollTimer = null;
+  }
+  studioPollInFlight = false;
+}
+
+function startStudioConnectorPolling() {
+  stopStudioConnectorPolling();
+  studioPollTimer = setInterval(() => { void pollCloudStudioCommands(); }, 1_400);
+  studioPollTimer.unref?.();
+  void pollCloudStudioCommands();
+}
+
+async function pollCloudStudioCommands() {
+  if (studioPollInFlight || !mcpClient) return;
+  const session = await readCloudSession();
+  if (!session?.studioConnectorId || !session.studioConnectorSecret) return;
+  studioPollInFlight = true;
+  try {
+    const response = await cloudApiRequest<any>("/api/studio/poll", {
+      method: "POST",
+      body: JSON.stringify({
+        connectorId: session.studioConnectorId,
+        connectorSecret: session.studioConnectorSecret,
+      }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    for (const command of (response.commands || []).slice(0, 5)) {
+      const toolName = String(command.tool_name || "");
+      const args = command.tool_arguments && typeof command.tool_arguments === "object"
+        ? command.tool_arguments as Record<string, unknown>
+        : {};
+      try {
+        const result = await callStudioTool(toolName, args);
+        await cloudApiRequest("/api/studio/result", {
+          method: "POST",
+          body: JSON.stringify({
+            connectorId: session.studioConnectorId,
+            connectorSecret: session.studioConnectorSecret,
+            commandId: command.id,
+            ok: true,
+            result,
+          }),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        try {
+          await cloudApiRequest("/api/studio/result", {
+            method: "POST",
+            body: JSON.stringify({
+              connectorId: session.studioConnectorId,
+              connectorSecret: session.studioConnectorSecret,
+              commandId: command.id,
+              ok: false,
+              error: message,
+            }),
+          });
+        } catch { /* The cloud agent will time out and explain that the connector failed. */ }
+      }
+    }
+  } catch {
+    // Temporary disconnects are retried on the next poll; no inference runs here.
+  } finally {
+    studioPollInFlight = false;
+  }
+}
+
+async function disconnectCloudStudioConnector() {
+  stopStudioConnectorPolling();
+  const session = await readCloudSession();
+  if (!session?.studioConnectorId || !session.studioConnectorSecret) return;
+  try {
+    await cloudApiRequest("/api/studio/disconnect", {
+      method: "POST",
+      body: JSON.stringify({
+        connectorId: session.studioConnectorId,
+        connectorSecret: session.studioConnectorSecret,
+      }),
+    });
+  } catch { /* Local disconnect must still succeed if the network is unavailable. */ }
+  const next = { ...session };
+  delete next.studioConnectorId;
+  delete next.studioConnectorSecret;
+  await writeCloudSession(next);
 }
 
 async function projectFiles(root: string, depth = 0): Promise<Array<{ name: string; path: string; kind: 'file' | 'folder' }>> {
