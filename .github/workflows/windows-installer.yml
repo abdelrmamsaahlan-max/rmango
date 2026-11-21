@@ -10,6 +10,7 @@ on:
     branches:
       - upgrade/project-context-retrieval
       - upgrade/agent-workspace-studio
+      - upgrade/security-continuous-learning-updater
     paths:
       - "app/**"
       - ".github/workflows/windows-installer.yml"
