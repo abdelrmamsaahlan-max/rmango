@@ -8,12 +8,12 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 - **Vercel AI Gateway** routes hosted models and exposes live model capability/pricing metadata.
 - **Vercel OIDC** authenticates AI Gateway requests from Vercel deployments. No static AI Gateway key or provider key is configured in production.
 - **Supabase Auth, Postgres and private Storage** hold user accounts, projects, conversations, messages, uploaded source files, project proposals and usage events.
-- The Windows desktop connects over HTTPS and stores only the user's Rmango account session encrypted with Windows secure storage.
-- A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is a tool bridge only; it does not run any AI model.
+- The Windows desktop connects over HTTPS, stores account tokens and local chat history using Windows secure storage, validates the configured cloud URL, and accepts IPC only from its trusted renderer.
+- A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is an allowlisted tool bridge only; model inference stays hosted.
 
 ## Important deployment status
 
-The cloud backend source, migration and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** The desktop currently shows “Cloud not configured” until an administrator provisions the cloud service and sets the public URL.
+The cloud backend source, migrations and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** The desktop currently shows “Cloud not configured” until an administrator provisions the cloud service and sets the public URL.
 
 No hosted model request or paid inference has been run from this code. No cloud project or provider spend has been activated by this change.
 
@@ -21,7 +21,7 @@ No hosted model request or paid inference has been run from this code. No cloud 
 
 1. Authorize the Rmango Vercel team/project scope.
 2. Create a dedicated Supabase project for Rmango. Do not reuse an unrelated app database.
-3. Apply `cloud/supabase/migrations/202611210001_rmango_cloud.sql`.
+3. Apply migrations in order: `202611210001_rmango_cloud.sql`, `202611220001_rmango_agent_workspace.sql`, then `202611230001_rmango_learning_loop.sql`.
 4. Create a Vercel project from this repository with Root Directory set to `cloud`.
 5. Enable Vercel OIDC for the Vercel project.
 6. Add the server-only environment variables described in [cloud/README.md](cloud/README.md).
@@ -37,15 +37,15 @@ Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) 
 
 The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
 
-Installed Windows builds check GitHub Releases after startup and every four hours. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+Installed Windows builds check GitHub Releases after startup, every five minutes while running, and when Windows resumes from sleep. Updates download in the background and installation still requires your click. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
 
 ## Automatic updates
 
 Every push to `main` builds and verifies a versioned Windows NSIS installer artifact. It publishes the EXE and `latest.yml` to a public GitHub Release **only when** the GitHub repository variable `RMANGO_CLOUD_API_URL` is set to the deployed Rmango Cloud HTTPS URL. Without that URL, the installer is retained as a CI artifact and no public release is published.
 
-The previously published `v0.2.37` installer is from the legacy local-AI version and may launch Ollama. It does not contain the cloud-only RMango Agent or the updated interface in this branch. After the backend is deployed and `RMANGO_CLOUD_API_URL` is configured, install the first cloud-enabled release manually once; later releases can be installed from inside Rmango. Current published build and signing state should be checked on the Releases page.
+Public Windows releases are blocked unless both the deployed HTTPS `RMANGO_CLOUD_API_URL` and a valid Authenticode signing certificate are configured. Set GitHub Actions secret `RMANGO_SIGNING_PFX_BASE64`, secret `RMANGO_SIGNING_PFX_PASSWORD`, and repository variable `RMANGO_SIGNING_PUBLISHER_NAME` to the exact signer subject (the subject reported by `Get-AuthenticodeSignature`). The pipeline verifies the signature on both the installer and packaged `Rmango.exe`, and configures signature verification for auto-updates. Pull-request EXEs are unsigned test artifacts and must not be distributed as public installers. A signed publisher identity can reduce Windows warnings, but SmartScreen reputation may still build over time; never disable Defender or bypass a warning just to install an unsigned build.
 
-## Developer hot reload
+## Continuous improvement (not instant model retraining)\n\nRMango saves confirmed project decisions and architecture to project-scoped memory, records compact playtest/console verification metrics after completed tasks, and accepts optional helpful/not-helpful feedback on a completed result. These signals improve future project context and evaluation. They do not automatically retrain or change the hosted foundation model's weights, and the learning table does not store full prompts or source files.\n\n## Windows security and signing\n\nThe desktop uses Electron sandboxing, context isolation, renderer-origin checks for every IPC call, a restrictive Content Security Policy, disabled embedded webviews/popups/permissions, HTTPS-only cloud URLs and encrypted local chat/session storage. Public release builds fail closed unless they are Authenticode-signed. Do not turn off SmartScreen or Microsoft Defender to run an unsigned test build.\n\n## Developer hot reload
 
 From `app/`:
 
