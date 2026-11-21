@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { deduplicateProjectMemories, rankProjectItems } from "@/lib/ai/project-relevance";
 
 export type SelectedProjectContext = {
   project: {
@@ -35,6 +36,7 @@ export async function loadSelectedProjectContext(
   supabase: SupabaseClient,
   ownerId: string,
   projectId: string,
+  taskPrompt = "",
 ): Promise<SelectedProjectContext | null> {
   const { data: project, error: projectError } = await supabase
     .from("projects")
@@ -47,13 +49,15 @@ export async function loadSelectedProjectContext(
   if (!project) return null;
 
   const manifestLimit = 80;
+  // Fetch metadata only, then rank paths against this task. Do not download
+  // project file contents while constructing the default context.
   const { data: files, error: filesError } = await supabase
     .from("project_files")
     .select("id,relative_path,file_name,mime_type,size_bytes,sha256")
     .eq("project_id", projectId)
     .eq("owner_id", ownerId)
     .order("relative_path", { ascending: true })
-    .limit(manifestLimit + 1);
+    .limit(501);
 
   if (filesError) throw new Error("Could not load the selected project's file manifest.");
 
@@ -63,13 +67,23 @@ export async function loadSelectedProjectContext(
     .eq("project_id", projectId)
     .eq("owner_id", ownerId)
     .order("updated_at", { ascending: false })
-    .limit(20);
+    .limit(60);
 
   if (memoriesError) throw new Error("Could not load the selected project's saved memories.");
 
   const rows = files || [];
+  const rankedFiles = rankProjectItems(rows, taskPrompt, {
+    getText: file => [file.relative_path, file.file_name].filter(Boolean).join(" "),
+  }).slice(0, manifestLimit);
+  const rankedMemories = deduplicateProjectMemories(memories || []);
+  const selectedMemories = rankProjectItems(rankedMemories, taskPrompt, {
+    getText: memory => [memory.memory_type, memory.title, memory.content, memory.source_ref]
+      .filter(Boolean).join(" "),
+    updatedAt: memory => memory.updated_at,
+  }).slice(0, 20);
+
   let memoryCharactersRemaining = 16_000;
-  const boundedMemories = (memories || []).flatMap(memory => {
+  const boundedMemories = selectedMemories.flatMap(memory => {
     if (memoryCharactersRemaining <= 0) return [];
     const content = String(memory.content || "").slice(0, Math.min(1_500, memoryCharactersRemaining));
     memoryCharactersRemaining -= content.length;
@@ -89,7 +103,7 @@ export async function loadSelectedProjectContext(
       description: String(project.description || "").slice(0, 1000),
       updatedAt: project.updated_at,
     },
-    files: rows.slice(0, manifestLimit).map(file => ({
+    files: rankedFiles.map(file => ({
       id: file.id,
       path: String(file.relative_path || "").slice(0, 500),
       name: String(file.file_name || "").slice(0, 200),
@@ -97,6 +111,8 @@ export async function loadSelectedProjectContext(
       sizeBytes: Math.max(0, Number(file.size_bytes) || 0),
       sha256: file.sha256 ? String(file.sha256).slice(0, 64) : null,
     })),
+    // If the metadata cap was reached, additional files may exist outside this
+    // ranked sample. The model should use search_project_files for deeper lookup.
     manifestTruncated: rows.length > manifestLimit,
     memories: boundedMemories,
   };

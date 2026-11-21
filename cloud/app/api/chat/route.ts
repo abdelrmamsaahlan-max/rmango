@@ -11,6 +11,7 @@ import { formatSelectedProjectContext, loadSelectedProjectContext } from "@/lib/
 import { buildSkillContext } from "@/lib/ai/skills";
 import { buildAgentWorkflowContext } from "@/lib/ai/orchestration";
 import { compactMessagesToContextWindow } from "@/lib/ai/context";
+import { rankProjectItems, deduplicateProjectMemories } from "@/lib/ai/project-relevance";
 import { extractSupportedDocument } from "@/lib/ai/documents";
 
 export const runtime = "nodejs";
@@ -317,7 +318,7 @@ export async function POST(request: Request) {
   let selectedProjectContextText = "";
   if (selectedProjectId) {
     try {
-      const selectedProjectContext = await loadSelectedProjectContext(supabase, user.id, selectedProjectId);
+      const selectedProjectContext = await loadSelectedProjectContext(supabase, user.id, selectedProjectId, latestUserPrompt);
       if (!selectedProjectContext) {
         return NextResponse.json({ error: "The selected cloud project is no longer available to this account." }, { status: 404 });
       }
@@ -554,7 +555,12 @@ export async function POST(request: Request) {
         const { data, error } = await query;
         if (error) throw new Error("Could not read saved project memory: " + error.message);
         let remainingCharacters = 16_000;
-        return (data || []).flatMap(item => {
+        const ranked = rankProjectItems(deduplicateProjectMemories(data || []), search || latestUserPrompt, {
+          getText: item => [item.memory_type, item.title, item.content, item.source_ref]
+            .filter(Boolean).join(" "),
+          updatedAt: item => item.updated_at,
+        }).slice(0, 20);
+        return ranked.flatMap(item => {
           if (remainingCharacters <= 0) return [];
           const content = String(item.content || "").slice(0, Math.min(1_500, remainingCharacters));
           remainingCharacters -= content.length;
