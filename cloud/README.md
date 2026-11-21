@@ -7,22 +7,34 @@ This folder is the hosted backend for the Rmango Windows desktop client. **All l
 - Next.js App Router API hosted on Vercel.
 - Vercel AI Gateway for model routing, capability catalogue, live model prices, and fallback models.
 - Vercel OIDC for Gateway authentication. Production does not use AI_GATEWAY_API_KEY or provider API keys.
-- Supabase Auth, Postgres and private Storage for accounts, projects, messages, file metadata, proposals, tasks and usage.
+- Supabase Auth, Postgres and private Storage for anonymous guest identities, optional future accounts, projects, messages, file metadata, proposals, tasks and usage.
 - Windows desktop client connects over HTTPS.
 - Optional Roblox Studio MCP bridge runs locally only as a secure tool-transport process. It does not load or run a language model; AI inference remains in the cloud.
 
 ## Deployment status
 
-The backend source and database migration are committed in this repository. They are **not yet deployed** and the migration has **not yet been applied to a Supabase project**. No paid model inference request has been made.
+The backend source and database migration are committed in this repository. They are **not yet deployed** and the migration has **not yet been applied to a dedicated Supabase project**. No paid model inference request has been made. Once the service is deployed and guest access is enabled, the desktop creates its guest identity automatically; end users do not sign up or configure cloud providers.
 
 Deployment requires:
 1. An approved Vercel project in the account/team that owns the Rmango domain and release.
 2. A new dedicated Supabase project for Rmango. Do not reuse unrelated projects.
 3. Vercel OIDC enabled for the cloud project.
 4. The database migration applied to that Supabase project.
-5. Server-only environment variables configured in Vercel.
-6. An HTTPS deployment URL added as the GitHub repository variable RMANGO_CLOUD_API_URL.
-7. An administrator explicitly authorizing the cloud Gateway budget/spend policy before model-generation requests are enabled.
+5. **Anonymous Sign-Ins enabled** in Supabase Authentication → Providers for the Rmango project.
+6. Server-only environment variables configured in Vercel.
+7. An HTTPS deployment URL added as the GitHub repository variable RMANGO_CLOUD_API_URL.
+8. An administrator explicitly authorizing the cloud Gateway budget/spend policy before model-generation requests are enabled.
+
+## Automatic guest access (end-user experience)
+
+The desktop app creates the Supabase anonymous user directly from the user's machine after /api/health reports that the managed service is ready. It calls the public Supabase Auth signup endpoint with the public publishable key and a small app display-name field. Doing this from the client preserves Supabase's per-client-IP anonymous-sign-in rate limit instead of funneling every guest through the Vercel server's outbound IP.
+
+- Users do not need email, password, a Rmango account, an AI-provider key, or a local model runtime.
+- /api/public/config returns only SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY. These are public client settings. It must never return SUPABASE_SERVICE_ROLE_KEY, VERCEL_OIDC_TOKEN, or any provider secret.
+- Guest access uses the normal authenticated user role and every user-owned record remains scoped by the existing owner_id = auth.uid() row-level security policies.
+- The desktop persists the access/refresh session using Electron safeStorage; it never writes the session as plaintext. A guest identity is not recoverable after the user deletes local app data, clears the saved session, or changes computers. Account linking/recovery is not implemented in this version.
+
+Enable Anonymous Sign-Ins in Supabase Auth for the dedicated Rmango project. Supabase currently documents a default limit of 30 anonymous sign-ins per hour per IP and recommends CAPTCHA protection to reduce automated abuse. The desktop guest flow currently does not send a CAPTCHA token, so add and test a Turnstile/CAPTCHA challenge before promoting the service to a broad public launch. Do not disable Supabase rate limits.
 
 ## Vercel setup
 
@@ -67,7 +79,7 @@ Set in the Vercel project's server environment only:
 | `RMANGO_MODEL_FALLBACKS_*` | Optional | Comma-separated compatible model IDs for fallback routing |
 | `RMANGO_MAX_OUTPUT_TOKENS` | Optional | Upper bound used by the chat service (clamped by the DB policy) |
 
-No AI provider or AI Gateway API key is supported in the production configuration. Model calls are authenticated by Vercel OIDC.
+No AI provider or AI Gateway API key is supported in the production configuration. The desktop needs no user account or provider credentials; the one-time operator setup remains server-side. Model calls are authenticated by Vercel OIDC.
 
 ## GitHub desktop build configuration
 
@@ -110,6 +122,7 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 ## Current endpoints
 
 - `/api/health` — non-secret backend readiness state.
+- `/api/public/config` — public Supabase URL and publishable key for automatic guest creation; no server secrets.
 - `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out` — Rmango accounts.
 - `/api/models` — live model profiles and capability/price metadata.
 - `/api/chat` — authenticated streaming cloud chat and cloud agent tools.

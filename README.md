@@ -8,12 +8,20 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 - **Vercel AI Gateway** routes hosted models and exposes live model capability/pricing metadata.
 - **Vercel OIDC** authenticates AI Gateway requests from Vercel deployments. No static AI Gateway key or provider key is configured in production.
 - **Supabase Auth, Postgres and private Storage** hold user accounts, projects, conversations, messages, uploaded source files, project proposals and usage events.
-- The Windows desktop connects over HTTPS and stores only the user's Rmango account session encrypted with Windows secure storage.
+- The Windows desktop automatically creates a private anonymous guest identity when the managed service is available. Its refresh session is encrypted with Windows secure storage; users do not create an account or enter AI-provider credentials.
 - A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is a tool bridge only; it does not run any AI model.
+
+## First launch: no account or AI setup
+
+When the managed RMango service is deployed, the desktop automatically creates a private guest workspace on first launch. You do not enter an email address, create a password, paste an API key, install Ollama, download model weights, or choose a model provider. The app routes your chats through RMango's hosted AI service.
+
+Guest chat history and project data are scoped to the generated guest identity. The session is saved encrypted with Windows secure storage, so it survives normal app restarts on the same Windows profile. It is not a recoverable account: signing out, deleting RMango's local app data, reinstalling in a way that removes that data, or switching computers can make the guest workspace inaccessible. Keep the same Windows profile and app data if you need to keep that history.
+
+This is automatic for end users, but not infrastructure-free: the RMANGO maintainer must deploy the hosted backend, provision its dedicated database, enable Supabase Anonymous Sign-Ins, and authorize the server-side AI usage budget once. No provider secret is shipped to users.
 
 ## Important deployment status
 
-The cloud backend source, migration and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** The desktop currently shows “Cloud not configured” until an administrator provisions the cloud service and sets the public URL.
+The cloud backend source, migration and desktop client changes are committed to GitHub. **The cloud backend is not deployed, and the Supabase migration has not yet been applied to a dedicated Rmango project.** Chat will become automatic once the service operator completes the one-time deployment and sets the public URL. Users will not need to configure anything on their PCs.
 
 No hosted model request or paid inference has been run from this code. No cloud project or provider spend has been activated by this change.
 
@@ -21,7 +29,7 @@ No hosted model request or paid inference has been run from this code. No cloud 
 
 1. Authorize the Rmango Vercel team/project scope.
 2. Create a dedicated Supabase project for Rmango. Do not reuse an unrelated app database.
-3. Apply `cloud/supabase/migrations/202611210001_rmango_cloud.sql`.
+3. Apply `cloud/supabase/migrations/202611210001_rmango_cloud.sql` and enable **Anonymous Sign-Ins** in Supabase Auth for the Rmango project.
 4. Create a Vercel project from this repository with Root Directory set to `cloud`.
 5. Enable Vercel OIDC for the Vercel project.
 6. Add the server-only environment variables described in [cloud/README.md](cloud/README.md).
@@ -37,7 +45,11 @@ Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) 
 
 The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
 
-Installed Windows builds check GitHub Releases after startup and every four hours. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+Installed Windows builds check GitHub Releases shortly after startup and every five minutes. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+
+## Windows SmartScreen and code signing
+
+The Windows workflow supports Authenticode signing when a trusted publisher certificate is provided through the repository secrets `RMANGO_SIGNING_PFX_BASE64` and `RMANGO_SIGNING_PFX_PASSWORD`. Without a certificate, the workflow can build an unsigned installer; Windows may show an Unknown publisher or SmartScreen reputation warning. The application does not disable or bypass Windows security controls. A trusted code-signing certificate is the correct way to establish publisher reputation; do not turn off Defender or SmartScreen to run an installer.
 
 ## Automatic updates
 
@@ -84,15 +96,18 @@ Setup: in Roblox Studio open **Assistant → … → Manage MCP Servers**, enabl
 
 ## Cloud project workflow
 
-1. Sign in to a Rmango account.
-2. Open a local Roblox source folder in Rmango.
-3. Explicitly choose **Upload project to Cloud**.
-4. Supported text/source files upload into the user's private cloud workspace.
-5. Ask Rmango Agent to inspect files or propose a change.
-6. Review and accept/reject proposed file changes in Rmango.
-7. Download the approved cloud project as a ZIP.
+1. Open a local Roblox source folder in Rmango. A private guest workspace is created automatically when the cloud is online.
+2. Explicitly choose **Upload project to Cloud**.
+3. Supported text/source files upload into the guest workspace.
+4. Ask Rmango Agent to inspect files or propose a change.
+5. Review and accept/reject proposed file changes in Rmango.
+6. Download the approved cloud project as a ZIP.
 
 Current source-file import is limited to 120 files, 512 KB per file and supported text formats. Binary `.rbxl` / `.rbxm` projects are not parsed by this version.
+
+## Project memory and model training
+
+Rmango can keep durable, project-scoped notes about confirmed architecture decisions, coding conventions and known issues, then load those notes into later chats. This helps the hosted model maintain project context; it is not continuous model training and does not modify the model provider's weights. Users should never save credentials, API keys or private personal information as project memory.
 
 ## Current limitations
 

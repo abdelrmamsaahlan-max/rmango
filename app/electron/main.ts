@@ -19,7 +19,7 @@ type CloudSession = {
   accessToken: string;
   refreshToken: string;
   expiresAt?: number;
-  user: { id: string; email?: string };
+  user: { id: string; email?: string; isAnonymous?: boolean };
   studioConnectorId?: string;
   studioConnectorSecret?: string;
   currentProjectId?: string;
@@ -48,7 +48,7 @@ let selectedStudioId: string | undefined;
 let studioPollTimer: NodeJS.Timeout | null = null;
 let studioPollInFlight = false;
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
-const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 let updateCheckInFlight = false;
 let appUpdateState: AppUpdateState = {
   status: 'idle',
@@ -58,7 +58,8 @@ let appUpdateState: AppUpdateState = {
 
 const userData = () => app.getPath('userData');
 const settingsPath = () => path.join(userData(), 'settings.json');
-const sessionPath = () => path.join(userData(), 'session.json');
+const legacyChatHistoryPath = () => path.join(userData(), 'session.json');
+const chatHistoryPath = () => path.join(userData(), 'chat-history.enc');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
 
 async function readSettings(): Promise<SettingsFile> {
@@ -108,6 +109,48 @@ async function writeCloudSession(session: CloudSession) {
   await fs.writeFile(cloudSessionPath(), encrypted, { encoding: 'utf8', mode: 0o600 });
 }
 
+function cleanChatHistory(messages: ChatMessage[]) {
+  return messages.slice(-100).map(message => ({
+    ...message,
+    attachments: (message as any).attachments
+      ? (message as any).attachments.map(({ id, name, mimeType, kind, size }: any) => ({ id, name, mimeType, kind, size }))
+      : undefined,
+  }));
+}
+
+async function writeChatHistory(messages: ChatMessage[]) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Rmango will not save chat history as plaintext.');
+  }
+  await fs.mkdir(userData(), { recursive: true });
+  const encrypted = safeStorage.encryptString(JSON.stringify(cleanChatHistory(messages))).toString('base64');
+  const temporaryPath = chatHistoryPath() + '.tmp';
+  await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(temporaryPath, chatHistoryPath());
+}
+
+async function readChatHistory(): Promise<ChatMessage[]> {
+  if (!safeStorage.isEncryptionAvailable()) return [];
+  try {
+    const encrypted = await fs.readFile(chatHistoryPath(), 'utf8');
+    const parsed = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+    return Array.isArray(parsed) ? parsed.slice(-100) as ChatMessage[] : [];
+  } catch {
+    // Migrate existing plaintext history only after encryption succeeds.
+    try {
+      const legacy = JSON.parse(await fs.readFile(legacyChatHistoryPath(), 'utf8')) as ChatMessage[];
+      if (!Array.isArray(legacy)) return [];
+      const cleaned = cleanChatHistory(legacy);
+      await writeChatHistory(cleaned);
+      await fs.rm(legacyChatHistoryPath(), { force: true });
+      return cleaned;
+    } catch {
+      return [];
+    }
+  }
+}
+
+
 async function clearCloudSession() {
   await stopStudioConnectorPolling();
   try { await fs.rm(cloudSessionPath(), { force: true }); } catch { /* file may not exist */ }
@@ -131,7 +174,13 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
     accessToken: payload.session.accessToken,
     refreshToken: payload.session.refreshToken,
     expiresAt: payload.session.expiresAt,
-    user: payload.user,
+    user: {
+      id: payload.user.id,
+      email: payload.user.email || session.user.email,
+      isAnonymous: typeof payload.user.is_anonymous === 'boolean'
+        ? payload.user.is_anonymous
+        : session.user.isAnonymous,
+    },
   };
   await writeCloudSession(next);
   return next;
@@ -139,7 +188,7 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
 
 async function getValidCloudSession(): Promise<CloudSession> {
   let session = await readCloudSession();
-  if (!session) throw new Error('Sign in to your Rmango account to use cloud AI.');
+  if (!session) throw new Error('The Rmango guest workspace is not ready. Check your connection and retry.');
   if (session.expiresAt && session.expiresAt * 1000 < Date.now() + 90_000) {
     session = await refreshCloudSession(session);
   }
@@ -217,33 +266,149 @@ async function cloudSignOut() {
   return { ok: true };
 }
 
+async function createGuestSession(): Promise<CloudSession> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Rmango cannot safely save its guest session on this device.');
+  }
+
+  const config = await cloudApiRequest<{ supabaseUrl?: string; publishableKey?: string }>(
+    '/api/public/config',
+    {},
+    false,
+  );
+  if (typeof config.supabaseUrl !== 'string' || typeof config.publishableKey !== 'string' || !config.publishableKey) {
+    throw new Error('The Rmango server did not return valid public guest-access settings.');
+  }
+
+  let supabaseUrl: URL;
+  try {
+    supabaseUrl = new URL(config.supabaseUrl);
+  } catch {
+    throw new Error('The Rmango server returned an invalid Supabase URL.');
+  }
+  if (
+    supabaseUrl.protocol !== 'https:' ||
+    supabaseUrl.username ||
+    supabaseUrl.password ||
+    supabaseUrl.search ||
+    supabaseUrl.hash ||
+    supabaseUrl.hostname === 'localhost' ||
+    supabaseUrl.hostname.endsWith('.localhost')
+  ) {
+    throw new Error('The Rmango guest service must use a public HTTPS Supabase endpoint.');
+  }
+
+  // Create the anonymous identity from the desktop so Supabase can apply its
+  // normal per-client-IP abuse and rate limits. The publishable key is public;
+  // no service-role or model-provider secret is ever sent to this app.
+  const response = await fetch(supabaseUrl.origin + '/auth/v1/signup', {
+    method: 'POST',
+    headers: {
+      apikey: config.publishableKey,
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({ data: { name: 'Rmango Guest', app: 'rmango-desktop' } }),
+    signal: AbortSignal.timeout(25_000),
+  });
+  const raw = await response.text();
+  let payload: any = {};
+  try { payload = raw ? JSON.parse(raw) : {}; }
+  catch { payload = { message: raw.slice(0, 400) }; }
+
+  if (!response.ok) {
+    const detail = payload.msg || payload.message || payload.error_description || payload.error;
+    if (response.status === 429) {
+      throw new Error('Rmango guest sign-ins are temporarily rate-limited. Please try again later.');
+    }
+    throw new Error(typeof detail === 'string' ? detail.slice(0, 400) : 'Could not create your Rmango guest workspace.');
+  }
+  if (!payload.access_token || !payload.refresh_token || !payload.user?.id) {
+    throw new Error('Supabase did not return a complete guest session. Enable Anonymous Sign-Ins for the Rmango service.');
+  }
+  if (payload.user.is_anonymous !== true) {
+    throw new Error('The Rmango service did not create an anonymous account. Check its Auth configuration.');
+  }
+
+  const expiresAt = typeof payload.expires_at === 'number'
+    ? payload.expires_at
+    : Math.floor(Date.now() / 1000) + (Number(payload.expires_in) || 3600);
+  const session: CloudSession = {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token,
+    expiresAt,
+    user: { id: payload.user.id, isAnonymous: true },
+  };
+  await writeCloudSession(session);
+  return session;
+}
+
 async function getCloudState() {
   const apiBaseUrl = await getCloudApiBaseUrl();
-  const session = await readCloudSession();
+  let session = await readCloudSession();
   if (!apiBaseUrl) {
-    return { configured: false, signedIn: Boolean(session), email: session?.user.email, message: 'Cloud backend URL has not been configured in this build.' };
+    return {
+      configured: false,
+      signedIn: Boolean(session),
+      isGuest: session?.user.isAnonymous === true,
+      email: session?.user.email,
+      message: 'The managed Rmango AI service is not connected to this build yet.',
+    };
   }
+
   let serviceReady = false;
   let healthError: string | undefined;
+  let sessionError: string | undefined;
   try {
     const health = await cloudApiRequest<any>('/api/health', {}, false);
     serviceReady = health.status === 'ready';
-    if (!serviceReady) healthError = 'Cloud backend needs its database and Vercel AI Gateway to be configured.';
+    if (!serviceReady) healthError = 'The Rmango AI service is not ready yet. The service operator must finish its one-time setup.';
   } catch (error) {
-    healthError = error instanceof Error ? error.message : 'Cloud backend is unavailable.';
+    healthError = error instanceof Error ? error.message : 'The Rmango AI service is temporarily unavailable.';
   }
-  let signedIn = Boolean(session);
-  let email = session?.user.email;
-  if (session) {
-    try { await getValidCloudSession(); } catch { signedIn = false; email = undefined; }
+
+  if (serviceReady) {
+    if (!session) {
+      try {
+        session = await createGuestSession();
+      } catch (error) {
+        sessionError = error instanceof Error ? error.message : 'Rmango could not start a guest workspace.';
+      }
+    } else {
+      try {
+        session = await getValidCloudSession();
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'The saved Rmango session is unavailable.';
+        // A revoked/expired anonymous identity cannot be recovered. Create a
+        // new guest identity only for an explicit invalid-refresh response;
+        // preserve the existing identity during temporary network failures.
+        if (
+          session.user.isAnonymous &&
+          /(invalid|expired|revoked|not found|refresh token)/i.test(detail)
+        ) {
+          await clearCloudSession();
+          session = null;
+          try {
+            session = await createGuestSession();
+          } catch (guestError) {
+            sessionError = guestError instanceof Error ? guestError.message : detail;
+          }
+        } else {
+          sessionError = detail;
+          session = null;
+        }
+      }
+    }
   }
+
   return {
     configured: true,
     serviceReady,
-    signedIn,
-    email,
+    signedIn: Boolean(session),
+    isGuest: session?.user.isAnonymous === true,
+    email: session?.user.email,
     apiHost: new URL(apiBaseUrl).host,
-    message: healthError,
+    message: sessionError || healthError,
     currentProjectId: session?.currentProjectId,
   };
 }
@@ -274,7 +439,7 @@ async function sendCloudMessage(payload: {
     const raw = await response.text();
     let message = raw;
     try { const parsed = JSON.parse(raw); message = parsed.error || parsed.message || raw; } catch { /* text error */ }
-    if (response.status === 401) throw new Error('Your Rmango cloud session expired. Sign in again.');
+    if (response.status === 401) throw new Error('Your Rmango guest session expired. Reopen Rmango to start a fresh workspace.');
     if (response.status === 429) throw new Error(message || 'Your Rmango cloud usage limit has been reached.');
     throw new Error(message || ('Rmango Cloud returned HTTP ' + response.status + '.'));
   }
@@ -320,9 +485,25 @@ function createWindow() {
       sandbox: true,
     },
   });
+  // Keep renderer navigation inside the trusted app origin. External links must use
+  // the validated app:open-external IPC handler instead of opening an embedded page.
+  const developmentUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (!app.isPackaged) {
+      try {
+        if (new URL(navigationUrl).origin === new URL(developmentUrl).origin) return;
+      } catch {
+        // Block malformed URLs below.
+      }
+    }
+    event.preventDefault();
+  });
+  mainWindow.webContents.on('will-attach-webview', event => event.preventDefault());
+
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   if (!app.isPackaged) {
-    void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173');
+    void mainWindow.loadURL(developmentUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -510,7 +691,7 @@ async function callStudioTool(name: string, args: Record<string, unknown>) {
 async function registerCloudStudioConnector() {
   if (!mcpClient) return { linked: false, message: "Roblox Studio is not connected." };
   const session = await readCloudSession();
-  if (!session) return { linked: false, message: "Sign in to Rmango Cloud to link the Studio connector." };
+  if (!session) return { linked: false, message: "Start the Rmango guest workspace before linking the Studio connector." };
   const tools = safeToolList().map(tool => ({
     name: tool.name,
     description: tool.description || "",
@@ -925,7 +1106,7 @@ function initializeAutoUpdates() {
     });
   });
 
-  // Check once shortly after launch and then every four hours.
+  // Check shortly after launch, then every five minutes.
   const startupTimer = setTimeout(() => { void checkForAppUpdates(); }, 8_000);
   startupTimer.unref();
   const updateTimer = setInterval(() => { void checkForAppUpdates(); }, UPDATE_CHECK_INTERVAL_MS);
@@ -1021,18 +1202,10 @@ ipcMain.handle('studio:approval-result', (_event, response: { requestId: string;
   return { ok: false };
 });
 
-ipcMain.handle('chat:load', async () => {
-  try { return JSON.parse(await fs.readFile(sessionPath(), 'utf8')) as ChatMessage[]; } catch { return []; }
-});
+ipcMain.handle('chat:load', async () => readChatHistory());
 ipcMain.handle('chat:save', async (_event, messages: ChatMessage[]) => {
-  await fs.mkdir(userData(), { recursive: true });
-  const cleaned = messages.slice(-100).map(message => ({
-    ...message,
-    attachments: (message as any).attachments
-      ? (message as any).attachments.map(({ id, name, mimeType, kind, size }: any) => ({ id, name, mimeType, kind, size }))
-      : undefined,
-  }));
-  await fs.writeFile(sessionPath(), JSON.stringify(cleaned, null, 2), 'utf8');
+  if (!Array.isArray(messages)) throw new Error('Chat history payload is invalid.');
+  await writeChatHistory(messages);
   return { ok: true };
 });
 
