@@ -15,6 +15,8 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "start": "electron .",
     "dist:win": "powershell -NoProfile -ExecutionPolicy Bypass -File build/generate-icon.ps1 && npm run build && electron-builder --win nsis --x64 --publish never",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64 --publish never",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --publish never",
     "clean": "node -e \"for (const p of ['dist','dist-electron','release']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
     "dist:win:publish": "powershell -NoProfile -ExecutionPolicy Bypass -File build/generate-icon.ps1 && npm run build && electron-builder --win nsis --x64 --publish always"
@@ -33,7 +35,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.1",
     "concurrently": "^9.1.2",
-    "electron": "^36.2.0",
+    "electron": "^45.4.1",
     "electron-builder": "^26.0.12",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
@@ -65,7 +67,20 @@
       ],
       "artifactName": "Rmango-Setup-${version}-${arch}.${ext}",
       "icon": "build/icon.ico",
-      "verifyUpdateCodeSignature": false
+      "verifyUpdateCodeSignature": true
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development",
+      "artifactName": "Rmango-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
