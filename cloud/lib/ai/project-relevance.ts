@@ -44,8 +44,7 @@ function recencyScore(updatedAt: string | null | undefined, nowMs: number): numb
  * Input order is preserved as the tie-breaker (callers normally supply
  * alphabetically ordered file metadata or newest-first memories).
  */
-export function scoreProjectRelevance(query: string, candidateText: string): number {
-  const terms = tokenizeProjectQuery(query);
+function scoreWithPreparedQuery(terms: string[], normalizedQuery: string, candidateText: string): number {
   if (!terms.length) return 0;
 
   const candidate = normalize(candidateText);
@@ -56,9 +55,17 @@ export function scoreProjectRelevance(query: string, candidateText: string): num
     else if (term.length >= 4 && candidate.includes(term)) score += 0.45;
   }
 
-  const normalizedQuery = normalize(query);
   if (normalizedQuery.length >= 5 && candidate.includes(normalizedQuery)) score += 2;
   return score;
+}
+
+export function scoreProjectRelevance(query: string, candidateText: string): number {
+  const boundedQuery = query.slice(-24_000);
+  return scoreWithPreparedQuery(
+    tokenizeProjectQuery(boundedQuery),
+    normalize(boundedQuery),
+    candidateText,
+  );
 }
 
 export function rankProjectItems<T>(
@@ -66,21 +73,23 @@ export function rankProjectItems<T>(
   query: string,
   options: ProjectRelevanceOptions<T>,
 ): T[] {
-  const terms = tokenizeProjectQuery(query);
+  // Tokenize and normalize once, not once per file/memory candidate. This keeps
+  // indexing cost proportional to one query plus the bounded metadata corpus.
+  const boundedQuery = query.slice(-24_000);
+  const terms = tokenizeProjectQuery(boundedQuery);
   if (!terms.length) return items.slice();
+  const normalizedQuery = normalize(boundedQuery);
 
   const nowMs = options.nowMs ?? Date.now();
   return items
     .map((item, index) => {
-      const text = options.getText(item);
-      const score = scoreProjectRelevance(query, text) +
+      const score = scoreWithPreparedQuery(terms, normalizedQuery, options.getText(item)) +
         recencyScore(options.updatedAt?.(item), nowMs);
       return { item, index, score };
     })
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map(entry => entry.item);
 }
-
 /**
  * Memory rows are fetched newest-first. Keep the newest version of each
  * project/type/title note so duplicate saves don't consume the context budget.

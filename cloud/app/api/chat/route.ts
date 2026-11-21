@@ -316,6 +316,11 @@ export async function POST(request: Request) {
   }
 
   let selectedProjectContextText = "";
+  let selectedProjectContextSummary: {
+    fileCount: number;
+    memoryCount: number;
+    manifestTruncated: boolean;
+  } | null = null;
   if (selectedProjectId) {
     try {
       const selectedProjectContext = await loadSelectedProjectContext(supabase, user.id, selectedProjectId, latestUserPrompt);
@@ -323,6 +328,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "The selected cloud project is no longer available to this account." }, { status: 404 });
       }
       selectedProjectContextText = formatSelectedProjectContext(selectedProjectContext);
+      selectedProjectContextSummary = {
+        fileCount: selectedProjectContext.files.length,
+        memoryCount: selectedProjectContext.memories.length,
+        manifestTruncated: selectedProjectContext.manifestTruncated,
+      };
       // Keep the manifest at user-message trust level; project-controlled strings
       // must never be concatenated into the system instruction channel.
       contentParts[0].text = String(contentParts[0].text || "") + "\n\n" + selectedProjectContextText;
@@ -517,6 +527,14 @@ export async function POST(request: Request) {
       riskLevel: workflow.riskLevel,
       plan: workflow.plan,
     });
+    if (selectedProjectContextSummary) {
+      await recordAgentEvent(
+        "context_selected",
+        "Selected " + selectedProjectContextSummary.fileCount + " relevant file entries and " +
+          selectedProjectContextSummary.memoryCount + " project memory notes.",
+        selectedProjectContextSummary,
+      );
+    }
   }
 
   const projectTools = {
@@ -996,6 +1014,20 @@ export async function POST(request: Request) {
           catch { closed = true; }
         };
         try {
+          if (selectedProjectContextSummary) {
+            emit({
+              type: "activity",
+              activity: {
+                id: "project-context",
+                name: "Project context",
+                detail: "Loaded " + selectedProjectContextSummary.fileCount + " relevant file entries and " +
+                  selectedProjectContextSummary.memoryCount + " memory notes" +
+                  (selectedProjectContextSummary.manifestTruncated ? "; manifest is partial, use project search for more." : "."),
+                status: "completed",
+                ok: true,
+              },
+            });
+          }
           if (contextFit.removedMessageCount > 0) {
             emit({
               type: "activity",

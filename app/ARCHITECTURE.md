@@ -132,3 +132,7 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - The context loader reads bounded metadata only (up to 500 file rows and 60 memory rows), ranks it locally, and includes at most 80 file entries and 20 distinct memory notes. File contents remain on-demand through the existing owner-checked `read_project_file` tool.
 - Memory retrieval deduplicates repeated notes by project memory type and title, preferring the newest row returned by the database. The explicit `list_project_memories` tool uses the same ranking and deduplication with an optional search phrase.
 - Ranking is deterministic lexical relevance plus a small recency signal, not embeddings or semantic vector search. If no useful query terms exist, existing source ordering is preserved. Deeper project search still uses `search_project_files`.
+
+
+- Context retrieval emits a live activity item with the number of selected file metadata entries and memory notes. The durable task event records the same counts and whether the manifest is partial, making context selection auditable without logging file contents.
+- The relevance helper bounds query text and tokenizes it once per retrieval rather than repeatedly scanning the full request for every candidate.
