@@ -56,7 +56,7 @@ Create a **new** Supabase project for Rmango. Apply:
 
 `supabase/migrations/202611210001_rmango_cloud.sql`
 
-The two migrations create:
+The ordered migrations create:
 - Email/password accounts and user profiles.
 - Projects, conversations, messages, private project files and project memories.
 - Pending file-change proposals and review status.
@@ -67,7 +67,7 @@ The two migrations create:
 - Compact project task-evaluation signals and optional helpful/not-helpful feedback; these are context/evaluation data, not foundation-model training.
 - A private `rmango-files` storage bucket and owner-only row/object policies.
 
-Apply `supabase/migrations/202611210001_rmango_cloud.sql` first, followed by `supabase/migrations/202611220001_rmango_agent_workspace.sql`. The second migration is incremental and expects the base project tables to exist. Apply `supabase/migrations/202611230001_rmango_learning_loop.sql` third; it adds owner-scoped task evaluation and optional feedback records.
+Apply `supabase/migrations/202611210001_rmango_cloud.sql` first, followed by `supabase/migrations/202611220001_rmango_agent_workspace.sql`. The second migration is incremental and expects the base project tables to exist. Apply `supabase/migrations/202611230001_rmango_learning_loop.sql` third; it adds owner-scoped task evaluation and optional feedback records. Apply `supabase/migrations/202611230002_rmango_project_index_v2.sql` fourth; it expands the dependency-type constraint for DataStore, UI and asset references.
 
 The service-role key is only used in cloud server code for atomic usage accounting. Never add it to the desktop app, any `NEXT_PUBLIC_*` variable or a public GitHub Actions variable.
 
@@ -149,7 +149,7 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 ## Limitations in this build
 
 - Desktop import scans up to 2,000 non-hidden project entries and uploads supported text/source files up to 512 KB each. Binary `.rbxl` and `.rbxm` files, assets and files outside the supported text formats are reported as skipped; they are not unpacked or parsed.
-- The Luau index is a lightweight, versioned source scanner. It extracts module/function/service/remote symbols and common `require`/instance references; it is not a full Luau AST, type checker, or proof that a referenced instance exists in the live DataModel. Ambiguous or unresolved links retain low confidence.
+- The Luau index is a lightweight, versioned source scanner. Index v2 extracts module/function/service/remote/DataStore/UI/asset symbols; `require` and instance references; remote event/function usage sites; named DataStore/MemoryStore calls; common UI `Instance.new` classes and `.Name` assignments; and literal `rbxassetid://` / `rbxthumb` references. Records include source line numbers and confidence values. This remains static source evidence: it is not a full Luau AST, type checker, complete UI tree, client/server proof, live DataModel inspection, asset availability check or runtime success signal. Ambiguous/unresolved file links retain low confidence.
 - Durable tasks index stale uploaded source files, create an implementation plan, run a WorkflowAgent loop, and can call the currently registered allowlisted Roblox Studio MCP tools through the local desktop bridge. Studio commands are persisted against the task; mutating tools wait for the desktop approval decision. Pausing/cancelling also cancels pending Studio commands.
 - The Electron Agent Workspace reads task state and event history from cloud storage, so task lists, plans, activity, errors and reports remain available after the desktop app closes. The UI polls saved task state; it does not depend on a single open window or chat transcript.
 - Playtest verification is conservative. RMango marks runtime verified only when the connected Studio subagent returns an explicit passing playtest result and a subsequent console inspection gives a clean result. A started play session, successful code edit or successful tool call alone is not a pass.
@@ -157,7 +157,7 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 - Admin usage reports/policy editing UI is not complete. Policies can be managed in the database for now.
 - Bounded specialist reviews are available to the Lead WorkflowAgent: nine role-specific read-only reviewers share the same owner-scoped indexed source, selected files, memories and task context. Each review has its own usage reservation, a 1,200-token output cap, and a limit of three distinct roles per task attempt. Specialist request/start/result/failure events are persisted and visible in Agent Workspace. Specialists cannot edit files or call Studio; the Lead remains responsible for all proposals, Studio operations, approvals and verification.
 - Formal conflict-resolution records, sibling-agent cancellation/cost dashboards, controlled parallel specialist runs, and live external browsing for the Research Analyst are not implemented. The current Research Analyst only reviews supplied evidence and flags external claims for verification.
-- Full Luau AST/type analysis, automated arbitrary game-specific test generation, vector/embedding RAG, full binary place/model parsing, complete semantic dependency analysis and side-by-side proposal diff UI are not complete.
+- Full Luau AST/type analysis, complete UI hierarchy and client/server architecture mapping, automated arbitrary game-specific test generation, vector/embedding RAG, full binary place/model parsing, complete semantic dependency analysis and side-by-side proposal diff UI are not complete.
 - Cloud inference, signup, storage, and real Roblox Studio playtest still require an activated Rmango Supabase/Vercel deployment and a connected desktop Studio session. This PR's CI verifies code builds and unit tests; it does not substitute for a live game playtest.
 
 ## Local development
