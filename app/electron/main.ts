@@ -1564,15 +1564,45 @@ handleIpc('chat:load', async () => {
         return [];
       }
     }
-    if (!Array.isArray(parsed)) return [];
 
-    if (legacyPlaintext) {
-      const encrypted = safeStorage.encryptString(JSON.stringify(parsed)).toString('base64');
+    const cloudSession = await readCloudSession();
+    const activeOwnerId = cloudSession?.user.id || null;
+    let ownerId: string | null = null;
+    let messages: unknown;
+
+    if (Array.isArray(parsed)) {
+      // Pre-account history is treated as guest-only. It must not appear inside
+      // a signed-in account, where it could reveal a previous account's chats.
+      ownerId = null;
+      messages = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      const saved = parsed as { version?: unknown; ownerId?: unknown; messages?: unknown };
+      if (saved.version !== 2 || (saved.ownerId !== null && typeof saved.ownerId !== 'string') || !Array.isArray(saved.messages)) {
+        return [];
+      }
+      ownerId = typeof saved.ownerId === 'string' ? saved.ownerId : null;
+      messages = saved.messages;
+    } else {
+      return [];
+    }
+
+    if (ownerId !== activeOwnerId) return [];
+    const cleaned = (messages as ChatMessage[]).filter(message =>
+      message && (message.role === 'user' || message.role === 'assistant') &&
+      typeof message.content === 'string'
+    ).slice(-100);
+
+    if (legacyPlaintext || Array.isArray(parsed)) {
+      const encrypted = safeStorage.encryptString(JSON.stringify({
+        version: 2,
+        ownerId,
+        messages: cleaned,
+      })).toString('base64');
       const temporaryPath = filePath + '.migrating';
       await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
       await fs.rename(temporaryPath, filePath);
     }
-    return parsed.slice(-100) as ChatMessage[];
+    return cleaned;
   } catch {
     return [];
   }
@@ -1589,14 +1619,19 @@ handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
       ? (message as any).attachments.map(({ id, name, mimeType, kind, size }: any) => ({ id, name, mimeType, kind, size }))
       : undefined,
   }));
-  const encrypted = safeStorage.encryptString(JSON.stringify(cleaned)).toString('base64');
+  const cloudSession = await readCloudSession();
+  const ownerId = cloudSession?.user.id || null;
+  const encrypted = safeStorage.encryptString(JSON.stringify({
+    version: 2,
+    ownerId,
+    messages: cleaned,
+  })).toString('base64');
   const filePath = sessionPath();
   const temporaryPath = filePath + '.tmp';
   await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
   await fs.rename(temporaryPath, filePath);
-  return { ok: true, encrypted: true };
+  return { ok: true, encrypted: true, accountScoped: true };
 });
-
 handleIpc('cloud:cancel', (_event, requestId: string) => {
   if (typeof requestId !== 'string' || requestId.length > 80) return { ok: false };
   const controller = activeChatRequests.get(requestId);
