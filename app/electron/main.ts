@@ -1890,14 +1890,14 @@ handleIpc('chat:load', async () => {
   }
 });
 handleIpc('chat:save', async (_event, messages: ChatMessage[]) => {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('Windows secure storage is unavailable. Chat history was not written in plaintext.');
-  }
   if (!Array.isArray(messages)) throw new Error('Invalid local chat history.');
   const preferences = await readSettings();
   if (!preferences.saveLocalChatHistory) {
     try { await fs.rm(sessionPath(), { force: true }); } catch { /* cache may not exist */ }
     return { ok: true, saved: false };
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Chat history was not written in plaintext.');
   }
   await fs.mkdir(userData(), { recursive: true });
   const cleaned = messages.slice(-100).map(message => ({
