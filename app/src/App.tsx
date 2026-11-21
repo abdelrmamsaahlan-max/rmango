@@ -3,7 +3,7 @@ import {
   Activity, AlertCircle, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, CircleHelp,
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
-  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
+  LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2, Eye, EyeOff,
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square,
   Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info
 } from 'lucide-react';
@@ -159,8 +159,12 @@ function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
+  const [googleAuthBusy, setGoogleAuthBusy] = useState(false);
+  const [authEmailFormOpen, setAuthEmailFormOpen] = useState(false);
+  const [authShowPassword, setAuthShowPassword] = useState(false);
   const [authResetBusy, setAuthResetBusy] = useState(false);
   const [authResetSent, setAuthResetSent] = useState(false);
+  const [authResetError, setAuthResetError] = useState('');
   const [search, setSearch] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
@@ -560,30 +564,97 @@ function App() {
 
   async function handlePasswordReset() {
     const email = authEmail.trim().toLowerCase();
-    if (!email || authResetBusy) return;
-    setAuthResetBusy(true);
+    if (authResetBusy) return;
     setAuthResetSent(false);
+    setAuthResetError('');
+    if (!email) {
+      setAuthResetError('Enter your Rmango account email first.');
+      document.getElementById('rmango-email')?.focus();
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthResetError('Enter a valid email address.');
+      document.getElementById('rmango-email')?.focus();
+      return;
+    }
+    setAuthResetBusy(true);
     try {
       const result = await window.rmango.requestPasswordReset({ email });
       setAuthResetSent(true);
       setToast(result.message || 'If an account exists, a recovery email has been sent.');
     } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not request a password reset.');
+      setAuthResetError(error instanceof Error ? error.message : 'Could not request a password reset.');
     } finally {
       setAuthResetBusy(false);
     }
   }
 
+  async function finishAuthentication() {
+    // Clear the old account's visible data before loading the newly authenticated owner.
+    setMessages([]);
+    setActivities([]);
+    setConversationId(undefined);
+    setCloudProjectId(undefined);
+    setCloudProjectChanges([]);
+    setCloudTasks([]);
+    setCloudProjects([]);
+    setCloudConversations([]);
+    setFollowupQueue([]);
+    followupQueueRef.current = [];
+    setAuthPassword('');
+    const state = await refreshCloudState();
+    setCloudProjectId(state.currentProjectId || undefined);
+    if (state.signedIn && state.currentConversationId) {
+      try {
+        const restored = await window.rmango.loadCloudConversation(state.currentConversationId);
+        setConversationId(restored.conversation.id);
+        setMessages(restored.messages);
+        const restoredProjectId = restored.conversation.project_id || null;
+        setCloudProjectId(restoredProjectId || undefined);
+        await window.rmango.setCurrentCloudProjectId(restoredProjectId);
+        setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
+      } catch (error) {
+        setConversationId(undefined);
+        setToast(error instanceof Error ? error.message : 'Signed in, but the last conversation could not be restored.');
+      }
+    }
+    if (state.signedIn) {
+      try {
+        const [tasks, projects] = await Promise.all([
+          window.rmango.getCloudTasks(),
+          window.rmango.getCloudProjects(),
+        ]);
+        setCloudTasks(tasks);
+        setCloudProjects(projects);
+      } catch {
+        setCloudTasks([]);
+        setCloudProjects([]);
+      }
+    }
+    if (appState?.studioConnected) await refreshMcpState();
+    setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
+    if (state.serviceReady) setSettingsOpen(false);
+  }
+
   async function handleAuth(event: FormEvent) {
     event.preventDefault();
-    if (authBusy) return;
+    if (authBusy || googleAuthBusy) return;
+    const email = authEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setToast('Enter a valid email address.');
+      return;
+    }
+    if (authMode === 'sign-up' && authPassword.length < 10) {
+      setToast('Choose a password with at least 10 characters.');
+      return;
+    }
     setAuthBusy(true);
     try {
       if (authMode === 'sign-in') {
-        await window.rmango.cloudSignIn({ email: authEmail.trim(), password: authPassword });
+        await window.rmango.cloudSignIn({ email, password: authPassword });
       } else {
         const result = await window.rmango.cloudSignUp({
-          email: authEmail.trim(),
+          email,
           password: authPassword,
           displayName: authDisplayName.trim() || undefined,
         });
@@ -591,49 +662,39 @@ function App() {
           setToast('Check your email to confirm your Rmango account, then sign in.');
           setAuthMode('sign-in');
           setAuthPassword('');
+          setAuthEmailFormOpen(true);
           return;
         }
       }
-      setAuthPassword('');
-      const state = await refreshCloudState();
-      setMessages([]);
-      setActivities([]);
-      if (state.signedIn && state.currentConversationId) {
-        try {
-          const restored = await window.rmango.loadCloudConversation(state.currentConversationId);
-          setConversationId(restored.conversation.id);
-          setMessages(restored.messages);
-          const restoredProjectId = restored.conversation.project_id || null;
-          setCloudProjectId(restoredProjectId || undefined);
-          await window.rmango.setCurrentCloudProjectId(restoredProjectId);
-          setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
-        } catch (error) {
-          setConversationId(undefined);
-          setToast(error instanceof Error ? error.message : 'Signed in, but the last conversation could not be restored.');
-        }
-      } else {
-        setConversationId(undefined);
-      }
-      if (state.signedIn) {
-        try {
-          const [tasks, projects] = await Promise.all([
-            window.rmango.getCloudTasks(),
-            window.rmango.getCloudProjects(),
-          ]);
-          setCloudTasks(tasks);
-          setCloudProjects(projects);
-        } catch {
-          setCloudTasks([]);
-          setCloudProjects([]);
-        }
-      }
-      if (appState?.studioConnected) await refreshMcpState();
-      setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
-      if (state.serviceReady) setSettingsOpen(false);
+      await finishAuthentication();
+      setAuthEmailFormOpen(false);
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.');
     } finally {
       setAuthBusy(false);
+    }
+  }
+
+  async function handleGoogleAuth() {
+    if (authBusy || googleAuthBusy) return;
+    setGoogleAuthBusy(true);
+    setToast('Complete Google sign-in in your browser. Rmango will return here automatically.');
+    try {
+      await window.rmango.cloudSignInWithGoogle();
+      await finishAuthentication();
+      setAuthEmailFormOpen(false);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Google sign-in could not be completed.');
+    } finally {
+      setGoogleAuthBusy(false);
+    }
+  }
+
+  async function cancelGoogleAuth() {
+    try {
+      await window.rmango.cancelGoogleSignIn();
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not cancel Google sign-in.');
     }
   }
 
@@ -756,6 +817,7 @@ function App() {
       setCloudTasks([]);
       setCloudProjects([]);
       setCloudProjectId(undefined);
+      setCloudProjectChanges([]);
       setConversationId(undefined);
       setMessages([]);
       setActivities([]);
@@ -2109,43 +2171,66 @@ function App() {
                       </div>
                     </section>
                   </> : <>
-                    <section className="settings-card">
+                    <section className="settings-card auth-account-card">
                       <div className="settings-card-heading">
                         <div className="settings-card-icon"><LockKeyhole size={17}/></div>
-                        <div><h3>Connect your account</h3><p>Sign in to use hosted AI, projects, and account-based conversation history.</p></div>
+                        <div><h3>Connect your account</h3><p>Sign in securely to use hosted AI, cloud projects, and your conversation history.</p></div>
                       </div>
-                      <div className="provider-options">
-                        <button type="button" className={'provider-option ' + (authMode === 'sign-in' ? 'selected' : '')} onClick={() => { setAuthMode('sign-in'); setAuthResetSent(false); }}>
-                          <span className="provider-symbol local-symbol"><LockKeyhole size={15}/></span><span><strong>Sign in</strong><small>Existing account</small></span>
+                      <div className="auth-provider-stack">
+                        <button type="button" className="auth-google-button" onClick={() => void handleGoogleAuth()} disabled={googleAuthBusy || authBusy}>
+                          {googleAuthBusy ? <LoaderCircle size={18} className="spin"/> : <svg className="auth-google-mark" viewBox="0 0 48 48" aria-hidden="true">
+                            <path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11a9.5 9.5 0 0 1-4.1 6.2v5h6.6c3.9-3.6 6.1-8.8 6.1-14.9Z"/>
+                            <path fill="#34A853" d="M24 44c5.5 0 10.1-1.8 13.5-4.8l-6.6-5c-1.8 1.2-4 1.9-6.9 1.9-5.3 0-9.8-3.6-11.4-8.4H5.8v5.2A20 20 0 0 0 24 44Z"/>
+                            <path fill="#FBBC05" d="M12.6 27.7a12 12 0 0 1 0-7.4v-5.2H5.8a20 20 0 0 0 0 17.8l6.8-5.2Z"/>
+                            <path fill="#EA4335" d="M24 11.9c3 0 5.7 1 7.8 3.1l5.8-5.8C34.1 5.9 29.5 4 24 4A20 20 0 0 0 5.8 15.1l6.8 5.2c1.6-4.8 6.1-8.4 11.4-8.4Z"/>
+                          </svg>}
+                          <span>{googleAuthBusy ? 'Waiting for Google…' : 'Continue with Google'}</span>
+                          {!googleAuthBusy && <ArrowRight size={15}/>}
                         </button>
-                        <button type="button" className={'provider-option ' + (authMode === 'sign-up' ? 'selected' : '')} onClick={() => { setAuthMode('sign-up'); setAuthResetSent(false); }}>
-                          <span className="provider-symbol local-symbol"><Plus size={15}/></span><span><strong>Create account</strong><small>New Rmango account</small></span>
+                        {googleAuthBusy && <button type="button" className="auth-cancel-google" onClick={() => void cancelGoogleAuth()}>Cancel Google sign-in</button>}
+                        <div className="auth-divider"><span>OR</span></div>
+                        <button type="button" className="auth-email-toggle" onClick={() => { setAuthEmailFormOpen(open => !open); setAuthResetError(''); }}>
+                          <span>{authEmailFormOpen ? 'Hide email sign-in' : 'Continue with email'}</span>
+                          <ChevronDown size={15} className={authEmailFormOpen ? 'auth-chevron-open' : ''}/>
                         </button>
+                        {!authEmailFormOpen && <button type="button" className="auth-create-account-link" onClick={() => { setAuthMode('sign-up'); setAuthEmailFormOpen(true); setAuthResetError(''); setAuthResetSent(false); }}>
+                          New to Rmango? <strong>Create an account</strong>
+                        </button>}
                       </div>
-                      <form className="settings-auth-form" onSubmit={handleAuth}>
+                      {authEmailFormOpen && <form className="settings-auth-form auth-email-form" onSubmit={handleAuth}>
+                        <div className="auth-form-title">{authMode === 'sign-in' ? 'Sign in with email' : 'Create your Rmango account'}</div>
                         {authMode === 'sign-up' && <>
                           <label className="field-label" htmlFor="rmango-display-name">DISPLAY NAME</label>
-                          <input id="rmango-display-name" className="settings-input" value={authDisplayName} onChange={event => setAuthDisplayName(event.target.value)} placeholder="Your name" maxLength={60}/>
+                          <input id="rmango-display-name" className="settings-input" value={authDisplayName} onChange={event => setAuthDisplayName(event.target.value)} placeholder="Your name" maxLength={60} autoComplete="name"/>
                         </>}
                         <label className="field-label" htmlFor="rmango-email">EMAIL</label>
-                        <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => { setAuthEmail(event.target.value); setAuthResetSent(false); }} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
+                        <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => { setAuthEmail(event.target.value); setAuthResetSent(false); setAuthResetError(''); }} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
                         <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
-                        <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
-                        {authMode === 'sign-in' && <div className="password-recovery-row">
-                          <button type="button" className="password-recovery-link" onClick={() => void handlePasswordReset()} disabled={authResetBusy || !authEmail.trim()}>
-                            {authResetBusy ? <LoaderCircle size={13} className="spin"/> : <LockKeyhole size={13}/>}
-                            {authResetBusy ? 'Sending recovery email…' : 'Forgot password? Send a reset link'}
+                        <div className="auth-password-wrap">
+                          <input id="rmango-password" className="settings-input" type={authShowPassword ? 'text' : 'password'} value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
+                          <button type="button" className="auth-password-toggle" onClick={() => setAuthShowPassword(show => !show)} aria-label={authShowPassword ? 'Hide password' : 'Show password'} title={authShowPassword ? 'Hide password' : 'Show password'}>
+                            {authShowPassword ? <EyeOff size={15}/> : <Eye size={15}/>}
                           </button>
-                          {authResetSent && <p className="password-recovery-note">If an account exists for this email, a recovery link has been sent. Open it in your browser, choose a new password, then return here to sign in.</p>}
+                        </div>
+                        {authMode === 'sign-in' && <div className="password-recovery-row">
+                          <button type="button" className="password-recovery-link" onClick={() => void handlePasswordReset()} disabled={authResetBusy}>
+                            {authResetBusy ? <LoaderCircle size={13} className="spin"/> : <LockKeyhole size={13}/>}
+                            {authResetBusy ? 'Sending recovery email…' : 'Forgot password?'}
+                          </button>
+                          {authResetSent && <p className="password-recovery-note" role="status">If an account exists for that address, a recovery email has been sent. Open the link to set a new password, then return here to sign in.</p>}
+                          {authResetError && <p className="auth-inline-error" role="alert">{authResetError}</p>}
                         </div>}
-                        <div className="secure-note"><LockKeyhole size={13}/><span>These are your Rmango account credentials, not an AI provider API key. Provider credentials stay on the cloud server.</span></div>
+                        <div className="secure-note"><LockKeyhole size={13}/><span>Your Rmango account credentials are separate from AI provider credentials. Provider secrets stay on the cloud server.</span></div>
                         <div className="settings-form-actions">
-                          <button type="submit" className="save-button" disabled={authBusy || !authEmail.trim() || !authPassword}>
+                          <button type="submit" className="save-button" disabled={authBusy || googleAuthBusy || !authEmail.trim() || !authPassword}>
                             {authBusy ? <LoaderCircle size={14} className="spin"/> : <ArrowRight size={14}/>}
                             {authMode === 'sign-in' ? 'Sign in' : 'Create account'}
                           </button>
                         </div>
-                      </form>
+                        <button type="button" className="auth-switch-mode" onClick={() => { setAuthMode(mode => mode === 'sign-in' ? 'sign-up' : 'sign-in'); setAuthResetSent(false); setAuthResetError(''); setAuthPassword(''); }}>
+                          {authMode === 'sign-in' ? 'New to Rmango? Create an account' : 'Already have an account? Sign in'}
+                        </button>
+                      </form>}
                     </section>
                   </>}
                   {cloudState?.configured && <section className="settings-card">

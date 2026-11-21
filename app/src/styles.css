@@ -1146,3 +1146,42 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .studio-disconnect-quiet:hover:not(:disabled){border-color:#8c5d4e;background:#2c1d1b;color:#ffc8b3}
 .connection-pill:not(.connected){color:#bdc3ad;border-color:#57553a;background:#24271b}
 .connection-pill:not(.connected) .status-dot{background:#d8b455;box-shadow:0 0 7px rgba(216,180,85,.24)}
+
+/* Google-first authentication and accessible email fallback */
+.auth-account-card{overflow:hidden}
+.auth-provider-stack{display:flex;flex-direction:column;gap:12px;margin-top:17px}
+.auth-google-button{width:100%;min-height:44px;border:1px solid #d6d9df;border-radius:9px;background:#fff;color:#202124;display:flex;align-items:center;justify-content:center;gap:11px;font:600 12px Inter,"Segoe UI",sans-serif;cursor:pointer;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+.auth-google-button:hover:not(:disabled){border-color:#b7bec9;box-shadow:0 5px 18px rgba(0,0,0,.15);transform:translateY(-1px)}
+.auth-google-button:focus-visible,.auth-email-toggle:focus-visible,.auth-password-toggle:focus-visible,.auth-cancel-google:focus-visible,.auth-create-account-link:focus-visible,.auth-switch-mode:focus-visible{outline:2px solid #e6b74c;outline-offset:3px}
+.auth-google-button:disabled{opacity:.65;cursor:wait}
+.auth-google-button>span{flex:0 0 auto}
+.auth-google-button>svg:last-child:not(.auth-google-mark){margin-left:auto;margin-right:12px;color:#5c6672}
+.auth-google-mark{width:18px;height:18px;flex:none}
+.auth-cancel-google{align-self:center;border:0;background:transparent;color:var(--ink-muted);font:500 10px Inter,sans-serif;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.auth-divider{display:flex;align-items:center;gap:12px;color:var(--ink-faint);font:700 8px Inter,sans-serif;letter-spacing:1.2px}
+.auth-divider:before,.auth-divider:after{content:"";height:1px;flex:1;background:var(--line)}
+.auth-email-toggle{width:100%;min-height:39px;border:1px solid var(--line);border-radius:8px;background:var(--surface-raised);color:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font:600 11px Inter,sans-serif;cursor:pointer}
+.auth-email-toggle:hover{border-color:var(--ink-faint);background:var(--surface-soft)}
+.auth-email-toggle svg{transition:transform .18s ease}
+.auth-email-toggle .auth-chevron-open{transform:rotate(180deg)}
+.auth-create-account-link,.auth-switch-mode{width:100%;border:0;background:transparent;color:var(--ink-muted);font:500 10px Inter,sans-serif;padding:3px 0;cursor:pointer}
+.auth-create-account-link strong,.auth-switch-mode{color:var(--ink)}
+.auth-create-account-link:hover,.auth-switch-mode:hover{text-decoration:underline;text-underline-offset:3px}
+.auth-email-form{margin-top:15px;padding-top:14px;border-top:1px solid var(--line-soft);animation:rmango-auth-in .18s ease-out}
+.auth-form-title{font-size:12px;font-weight:750;color:var(--ink);margin:0 0 13px}
+.auth-password-wrap{position:relative}
+.auth-password-wrap .settings-input{padding-right:40px}
+.auth-password-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:27px;height:27px;border:0;border-radius:6px;background:transparent;color:var(--ink-muted);display:grid;place-items:center;cursor:pointer}
+.auth-password-toggle:hover{background:var(--surface-soft);color:var(--ink)}
+.auth-inline-error{margin:8px 0 0;color:#e58d82;font-size:10px;line-height:1.5}
+.password-recovery-row{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin-top:7px}
+.password-recovery-link{display:inline-flex;align-items:center;gap:6px}
+.auth-email-form .secure-note{margin-top:14px}
+.auth-email-form .settings-form-actions{margin-top:13px}
+.auth-email-form .auth-switch-mode{margin-top:10px}
+@keyframes rmango-auth-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.app-shell[data-theme="light"] .auth-email-toggle{background:#f5f6f8;color:#333943;border-color:#d9dee5}
+.app-shell[data-theme="light"] .auth-email-toggle:hover{background:#eceff3;border-color:#b8c0cb}
+.app-shell[data-theme="light"] .auth-divider:before,.app-shell[data-theme="light"] .auth-divider:after{background:#dfe3e8}
+.app-shell[data-theme="light"] .auth-form-title,.app-shell[data-theme="light"] .auth-create-account-link strong,.app-shell[data-theme="light"] .auth-switch-mode{color:#242a32}
+@media(prefers-reduced-motion:reduce){.auth-google-button,.auth-email-toggle svg,.auth-email-form{transition:none;animation:none}}

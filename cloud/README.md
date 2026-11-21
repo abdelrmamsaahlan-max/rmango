@@ -62,9 +62,10 @@ Set in the Vercel project's server environment only:
 | Variable | Required | Purpose |
 |---|---:|---|
 | `SUPABASE_URL` | Yes | Rmango Supabase project URL |
-| `SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase public/publishable client key used by the server to validate user sessions |
+| `SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase public/publishable client key used by the server to validate user sessions and initialize the desktop OAuth client |
 | `SUPABASE_SECRET_KEY` | Yes | Recommended server-only Supabase secret API key (`sb_secret_...`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Legacy | Backward-compatible server-only key for existing deployments |
+| `RMANGO_PUBLIC_URL` | Recommended | Canonical HTTPS origin used for password-recovery redirects (defaults to `https://rmango-cloud.vercel.app`) |
 | `VERCEL_OIDC_TOKEN` | Automatic on Vercel | Authentication to AI Gateway; no static AI key |
 | `RMANGO_MODEL_FAST` | Optional | Admin-selected Gateway model ID for Rmango Fast |
 | `RMANGO_MODEL_DEVELOPER` | Optional | Admin-selected Gateway model ID for Rmango Developer |
@@ -75,6 +76,23 @@ Set in the Vercel project's server environment only:
 | `RMANGO_MAX_OUTPUT_TOKENS` | Optional | Upper bound used by the chat service (clamped by the DB policy) |
 
 No AI provider or AI Gateway API key is supported in the production configuration. Model calls are authenticated by Vercel OIDC.
+
+## Google sign-in and account recovery setup
+
+Google OAuth credentials belong only in the Supabase Auth provider configuration. The desktop receives only the Supabase URL and publishable key from `/api/auth/config`; the server-only secret key is never returned.
+
+1. In Google Cloud Console, create an OAuth client of type **Web application**.
+2. Add the Supabase callback URL to Google's authorized redirect URIs:
+   `https://jqkcrtnbxewyqrdpnqap.supabase.co/auth/v1/callback`.
+3. In Supabase → Authentication → Sign In / Providers, enable Google and save the Google client ID and client secret.
+4. In Supabase → Authentication → URL Configuration → Additional Redirect URLs, add:
+   `http://127.0.0.1:43821/auth/callback`.
+5. Set `RMANGO_PUBLIC_URL=https://rmango-cloud.vercel.app` in the Vercel cloud project's server environment. Add the corresponding recovery destination `https://rmango-cloud.vercel.app/auth/reset-password` to the Supabase redirect allow list.
+6. Configure a working SMTP/email provider in Supabase Auth and send a real password-recovery email to verify the delivery and completion flow.
+
+The desktop opens the system browser, uses Supabase PKCE, and receives the authorization code through a temporary loopback listener bound only to `127.0.0.1`. The callback port is fixed at `43821`; only the expected callback route, local peer, and one-time state are accepted. The PKCE verifier stays in the Electron main process's memory until the transaction completes.
+
+Google login and recovery email delivery still require the dashboard settings above. A successful API build does not prove that Google or SMTP is enabled.
 
 ## GitHub desktop build configuration
 
@@ -113,7 +131,8 @@ Model catalogue data is fetched live from Gateway metadata. Price information sh
 ## Current endpoints
 
 - `/api/health` — non-secret backend readiness state.
-- `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out` — Rmango accounts.
+- `/api/auth/config` — public Supabase URL/publishable key plus Google-provider status for the desktop OAuth client; never returns server secrets.
+- `/api/auth/sign-up`, `sign-in`, `refresh`, `sign-out`, `password-reset` — Rmango accounts.
 - `/api/models` — live model profiles and capability/price metadata.
 - `/api/chat` — authenticated streaming cloud chat and cloud agent tools.
 - `/api/projects` — account-owned cloud project index/create.

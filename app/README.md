@@ -9,6 +9,8 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 - **Vercel OIDC** authenticates AI Gateway requests from Vercel deployments. No static AI Gateway key or provider key is configured in production.
 - **Supabase Auth, Postgres and private Storage** hold user accounts, projects, conversations, messages, uploaded source files, project proposals and usage events.
 - The Windows desktop connects over HTTPS and stores only the user's Rmango account session encrypted with Windows secure storage.
+- Account sign-in supports email/password and Google OAuth through the system browser, Supabase PKCE, and a loopback callback. The cloud returns only the Supabase URL and publishable key; privileged keys remain server-side.
+- Password recovery uses the canonical `RMANGO_PUBLIC_URL` origin and the hosted `/auth/reset-password` page. Google provider and SMTP email delivery must be enabled in Supabase before their real-world flows can work.
 - A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is a tool bridge only; it does not run any AI model.
 
 ## Current cloud deployment status
