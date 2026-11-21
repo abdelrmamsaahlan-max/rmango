@@ -117,6 +117,7 @@ export type CloudState = {
   configured: boolean;
   serviceReady?: boolean;
   signedIn: boolean;
+  isGuest?: boolean;
   email?: string;
   apiHost?: string;
   message?: string;
