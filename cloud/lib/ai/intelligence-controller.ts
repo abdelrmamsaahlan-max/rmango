@@ -129,8 +129,8 @@ const BUDGETS: Record<IntelligenceLevel, Omit<IntelligenceBudget, "useProjectToo
 };
 
 function detectIntent(prompt: string, hasSelectedProject = false): IntelligenceIntent {
-  const strongDebugIntent = /\\b(debug|diagnos\\w*|troubleshoot|root cause|stack trace|not working|doesn't work|doesnt work|broken|crash|bug)\\b/i.test(prompt);
-  const explicitPlanningOnly = /\\b(plan only|just (?:make|write|create) (?:the )?plan|do not (?:write|change|modify|implement|code)|don't (?:write|change|modify|implement|code)|without (?:writing|changing|modifying) code|before coding)\\b/i.test(prompt);
+  const strongDebugIntent = /\b(debug|diagnos\w*|troubleshoot|root cause|stack trace|not working|doesn't work|doesnt work|broken|crash|bug)\b/i.test(prompt);
+  const explicitPlanningOnly = /\b(plan only|just (?:make|write|create) (?:the )?plan|do not (?:write|change|modify|implement|code)|don't (?:write|change|modify|implement|code)|without (?:writing|changing|modifying) code|before coding)\b/i.test(prompt);
   for (const item of INTENT_PATTERNS) {
     if (item.pattern.test(prompt)) {
       if (item.intent === "debugging" && IMPLEMENTATION.test(prompt) && !strongDebugIntent) return "implementation";
@@ -141,8 +141,8 @@ function detectIntent(prompt: string, hasSelectedProject = false): IntelligenceI
   if (
     hasSelectedProject &&
     (
-      /\\b(in this project|in my project|in this game|in my game|in this codebase|in the codebase|existing implementation|how is .* implemented|what does .* system do)\\b/i.test(prompt) ||
-      /\\b(explain|describe|inspect|analy[sz]e|trace|understand|walk me through)\\b/i.test(prompt)
+      /\b(in this project|in my project|in this game|in my game|in this codebase|in the codebase|existing implementation|how is .* implemented|what does .* system do)\b/i.test(prompt) ||
+      /\b(explain|describe|inspect|analy[sz]e|trace|understand|walk me through)\b/i.test(prompt)
     )
   ) return "project_navigation";
   return "question";
