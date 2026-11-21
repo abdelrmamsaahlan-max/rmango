@@ -88,7 +88,7 @@ async function appendEventStep(taskId: string, ownerId: string, eventType: strin
 async function updateTaskResultStep(taskId: string, ownerId: string, runToken: string, result: TaskResult) {
   "use step";
   const admin = createAdminClient();
-  const { error } = await admin.from("agent_tasks")
+  const { data, error } = await admin.from("agent_tasks")
     .update({ result, updated_at: new Date().toISOString() })
     .eq("id", taskId)
     .eq("owner_id", ownerId)
@@ -236,6 +236,7 @@ async function executeTaskStep(
   taskText: string,
   plan: string,
   profile: ModelProfile,
+  runToken: string,
 ) {
   "use step";
   const admin = createAdminClient();
@@ -564,6 +565,7 @@ export async function runAgentTask(taskId: string, ownerId: string, profile: Mod
         task.task_text,
         result.plan || "",
         profile,
+        runToken,
       );
       result = {
         ...result,
