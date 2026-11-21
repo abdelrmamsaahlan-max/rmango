@@ -486,6 +486,10 @@ export async function POST(request: Request) {
       profile,
       domains: workflow.domains,
       intent: workflow.intent,
+      complexity: workflow.complexity,
+      complexityLabel: workflow.complexityLabel,
+      risk: workflow.risk,
+      maxSteps: workflow.maxSteps,
       projectId: selectedProjectId || null,
     });
   }
