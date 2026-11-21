@@ -51,13 +51,16 @@ export async function GET(request: Request, context: { params: Promise<{ project
   }
 
   const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  // Copy into a plain ArrayBuffer so the Fetch Response body type is portable across Node/DOM typings.
+  const responseBody = new Uint8Array(buffer.byteLength);
+  responseBody.set(buffer);
   const filename = safeArchiveName(project.name) + ".zip";
-  return new Response(buffer, {
+  return new Response(responseBody.buffer, {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": "attachment; filename=\"" + filename + "\"",
-      "Content-Length": String(buffer.byteLength),
+      "Content-Length": String(responseBody.byteLength),
       "Cache-Control": "private, no-store",
     },
   });
