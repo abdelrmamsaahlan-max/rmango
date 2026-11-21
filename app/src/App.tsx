@@ -77,6 +77,9 @@ function App() {
   const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
   const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [cloudProjectId, setCloudProjectId] = useState<string | undefined>();
+  const [uploadingProject, setUploadingProject] = useState(false);
+  const [projectUploadProgress, setProjectUploadProgress] = useState<{ completed: number; total: number; uploaded: number; skipped: number; currentFile: string } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [studioTools, setStudioTools] = useState<string[]>([]);
@@ -113,6 +116,9 @@ function App() {
         message.id === requestId ? { ...message, content: message.content + delta } : message
       ));
     });
+    const unsubscribeProjectUpload = window.rmango.onProjectUploadProgress(progress => {
+      setProjectUploadProgress(progress);
+    });
     void window.rmango.getUpdateState().then(setUpdateState).catch(() => undefined);
 
     Promise.all([window.rmango.getAppState(), window.rmango.getCloudState(), window.rmango.loadMessages()])
@@ -133,6 +139,7 @@ function App() {
     return () => {
       unsubscribeUpdates();
       unsubscribeDeltas();
+      unsubscribeProjectUpload();
     };
   }, []);
 
@@ -236,6 +243,33 @@ function App() {
       else setToast(result.message || 'Restarting to install the update…');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not install the update.');
+    }
+  }
+
+  async function handleUploadProject() {
+    if (!appState?.projectPath || uploadingProject) return;
+    if (!cloudState?.configured || !cloudState.serviceReady || !cloudState.signedIn) {
+      setSettingsOpen(true);
+      setToast('Sign in to a configured Rmango Cloud account before uploading this project.');
+      return;
+    }
+    setUploadingProject(true);
+    setProjectUploadProgress({ completed: 0, total: 0, uploaded: 0, skipped: 0, currentFile: 'Preparing project…' });
+    try {
+      const result = await window.rmango.uploadCloudProject();
+      setCloudProjectId(result.projectId);
+      setToast('Uploaded ' + result.uploaded + ' source files to your private cloud project.' + (result.skipped.length ? ' ' + result.skipped.length + ' files were skipped.' : ''));
+      if (result.skipped.length) {
+        setActivities(current => [
+          ...current,
+          { name: 'Project import', detail: result.skipped.length + ' files skipped; unsupported or over the 512 KB text limit.', ok: false },
+        ]);
+      }
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not upload this project to Rmango Cloud.');
+    } finally {
+      setUploadingProject(false);
+      setProjectUploadProgress(null);
     }
   }
 
@@ -384,6 +418,7 @@ function App() {
         attachments: pending.map(({ name, mimeType, kind, size, data }) => ({ name, mimeType, kind, size, data })),
         profile: selectedProfile || cloudProfile,
         conversationId,
+        projectId: cloudProjectId,
         requestId,
       });
       if (result.conversationId) setConversationId(result.conversationId);
@@ -574,6 +609,18 @@ function App() {
           {appState?.projectPath
             ? <div className="project-path" title={appState.projectPath}>{appState.projectPath}</div>
             : <div className="empty-explorer"><FolderOpen size={22}/><span>No project folder selected</span><button onClick={() => void handleOpenProject()}>Open folder</button></div>}
+          {appState?.projectPath && <div className="project-cloud-upload">
+            <button onClick={() => void handleUploadProject()} disabled={uploadingProject || !cloudReady || !cloudState?.signedIn}>
+              {uploadingProject ? <LoaderCircle size={13} className="spin"/> : <Upload size={13}/>}
+              {uploadingProject ? 'Uploading project…' : cloudProjectId ? 'Sync project to Cloud' : 'Upload project to Cloud'}
+            </button>
+            {projectUploadProgress && <div className="project-upload-progress">
+              <div><span>{projectUploadProgress.currentFile}</span><strong>{projectUploadProgress.completed}/{projectUploadProgress.total}</strong></div>
+              <div className="update-progress-track"><div className="update-progress-fill" style={{ width: (projectUploadProgress.total ? projectUploadProgress.completed / projectUploadProgress.total * 100 : 0) + '%' }}/></div>
+            </div>}
+            {cloudProjectId && <small>Linked cloud project · {cloudProjectId.slice(0, 8)}</small>}
+            {!cloudReady && <small>Sign in and connect Rmango Cloud to upload</small>}
+          </div>}
           {projectFiles.length > 0 && <>
             <div className="file-search"><Search size={13}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Filter files"/></div>
             <div className="file-tree">
