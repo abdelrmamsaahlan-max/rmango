@@ -1,4 +1,4 @@
-export type AIProvider = 'ollama' | 'anthropic' | 'openai';
+export type CloudProfile = 'fast' | 'developer' | 'think' | 'vision' | 'agent';
 
 export type AttachmentKind = 'image' | 'file';
 
@@ -20,10 +20,12 @@ export type AttachmentPayload = {
 };
 
 export type ChatMessage = {
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
   attachments?: ChatAttachment[];
+  modelProfile?: CloudProfile;
 };
 
 export type ProjectFile = {
@@ -41,20 +43,34 @@ export type AppState = {
   studioToolCount: number;
 };
 
-export type Settings = {
-  provider: AIProvider;
-  model: string;
-  keyConfigured: boolean;
-  configuredProviders?: string[];
-  secureStorageAvailable: boolean;
+export type CloudState = {
+  configured: boolean;
+  serviceReady?: boolean;
+  signedIn: boolean;
+  email?: string;
+  apiHost?: string;
+  message?: string;
 };
 
-export type LocalAiState = {
-  running: boolean;
-  modelInstalled: boolean;
-  models: string[];
-  model: string;
-  error?: string;
+export type CloudModelProfile = {
+  id: string;
+  name: string;
+  description: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+  inputModalities: string[];
+  capabilities: string[];
+  inputUsdPerMillionTokens: number | null;
+  outputUsdPerMillionTokens: number | null;
+  profile: CloudProfile;
+  profileLabel: string;
+};
+
+export type CloudModels = {
+  profiles: CloudModelProfile[];
+  availableModelCount: number;
+  source: string;
+  benchmarkScores: null;
 };
 
 export type StudioApprovalRequest = {
@@ -79,10 +95,11 @@ declare global {
   interface Window {
     rmango: {
       getAppState: () => Promise<AppState>;
-      getSettings: () => Promise<Settings>;
-      saveSettings: (settings: { provider: AIProvider; model: string; apiKey?: string }) => Promise<any>;
-      getLocalAiState: (model?: string) => Promise<LocalAiState>;
-      pullLocalModel: (model: string) => Promise<{ ok: boolean; message: string }>;
+      getCloudState: () => Promise<CloudState>;
+      cloudSignIn: (credentials: { email: string; password: string }) => Promise<{ ok: boolean; user: { id: string; email?: string } }>;
+      cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => Promise<{ ok: boolean; requiresEmailConfirmation: boolean; user: { id: string; email?: string } }>;
+      cloudSignOut: () => Promise<{ ok: boolean }>;
+      getCloudModels: () => Promise<CloudModels>;
       openProject: () => Promise<{ canceled?: boolean; path?: string; files?: ProjectFile[] }>;
       clearProject: () => Promise<any>;
       connectRoblox: () => Promise<any>;
@@ -95,8 +112,12 @@ declare global {
       sendMessage: (payload: {
         messages: Array<{ role: 'user' | 'assistant'; content: string }>;
         attachments?: AttachmentPayload[];
-        mode: string;
-      }) => Promise<{ content: string; activity: AgentActivity[] }>;
+        profile: CloudProfile;
+        projectId?: string;
+        conversationId?: string;
+        requestId?: string;
+      }) => Promise<{ requestId: string; content: string; activity: AgentActivity[]; conversationId?: string; modelId?: string; profile: CloudProfile }>;
+      onCloudChatDelta: (callback: (event: { requestId: string; delta: string }) => void) => () => void;
       onToolApproval: (callback: (request: StudioApprovalRequest) => void) => () => void;
       respondToolApproval: (requestId: string, approved: boolean) => Promise<{ ok: boolean }>;
       getUpdateState: () => Promise<UpdateState>;
