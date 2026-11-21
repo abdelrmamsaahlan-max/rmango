@@ -1,108 +1,97 @@
-# Rmango architecture
+# Rmango architecture — cloud inference
 
-## Product shape
+## Product boundary
 
-Rmango is a local-first Windows desktop Roblox development agent. The renderer owns presentation; Electron's main process owns model connections, secrets, local files, MCP, the approval policy, and application updates.
+The user's Windows computer is the desktop UI and a limited local tool connector. **All language-model inference, reasoning, model routing and agent planning happens remotely.** The desktop must not load Ollama, download model weights, send requests to AI-provider APIs directly, or contain AI provider secrets.
 
-## Runtime layout
+## Architecture
 
 ~~~text
-React renderer
-  Chat · image/file attachments · project explorer · Studio inspector
-  Local runtime status · Studio approval cards · update status/progress
-          │ context-isolated preload / IPC
-          ▼
-Electron main process
-  Settings vault · local file reader · session history
-  Model router · tool-call loop · approval broker · GitHub updater
-       │                         │                         │
-       ▼                         ▼                         ▼
-Ollama localhost             MCP stdio client           GitHub Releases
-127.0.0.1:11434              %LOCALAPPDATA%\Roblox\mcp.bat  latest.yml + NSIS
-       │                         │                         │
-       ▼                         ▼                         ▼
-Local model weights          Roblox Studio MCP server   Signed/checksummed app
-on this PC                   Open Studio place/session   update download/install
+Windows desktop (React + Electron)
+  Chat · attachments · project explorer · diff/proposal review
+  Cloud account session · GitHub updater · Studio MCP tool bridge
+           │ HTTPS / encrypted account session
+           ▼
+Vercel Next.js cloud backend
+  Supabase auth · model profiles · quota reservation
+  AI Gateway streamText · cloud project tools · Studio command queue
+       │                         │
+       ▼                         ▼
+Vercel AI Gateway             Supabase
+  Vercel OIDC                 Postgres · Auth · private Storage
+  hosted models               accounts · projects · messages
+  live model metadata         usage · project changes · connector queue
+                                  ▲
+                                  │ authenticated outbound polling
+                                  │
+                         Local Roblox Studio MCP connector
+                         Runs only when user connects Studio
+                         Never performs AI inference
 ~~~
 
-Optional Anthropic/OpenAI adapters remain available, but they are not required and are not the default.
+## Model routing
 
-## Main modules
+- The backend uses Vercel AI Gateway and the AI SDK.
+- It reads Gateway's live `/v1/models` catalogue; it does not hardcode the “smartest” model.
+- Admin-configured model IDs can override Rmango Fast, Developer, Think, Vision and Agent profiles.
+- Fallback model IDs can be configured for each profile.
+- Capability and price information is displayed only when present in Gateway metadata. No benchmark scores are fabricated.
+- Production Gateway authentication uses the Vercel deployment's OIDC identity. There is no `AI_GATEWAY_API_KEY` fallback and no user provider API key.
 
-- electron/main.ts: Ollama model detection and pull, local multimodal chat, optional cloud adapters, project file access, Roblox MCP transport, tool policy, approval waiters, and the electron-updater lifecycle.
-- electron/preload.cts: narrow IPC bridge with context isolation enabled and renderer Node access disabled.
-- src/App.tsx: mango-themed desktop UI, attachment handling, local model setup, Studio controls, approval dialog, and update status/actions.
-- src/styles.css: forest green and mango gold design system.
-- src/types.ts: renderer/main IPC contracts.
+## Auth and storage
 
-## Local AI
+- Supabase Auth validates the user's account session on every protected API request.
+- The desktop stores access/refresh tokens encrypted using Electron safeStorage.
+- Postgres tables are protected with row-level security and owner-scoped policies.
+- Uploaded source files are stored in a private Supabase Storage bucket; storage paths begin with the authenticated user's UUID.
+- The Supabase service-role key is only used server-side for atomic quota reservation/completion. Never expose it as a `NEXT_PUBLIC_*` variable or package it with the desktop app.
 
-1. User installs Ollama for Windows.
-2. Rmango checks http://127.0.0.1:11434/api/tags.
-3. The user downloads a model from Rmango Settings, which calls Ollama's local /api/pull endpoint.
-4. Chat requests use /api/chat, with the local model, image attachments, project context, and the allowed MCP tool schemas.
-5. The model's tool calls enter the same policy checks as cloud adapters.
+## Usage and cost controls
 
-No Rmango backend relays prompts. A model must already be downloaded on the PC. The local model is a pretrained model running locally, not a model trained by Rmango.
+Before starting inference, the cloud backend reserves a request and estimated token budget in Postgres. Requests are blocked when the global policy is disabled or a user's daily/monthly request/token limit is reached. After completion, actual token counts and an estimated cost are recorded. Failed requests release their reservation; abandoned reservations expire after two hours.
 
-## Attachments
+Default policy: 40 requests/day, 800/month, 120k tokens/day, 1.5m tokens/month, max output 4096. These are product quotas, not a substitute for a separate administrator-configured Vercel AI Gateway/provider spending budget.
 
-- PNG/JPEG/WebP/GIF images are passed as base64 image content to Ollama's vision-capable chat endpoint.
-- Text and code files are decoded locally and appended as labelled context.
-- Renderer session history stores attachment metadata only; file/image bytes are not persisted as chat history.
-- Current limits: eight attachments per message, 8 MB per image, 512 KB per text file.
+## Agent and project workspace
 
-## Roblox Studio MCP and approval policy
+- Project imports are explicit user actions; the desktop does not silently upload a selected folder.
+- Current import supports a bounded set of text/source formats (up to 120 files, 512KB per file).
+- Cloud agent tools can list/read project files and create pending file-change proposals.
+- Each proposal records the original file hash. Approving applies the proposal to private storage only if the original file still matches; stale proposals become conflicts.
+- ZIP export is owner-authenticated and limited to 250 files/40MB.
+- Binary Roblox places/models are not parsed in this version.
 
-Roblox Studio already ships an MCP server. Rmango is the MCP client and starts the Roblox launcher through Windows stdio transport.
+## Roblox Studio bridge
 
-- Read-only tool allowlist: state, script inspection/search, DataModel inspection, screenshots, output, documentation, and asset search.
-- Approval-required tool allowlist: script edits, Luau execution, procedural models, meshes/materials, animations/avatars, image storage, asset insertion/upload, playtest start/stop, simulated user input, character navigation, and save-place.
-- Every approval-required call sends a request to the renderer and waits for an explicit Approve/Deny response. A two-minute timeout denies the call.
-- Publishing, destructive delete, account access, and shell-command execution are not exposed.
+Roblox Studio's official MCP server runs locally. The desktop starts it through the Windows Roblox MCP launcher, discovers its actual tool names/schemas, registers allowlisted tools with the cloud service, and polls the authenticated command queue.
 
-For map tasks, the agent should inspect the place first, plan the layout, then build in incremental passes. Every mutation is visible to the user before it reaches Studio.
+The local connector:
+- Does not run a language model.
+- Does not route AI inference.
+- Shows an approval prompt for every mutating Studio tool.
+- Executes a supported command using the official local MCP client and returns the result.
+- Stops polling when the user disconnects.
 
-## GitHub app updates
+The cloud agent can therefore operate only on an open Studio session that the user has deliberately connected. No direct cloud-to-local private network assumption is made.
 
-- The packaged Windows NSIS application uses electron-updater with the GitHub Releases provider for abdelrmamsaahlan-max/rmango.
-- At startup (after a short delay) and every four hours, the main process checks for a newer stable GitHub Release.
-- A found update downloads in the background; the renderer receives checking/download-progress/downloaded/error events through the context-isolated preload bridge.
-- Downloading does not close or restart the app. The user chooses **Restart & install** once the update is ready.
-- autoInstallOnAppQuit is disabled so closing the app does not unexpectedly trigger an install.
-- The GitHub Actions workflow builds a monotonically increasing patch version for each main push, runs electron-builder with --publish always, then verifies that the release contains both the versioned NSIS EXE and latest.yml.
-- GitHub release metadata and the installer must come from the same build. A .exe uploaded without latest.yml is not a functioning update release.
-- The original 0.2.0 build predates this updater. It cannot self-update; users need one manual install of the first updater-enabled version.
+## Desktop updates
 
-Without a trusted code-signing certificate, the Windows build sets verifyUpdateCodeSignature: false because an unsigned installer cannot pass publisher-signature verification. The updater still obtains release metadata and installers over HTTPS and validates the downloaded file's SHA-512 checksum against latest.yml, but this is a weaker trust model than Authenticode signing. The GitHub repository and its Actions write permissions must therefore be protected. When a valid trusted PFX certificate is supplied through GitHub Secrets, the workflow enables publisher signature verification for the generated update.
+The Windows app uses electron-updater with GitHub Releases. The build injects only the public HTTPS `RMANGO_CLOUD_API_URL` GitHub Actions variable; no provider/database secrets enter the client. The app checks on startup and every four hours, downloads in background, and waits for the user to choose restart/install.
 
-## Developer hot reload
+## Development reload
 
-- npm run dev runs Vite for the React renderer and Nodemon for the Electron main/preload TypeScript.
-- Renderer and CSS edits use Vite HMR.
-- Changes to electron/main.ts or electron/preload.cts cause Electron TypeScript to rebuild and the desktop process to restart.
-- This applies only to development. Installed users receive packaged updates through GitHub Releases.
+Vite handles React/CSS HMR. Nodemon rebuilds Electron main/preload source and restarts the desktop process in development.
 
-## Security boundaries
+## Not complete yet
 
-- Electron context isolation enabled; renderer Node integration disabled.
-- API keys are encrypted using Electron safeStorage where supported; local Ollama uses no API key.
-- Local project file reads are restricted to approved text/code extensions, capped at 512 KB each, and resolved inside the selected folder.
-- No symlinks are traversed by the project explorer.
-- External links require HTTPS.
-- MCP tool calls must be in the explicit allowlist; mutations are never sent without user approval.
-- Automatic update installation is user-triggered after the download; the app does not silently restart.
+- Cloud/Vercel project and dedicated Supabase database still need provisioning.
+- No live login/inference/usage/quota/Studio-connector/ZIP end-to-end tests.
+- Durable workflow/worker execution for tasks longer than bounded chat request timeouts.
+- Admin model policy and cost dashboard.
+- PDF/DOCX parsing, embeddings/vector RAG and project-wide dependency indexing.
+- Binary Roblox project file parsing.
+- A visual diff viewer for proposed project file changes.
 
-## Windows installer and publisher signing
+## Deployment
 
-Electron Builder produces an x64 NSIS installer named Rmango-Setup-<version>-x64.exe. The build generates a 256x256 PNG-backed mango ICO before packaging. The GitHub provider also publishes the matching update manifest and checksum metadata.
-
-When RMANGO_SIGNING_PFX_BASE64 and RMANGO_SIGNING_PFX_PASSWORD GitHub Secrets are configured with a valid trusted Windows code-signing certificate, electron-builder signs the packaged Windows binaries and installer and the updater verifies the publisher. Without those secrets, the installer is unsigned; Windows Smart App Control may block it because the publisher cannot be verified. The code does not disable or bypass Windows security.
-
-## Next engineering milestones
-
-1. Model-aware specialist workflows for architect, Luau, UI, 3D map, and QA tasks.
-2. Snapshot/rollback and structured diffs for Studio edits.
-3. Better tool-output parsing and Studio-ID routing across multiple open Studio instances.
-4. Automated playtest loops with explicit approval and stop conditions.
-5. Evaluation projects to measure whether model/tool changes improve results rather than relying on claims.
+See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migration and GitHub `RMANGO_CLOUD_API_URL` configuration.
