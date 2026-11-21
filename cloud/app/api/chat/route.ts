@@ -315,7 +315,7 @@ export async function POST(request: Request) {
       selectedProjectContextText = formatSelectedProjectContext(selectedProjectContext);
       // Keep the manifest at user-message trust level; project-controlled strings
       // must never be concatenated into the system instruction channel.
-      contentParts[0].text = String(contentParts[0].text || "") + "\\n\\n" + selectedProjectContextText;
+      contentParts[0].text = String(contentParts[0].text || "") + "\n\n" + selectedProjectContextText;
     } catch {
       return NextResponse.json({ error: "Could not prepare selected project context. No model request was started." }, { status: 503 });
     }
@@ -352,9 +352,9 @@ export async function POST(request: Request) {
       const excerpt = entry.text.slice(0, Math.min(8_000, remaining));
       if (!excerpt) continue;
       previousAttachmentContextText +=
-        "\\n\\nBEGIN_PREVIOUS_UNTRUSTED_ATTACHMENT " + JSON.stringify(entry.name.slice(0, 200)) + "\\n" +
+        "\n\nBEGIN_PREVIOUS_UNTRUSTED_ATTACHMENT " + JSON.stringify(entry.name.slice(0, 200)) + "\n" +
         excerpt +
-        "\\nEND_PREVIOUS_UNTRUSTED_ATTACHMENT";
+        "\nEND_PREVIOUS_UNTRUSTED_ATTACHMENT";
       previousAttachmentChars += excerpt.length;
     }
     if (previousAttachmentChars >= 36_000) break;
@@ -363,7 +363,7 @@ export async function POST(request: Request) {
     contentParts[0].text = String(contentParts[0].text || "") + previousAttachmentContextText;
   }
 
-  const estimatedText = systemPrompt + JSON.stringify(body.messages) + selectedProjectContextText + previousAttachmentContextText + "\\n" + textAttachmentSections.join("\\n");
+  const estimatedText = systemPrompt + JSON.stringify(body.messages) + selectedProjectContextText + previousAttachmentContextText + "\n" + textAttachmentSections.join("\n");
   const imageTokenReserve = attachmentParts.length * 20_000;
   const estimateInputTokens = Math.ceil(estimateTokens(estimatedText) * 1.25) + imageTokenReserve;
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
