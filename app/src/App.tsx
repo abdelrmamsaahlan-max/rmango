@@ -817,6 +817,7 @@ function App() {
       setCloudTasks([]);
       setCloudProjects([]);
       setCloudProjectId(undefined);
+      setCloudProjectChanges([]);
       setConversationId(undefined);
       setMessages([]);
       setActivities([]);
