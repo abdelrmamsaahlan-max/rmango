@@ -689,8 +689,9 @@ function App() {
   }
 
   async function handleThemeChange(nextTheme: 'dark' | 'light' | 'system') {
+    const previous = theme;
     setTheme(nextTheme);
-    await savePreferences({ appearance: nextTheme });
+    if (!await savePreferences({ appearance: nextTheme })) setTheme(previous);
   }
 
   async function handleDefaultProfileChange(profile: CloudProfile) {
@@ -715,10 +716,8 @@ function App() {
   async function handleInspectorDefaultChange(enabled: boolean) {
     const previous = showInspectorByDefault;
     setShowInspectorByDefault(enabled);
-    setRightPanelOpen(enabled);
     if (!await savePreferences({ showInspectorByDefault: enabled })) {
       setShowInspectorByDefault(previous);
-      setRightPanelOpen(previous);
     }
   }
 
@@ -1969,7 +1968,7 @@ function App() {
                       </select>
                     </label>
                     <label className="settings-select-row">
-                      <span><strong>Text size</strong><small>Change the size of chat and workspace text.</small></span>
+                      <span><strong>Text size</strong><small>Change the size of chat message text.</small></span>
                       <select className="settings-input" value={fontSize} onChange={event => { const value = event.target.value as 'small' | 'medium' | 'large'; setFontSize(value); void savePreferences({ fontSize: value }); }}>
                         <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option>
                       </select>
@@ -1982,7 +1981,7 @@ function App() {
                       <div><h3>Motion</h3><p>Control transitions and animated interface details.</p></div>
                     </div>
                     <div className="settings-row">
-                      <div><strong>Interface animations</strong><small>Enable subtle transitions and interactive motion.</small></div>
+                      <div><strong>Interface animations</strong><small>Enable subtle transitions and interactive motion effects.</small></div>
                       <button type="button" role="switch" aria-checked={animationsEnabled} className={'preference-switch ' + (animationsEnabled ? 'on' : '')} onClick={() => { const value = !animationsEnabled; setAnimationsEnabled(value); void savePreferences({ animationsEnabled: value }); }}><i/></button>
                     </div>
                     <div className="settings-row">
