@@ -28,6 +28,25 @@ type CloudConversation = {
   created_at: string;
   updated_at: string;
 };
+type CloudAgentTask = {
+  id: string;
+  project_id: string | null;
+  conversation_id: string | null;
+  status: 'queued' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+  task_text: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  events: Array<{
+    id: number;
+    task_id: string;
+    event_type: string;
+    message: string;
+    data: Record<string, unknown>;
+    created_at: string;
+  }>;
+};
 type Attachment = { name: string; mimeType: string; kind: 'image' | 'file'; size: number; data: string };
 type AppearanceTheme = 'dark' | 'light' | 'system';
 type SettingsFile = {
@@ -461,6 +480,12 @@ function mapCloudMessage(row: any): ChatMessage | null {
     modelProfile: typeof row.model_profile === 'string' ? row.model_profile as CloudProfile : undefined,
     attachments: attachments?.length ? attachments : undefined,
   };
+}
+
+async function listCloudTasks(projectId?: string): Promise<CloudAgentTask[]> {
+  const query = projectId ? '?projectId=' + encodeURIComponent(projectId) : '';
+  const result = await cloudApiRequest<{ tasks: CloudAgentTask[] }>('/api/tasks' + query, {}, true);
+  return Array.isArray(result.tasks) ? result.tasks : [];
 }
 
 async function loadCloudConversation(conversationId: string) {
@@ -1459,6 +1484,7 @@ handleIpc('cloud:sign-up', async (_event, payload: { email: string; password: st
 handleIpc('cloud:sign-out', () => cloudSignOut());
 handleIpc('cloud:models', () => getCloudModels());
 handleIpc('cloud:conversations:list', (_event, projectId?: string) => listCloudConversations(projectId));
+handleIpc('cloud:tasks:list', (_event, projectId?: string) => listCloudTasks(projectId));
 handleIpc('cloud:conversations:load', (_event, conversationId: string) => loadCloudConversation(conversationId));
 handleIpc('cloud:conversations:create', (_event, payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => {
   const allowedProfiles: CloudProfile[] = ['fast', 'developer', 'think', 'vision', 'agent'];
