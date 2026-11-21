@@ -44,16 +44,6 @@ const REMOTE_METHODS = new Set([
   "FireServer", "FireClient", "FireAllClients", "InvokeServer", "InvokeClient",
 ]);
 
-const DATASTORE_METHODS = new Set([
-  "GetDataStore", "GetOrderedDataStore",
-  "GetSortedMap", "GetHashMap", "GetQueue",
-]);
-
-const ASSET_PROPERTY_NAMES = new Set([
-  "AnimationId", "TextureID", "Texture", "MeshId", "MeshID",
-  "SoundId", "Image", "Video", "AssetId",
-]);
-
 export function normalizeProjectPath(value: string): string {
   return value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+/g, "/");
 }
