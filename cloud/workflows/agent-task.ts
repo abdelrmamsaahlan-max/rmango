@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { gateway } from "@ai-sdk/gateway";
 import { WorkflowAgent, type ModelCallStreamPart } from "@ai-sdk/workflow";
-import { generateText, isStepCount } from "ai";
+import { generateText, isStepCount, type ToolSet } from "ai";
 import { getWritable } from "workflow";
 import { resolveProfile, type ModelProfile } from "@/lib/ai/models";
 import { createAdminClient } from "@/lib/supabase";
@@ -35,7 +35,7 @@ type ProjectIndexSummary = {
 };
 
 type TaskVerification = {
-  runtimeVerified: false;
+  runtimeVerified: boolean;
   playtestAttempted: boolean;
   playtestPassed: boolean | null;
   consoleInspected: boolean;
@@ -422,7 +422,7 @@ async function executeTaskWorkflow(
   ].join("\n");
 
   const reservation = await reserveAgentCallStep(ownerId, profile, prompt);
-  const tools = createProjectAgentTools(context, studioTools);
+  const tools: ToolSet = createProjectAgentTools(context, studioTools);
   const usedTools = new Set<string>();
   let actualModelId = reservation.modelId;
   let totalInputTokens = 0;
@@ -447,34 +447,31 @@ async function executeTaskWorkflow(
     tools,
     temperature: 0.1,
     maxOutputTokens: reservation.maxOutputTokens,
-    experimental_onStart: async ({ model }) => {
-      actualModelId = model.modelId || actualModelId;
+    experimental_onStart: async () => {
       await appendTaskEventStep(taskId, ownerId, "model_started", "The cloud model started the implementation agent.", {
         modelId: actualModelId,
         modelProfile: profile,
       });
     },
-    experimental_onStepStart: async ({ model, steps }) => {
-      actualModelId = model.modelId || actualModelId;
+    experimental_onStepStart: async ({ steps }) => {
       const stepNumber = steps.length;
       await appendTaskEventStep(taskId, ownerId, "model_step_started", "Agent reasoning step " + (stepNumber + 1) + " started.", {
         stepNumber,
         modelId: actualModelId,
       });
     },
-    onToolExecutionStart: async ({ toolCall, callId }) => {
+    onToolExecutionStart: async ({ toolCall, stepNumber }) => {
       usedTools.add(toolCall.toolName);
       await appendTaskEventStep(taskId, ownerId, "tool_started", "Calling " + toolCall.toolName + ".", {
         toolName: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        callId,
+        stepNumber,
         inputPreview: compactText(toolCall.input, 1_600),
       });
     },
-    onToolExecutionEnd: async ({ toolCall, durationMs, toolOutput }) => {
-      const successful = toolOutput.type === "tool-result";
-      const output = successful ? toolOutput.output : null;
-      const error = successful ? null : toolOutput.error;
+    onToolExecutionEnd: async ({ toolCall, durationMs, stepNumber, success, output, error }) => {
+      const successful = success;
+
       await appendTaskEventStep(
         taskId,
         ownerId,
@@ -484,6 +481,7 @@ async function executeTaskWorkflow(
           toolName: toolCall.toolName,
           toolCallId: toolCall.toolCallId,
           durationMs,
+          stepNumber,
           successful,
           outputPreview: compactText(output, 1_600),
           error: error ? compactText(error, 1_000) : null,
