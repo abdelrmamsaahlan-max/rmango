@@ -830,12 +830,12 @@ function App() {
               />
               <div className="composer-footer">
                 <div className="composer-left">
-                  <select className="profile-select" value={cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Cloud AI profile" disabled={!cloudState?.signedIn || busy}>
-                    <option value="fast">Rmango Fast</option>
-                    <option value="developer">Rmango Developer</option>
-                    <option value="think">Rmango Think</option>
-                    <option value="vision">Rmango Vision</option>
-                    <option value="agent">Rmango Agent</option>
+                  <select className="profile-select" value={cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Rmango work mode" disabled={!cloudState?.signedIn || busy}>
+                    <option value="fast">Quick</option>
+                    <option value="developer">Build</option>
+                    <option value="think">Deep Think</option>
+                    <option value="vision">Vision</option>
+                    <option value="agent">Agent</option>
                   </select>
                   <button className="attach-button" title="Attach images or files" onClick={() => openFilePicker(false)}><Paperclip size={14}/> Attach</button>
                   <button className="attach-button attach-image" title="Attach photo" onClick={() => openFilePicker(true)}><ImageIcon size={14}/> Photo</button>
@@ -875,10 +875,10 @@ function App() {
               <div className="local-status-icon"><Sparkles size={19}/></div>
               <div className="local-status-copy">
                 <strong>{cloudReady ? (cloudState?.signedIn ? 'Rmango is ready' : 'Cloud service is ready') : 'Cloud connection required'}</strong>
-                <span>{cloudState?.email || cloudState?.apiHost || cloudState?.message || 'No local models or API keys'}</span>
+                <span>{cloudState?.signedIn ? 'Personal workspace connected' : (cloudState?.message || 'Hosted service not configured')}</span>
               </div>
               <span className={'status-dot ' + (cloudReady ? 'bright' : '')}/>
-              <div className="local-meta"><span>INFERENCE</span><strong>Remote cloud</strong><span>DEVICE</span><strong>Interface only</strong></div>
+              <div className="local-meta"><span>INTELLIGENCE</span><strong>Rmango engine</strong><span>RUNTIME</span><strong>Hosted</strong></div>
             </div>
             {cloudState?.signedIn
               ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Rmango Intelligence <ArrowRight size={13}/></button>
@@ -886,12 +886,7 @@ function App() {
             {cloudReady && <div className="connect-help">
               <strong>{currentProfile?.profileLabel || 'Rmango work modes'}</strong>
               <span>{'One assistant. The right work mode for the task.'}</span>
-              {currentProfile && <span>
-                {currentProfile.contextWindow ? currentProfile.contextWindow.toLocaleString() + ' context tokens' : 'Context details unavailable'}
-                {' · '}
-                {currentProfile.capabilities.includes('reasoning') ? 'Reasoning' : 'General'}
-                {currentProfile.inputModalities.includes('image') ? ' · Vision' : ''}
-              </span>}
+              {currentProfile && <span>{profileCopy[cloudProfile].tags.join(' · ')}</span>}
             </div>}
             {cloudState?.message && <div className="secure-note"><AlertCircle size={13}/><span>{cloudState.message}</span></div>}
           </section>
@@ -1055,7 +1050,7 @@ function App() {
               <input id="rmango-email" className="settings-input" type="email" value={authEmail} onChange={event => setAuthEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required maxLength={254}/>
               <label className="field-label" htmlFor="rmango-password">PASSWORD</label>
               <input id="rmango-password" className="settings-input" type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} placeholder={authMode === 'sign-up' ? 'At least 10 characters' : 'Your password'} autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'} required minLength={authMode === 'sign-up' ? 10 : 1} maxLength={128}/>
-              <div className="secure-note"><LockKeyhole size={13}/><span>These are your Rmango account credentials, not an AI provider API key. AI provider credentials stay on the cloud server.</span></div>
+              <div className="secure-note"><LockKeyhole size={13}/><span>Your Rmango account connects your private workspace, project context, and Studio tools. No separate AI-provider account is needed.</span></div>
               <div className="modal-footer">
                 <button type="button" className="cancel-button" onClick={() => setSettingsOpen(false)}>Close</button>
                 <button type="submit" className="save-button" disabled={authBusy || !authEmail.trim() || !authPassword}>
