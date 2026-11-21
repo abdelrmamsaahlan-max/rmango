@@ -10,7 +10,7 @@ export async function GET() {
   try {
     return NextResponse.json(
       {
-        supabaseUrl: requiredEnv("SUPABASE_URL").replace(/\\/+$/, ""),
+        supabaseUrl: new URL(requiredEnv("SUPABASE_URL")).origin,
         publishableKey: requiredEnv("SUPABASE_PUBLISHABLE_KEY"),
       },
       { headers: { "Cache-Control": "public, max-age=300, s-maxage=300" } },
