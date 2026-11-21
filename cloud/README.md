@@ -24,33 +24,48 @@ This is a free development/test tier, not unlimited production capacity. The dai
 
 The selected model is text-only in this RMango configuration. Image uploads and the Vision profile are disabled.
 
-## Deploy to Cloudflare Workers
+## Deploy to Cloudflare Workers with GitHub Actions
 
-Requirements: Node.js 22, a Cloudflare account with Workers Free enabled, and the existing Supabase server credentials. No Vercel account or AI provider key is required.
+The repository includes a **manual-only** deployment workflow at `.github/workflows/deploy-cloudflare.yml`. It never deploys automatically on a push or pull request. The workflow requires an explicit `confirm_deploy: yes` selection.
 
-From this folder:
+### One-time Cloudflare setup
 
-```powershell
-npm install --no-audit --no-fund
-npx wrangler login
-npx wrangler secret put SUPABASE_URL
-npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
-npx wrangler secret put SUPABASE_SECRET_KEY
-npm run cf-deploy
-```
+1. Keep the account on **Workers Free**.
+2. Open [Cloudflare Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) once. A new account may not yet have a `workers.dev` subdomain; Cloudflare creates it when the Workers & Pages landing page is first opened.
+3. In Cloudflare, create an **Account API token** using the **Edit Cloudflare Workers** template. Scope it to only the account where RMango will be deployed. Do not use the Global API Key.
+4. In the GitHub repository, open **Settings → Secrets and variables → Actions → New repository secret** and add:
+   - `CLOUDFLARE_API_TOKEN`: the API token created above.
+   - `CLOUDFLARE_ACCOUNT_ID`: the account ID shown in Cloudflare's account overview.
 
-Wrangler prompts for each secret. Use the existing values from the approved Supabase project. Never put the Supabase secret key in source control, the desktop application, or a public build variable. The `AI` binding is already declared in `wrangler.jsonc`; Cloudflare supplies the model service without an API key.
+Never paste either value into chat, commit it, or put it in a source file. Keep Workers Paid and paid AI credits disabled.
 
-The deploy command prints your Worker URL, normally `https://rmango-cloud.<your-account-subdomain>.workers.dev`.
+### Deploy
 
-After deploying:
+1. Open the repository's **Actions** tab.
+2. Select **Deploy RMango Cloudflare Worker**.
+3. Select branch `fix/synap-ai-provider` (or the reviewed deployment branch).
+4. Leave the confirmation at `no` unless you are deliberately deploying. Select `yes` only when ready.
+5. Run the workflow and read the deployment URL in the logs or Cloudflare Workers & Pages.
 
-1. Open `https://<your-worker-url>/api/health`. It should report `status: "ready"` and `aiReady: true`.
-2. Verify an authenticated chat request and a multi-step tool call.
-3. Update `app/cloud-config.json` so `apiBaseUrl` is the exact Cloudflare Worker URL.
-4. Build and publish a new Windows installer. Existing installed clients continue using their packaged URL until updated.
+The workflow installs dependencies, checks the Cloudflare credentials, builds the OpenNext Worker, and deploys the Worker named `rmango-cloud`. It does not edit the desktop app's production API URL.
 
-Do not remove the old Vercel deployment until the Cloudflare endpoint and a new desktop installer have passed those checks.
+### Configure Supabase runtime secrets
+
+After the first Worker deploy, open **Workers & Pages → rmango-cloud → Settings → Variables and Secrets** and add these as encrypted secrets using the existing Supabase project values:
+
+| Secret | Purpose |
+|---|---|
+| `SUPABASE_URL` | Existing Supabase project URL |
+| `SUPABASE_PUBLISHABLE_KEY` | Supabase public/publishable key |
+| `SUPABASE_SECRET_KEY` | Server-only Supabase secret API key |
+
+Keep `SUPABASE_SECRET_KEY` server-side. Do not add it to the desktop app, GitHub variables, or source control. The optional legacy `SUPABASE_SERVICE_ROLE_KEY` is supported as a fallback if already used.
+
+After setting secrets, deploy the same branch again using the manual workflow. Open `https://<your-worker-url>/api/health`; it should report `status: "ready"` and `aiReady: true` once the database and existing RMango usage policy are ready.
+
+Then verify authenticated chat, at least one multi-step tool call, project file storage, the Studio connector round-trip, and ZIP export. **Do not change `app/cloud-config.json` or remove the old Vercel deployment before those checks pass.**
+
+Only after verification, update `app/cloud-config.json` to the exact Cloudflare Worker URL and build/publish a new Windows installer. Existing installed clients continue using their currently packaged URL until updated.
 
 ## Local development and verification
 
