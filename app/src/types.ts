@@ -66,6 +66,15 @@ export type StudioApprovalRequest = {
 
 export type AgentActivity = { name: string; detail: string; ok: boolean };
 
+export type UpdateState = {
+  status: 'idle' | 'unsupported' | 'checking' | 'downloading' | 'downloaded' | 'not-available' | 'error';
+  currentVersion: string;
+  availableVersion?: string;
+  progress?: number;
+  message?: string;
+  error?: string;
+};
+
 declare global {
   interface Window {
     rmango: {
@@ -90,6 +99,10 @@ declare global {
       }) => Promise<{ content: string; activity: AgentActivity[] }>;
       onToolApproval: (callback: (request: StudioApprovalRequest) => void) => () => void;
       respondToolApproval: (requestId: string, approved: boolean) => Promise<{ ok: boolean }>;
+      getUpdateState: () => Promise<UpdateState>;
+      checkForUpdates: () => Promise<UpdateState>;
+      installUpdate: () => Promise<{ ok: boolean; message?: string }>;
+      onUpdateStatus: (callback: (state: UpdateState) => void) => () => void;
       openExternal: (url: string) => Promise<any>;
     };
   }
