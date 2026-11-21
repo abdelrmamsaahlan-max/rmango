@@ -194,13 +194,17 @@ jobs:
           RMANGO_CLOUD_CONFIGURED: ${{ steps.cloud-config.outputs.configured }}
         shell: pwsh
         run: |
-          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true" -and $env:RMANGO_HAS_SIGNING_CERT -eq "true") {
+          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
+            # electron-updater verifies the HTTPS release metadata and SHA-512 file hash.
+            # Authenticode signing is preferred, but it is optional because the app's
+            # update configuration explicitly permits unsigned publisher builds.
             npm run dist:win:publish
+            if ($env:RMANGO_HAS_SIGNING_CERT -ne "true") {
+              Write-Warning "Published an unsigned update. Windows may show an unknown-publisher SmartScreen warning; configure the signing certificate for publisher identity."
+            }
           } else {
             npm run dist:win
-            if ($env:RMANGO_HAS_SIGNING_CERT -ne "true") {
-              Write-Warning "Unsigned installers are not published as stable releases or auto-updates. Add the trusted signing secrets to enable publishing."
-            }
+            Write-Warning "Cloud URL is missing, so this installer is CI-only and cannot be discovered by the in-app updater."
           }
 
       - name: Verify setup executable and update manifest
@@ -217,7 +221,7 @@ jobs:
           $configured = "${{ steps.cloud-config.outputs.configured }}"
           $signed = "${{ steps.signing.outputs.has_certificate }}"
           $manifest = Join-Path "app-src/release" "latest.yml"
-          if ($configured -eq "true" -and $signed -eq "true") {
+          if ($configured -eq "true") {
             if (-not (Test-Path $manifest)) {
               throw "Missing latest.yml. The auto-update feed would not work."
             }
@@ -228,7 +232,7 @@ jobs:
             }
             Write-Host "Auto-update manifest: $manifest"
           } else {
-            Write-Warning "A trusted signature and configured cloud endpoint are both required for a public stable release. This build will be saved as a CI artifact only."
+            Write-Warning "The cloud endpoint is not configured. This build will be saved as a CI artifact only; no public update feed can be published."
           }
 
           $sizeMb = [math]::Round($installer.Length / 1MB, 2)
@@ -246,8 +250,8 @@ jobs:
             throw "A signing certificate was configured, but the installer signature is not valid."
           }
 
-      - name: Verify public GitHub Release contains the signed update feed
-        if: steps.cloud-config.outputs.configured == 'true' && steps.signing.outputs.has_certificate == 'true'
+      - name: Verify public GitHub Release contains the update feed
+        if: steps.cloud-config.outputs.configured == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
