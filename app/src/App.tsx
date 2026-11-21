@@ -4,7 +4,7 @@ import {
   Code2, Cpu, Download, ExternalLink, FileCode2, FileJson, FileText, Folder,
   FolderOpen, Gamepad2, Image as ImageIcon, Link2, LoaderCircle, Menu,
   LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Search, Send, Trash2,
-  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square,
+  Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3, Square, RotateCcw,
   Palette, Gauge, UserRound, Bell, Keyboard, HardDrive, PanelRight, SlidersHorizontal, Info
 } from 'lucide-react';
 import type {
@@ -428,6 +428,8 @@ function App() {
         setActivities([]);
         await window.rmango.setCurrentConversationId(null);
         setCloudProjectChanges([]);
+        setCloudProjectCheckpoints([]);
+        setCheckpointLoadError(null);
         setCloudTasks([]);
         setToast('Created project "' + project.name + '".');
       } else if (projectDialog.projectId) {
@@ -835,6 +837,14 @@ function App() {
         window.rmango.getCloudProjects(),
       ]);
       setCloudProjectChanges(changeList.changes || []);
+      try {
+        const checkpointList = await window.rmango.getCloudProjectCheckpoints(result.projectId);
+        setCloudProjectCheckpoints(checkpointList.checkpoints || []);
+        setCheckpointLoadError(null);
+      } catch (error) {
+        setCloudProjectCheckpoints([]);
+        setCheckpointLoadError(error instanceof Error ? error.message : 'Recovery history is unavailable.');
+      }
       setCloudProjects(projects);
       setToast(
         'Synced "' + result.projectName + '": ' + result.uploaded + ' files uploaded or updated, ' +
@@ -859,16 +869,18 @@ function App() {
   async function handleLoadProjectChanges() {
     if (!cloudProjectId) return;
     try {
-      const [changeResult, checkpointResult] = await Promise.all([
-        window.rmango.getCloudProjectChanges(cloudProjectId),
-        window.rmango.getCloudProjectCheckpoints(cloudProjectId).catch(error => {
-          setCheckpointLoadError(error instanceof Error ? error.message : 'Recovery history is unavailable.');
-          return { checkpoints: [] as CloudProjectCheckpoint[] };
-        }),
-      ]);
+      const changeResult = await window.rmango.getCloudProjectChanges(cloudProjectId);
       setCloudProjectChanges(changeResult.changes || []);
-      setCloudProjectCheckpoints(checkpointResult.checkpoints || []);
-      if (!checkpointLoadError) setCheckpointLoadError(null);
+      try {
+        const checkpointResult = await window.rmango.getCloudProjectCheckpoints(cloudProjectId);
+        setCloudProjectCheckpoints(checkpointResult.checkpoints || []);
+        setCheckpointLoadError(null);
+      } catch (error) {
+        setCloudProjectCheckpoints([]);
+        setCheckpointLoadError(error instanceof Error
+          ? error.message
+          : 'Recovery history is unavailable. Apply the project-checkpoint migration.');
+      }
       setProjectChangesOpen(true);
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not load cloud project changes.');
@@ -1929,7 +1941,7 @@ function App() {
           <section className="checkpoint-history">
             <div className="checkpoint-history-heading">
               <div><strong>RECOVERY POINTS</strong><small>Every approved cloud edit saves the previous file state. Restores create a new point so you can undo them.</small></div>
-              <button type="button" className="subtle-icon" title="Refresh recovery history" onClick={() => void window.rmango.getCloudProjectCheckpoints(cloudProjectId || '').then(result => { setCloudProjectCheckpoints(result.checkpoints || []); setCheckpointLoadError(null); }).catch(error => setCheckpointLoadError(error instanceof Error ? error.message : 'Could not refresh recovery history.'))}><RefreshCw size={13}/></button>
+              <button type="button" className="subtle-icon" disabled={!cloudProjectId} title="Refresh recovery history" onClick={() => cloudProjectId && void window.rmango.getCloudProjectCheckpoints(cloudProjectId).then(result => { setCloudProjectCheckpoints(result.checkpoints || []); setCheckpointLoadError(null); }).catch(error => setCheckpointLoadError(error instanceof Error ? error.message : 'Could not refresh recovery history.'))}><RefreshCw size={13}/></button>
             </div>
             {checkpointLoadError && <div className="checkpoint-empty">{checkpointLoadError}</div>}
             {!checkpointLoadError && cloudProjectCheckpoints.length === 0 && (
