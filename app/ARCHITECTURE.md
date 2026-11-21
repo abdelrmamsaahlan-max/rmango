@@ -76,7 +76,7 @@ The cloud agent can therefore operate only on an open Studio session that the us
 
 ## Desktop updates
 
-The Windows app uses electron-updater with GitHub Releases. The build injects only the public HTTPS `RMANGO_CLOUD_API_URL` GitHub Actions variable; no provider/database secrets enter the client. The app checks on startup and every four hours, downloads in background, and waits for the user to choose restart/install.
+The Windows app uses electron-updater with GitHub Releases. The build injects only the public HTTPS `RMANGO_CLOUD_API_URL` GitHub Actions variable; no provider/database secrets enter the client. If the URL is not configured, CI produces an artifact but does not publish a public release. Once configured, stable releases include the installer and `latest.yml`. The app checks on startup and every four hours, downloads in background, and waits for the user to choose restart/install.
 
 ## Development reload
 
