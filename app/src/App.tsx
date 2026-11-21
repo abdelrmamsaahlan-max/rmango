@@ -815,10 +815,10 @@ function App() {
               <div className="local-meta"><span>INFERENCE</span><strong>Remote cloud</strong><span>DEVICE</span><strong>Interface only</strong></div>
             </div>
             {cloudState?.signedIn
-              ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> Cloud model manager <ArrowRight size={13}/></button>
+              ? <button className="primary-action" onClick={() => setSettingsOpen(true)}><Settings2 size={13}/> RMango AI preferences <ArrowRight size={13}/></button>
               : <button className="primary-action" onClick={() => { void refreshCloudState(); setSettingsOpen(true); }}><RefreshCw size={13}/> Check RMango AI <ArrowRight size={13}/></button>}
             {cloudReady && <div className="connect-help">
-              <strong>{currentProfile?.profileLabel || 'Cloud model profiles'}</strong>
+              <strong>{currentProfile?.profileLabel || 'RMango AI modes'}</strong>
               <span>{profileCopyForMode(cloudProfile)}</span>
               {currentProfile && <span>
                 {currentProfile.contextWindow ? currentProfile.contextWindow.toLocaleString() + ' context tokens' : 'Context details unavailable'}
