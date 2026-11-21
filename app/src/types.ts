@@ -70,6 +70,7 @@ export type CloudState = {
   email?: string;
   apiHost?: string;
   message?: string;
+  currentProjectId?: string;
 };
 
 export type CloudModelProfile = {
