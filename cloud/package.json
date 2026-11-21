@@ -6,7 +6,8 @@
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ai-sdk/gateway": "4.0.151",
@@ -17,13 +18,15 @@
     "react-dom": "19.2.3",
     "zod": "^4.1.8",
     "jszip": "^3.10.1",
-    "workflow": "5.7.0"
+    "workflow": "5.7.0",
+    "@ai-sdk/workflow": "2.0.109"
   },
   "devDependencies": {
     "@types/node": "22.19.1",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "5.1.1"
   },
   "engines": {
     "node": ">=22"
