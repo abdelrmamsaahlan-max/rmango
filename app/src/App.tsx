@@ -445,12 +445,13 @@ function App() {
       } else if (event.key === 'Escape') {
         if (settingsOpen) setSettingsOpen(false);
         else if (rightPanelOpen) setRightPanelOpen(false);
+        else if (leftSidebarOpen) setLeftSidebarOpen(false);
         else if (leftSidebarCollapsed) setLeftSidebarCollapsed(false);
       }
     };
     window.addEventListener('keydown', onWorkspaceShortcut);
     return () => window.removeEventListener('keydown', onWorkspaceShortcut);
-  }, [settingsOpen, rightPanelOpen, leftSidebarCollapsed]);
+  }, [settingsOpen, rightPanelOpen, leftSidebarOpen, leftSidebarCollapsed]);
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
