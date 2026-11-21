@@ -1,5 +1,3 @@
-import "server-only";
-
 import type { ModelProfile } from "@/lib/ai/models";
 
 export type AgentWorkflowMode = "focused" | "coordinated";

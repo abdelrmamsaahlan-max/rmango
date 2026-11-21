@@ -1,5 +1,3 @@
-import "server-only";
-
 export type ContextMessage = {
   role: string;
   content: unknown;

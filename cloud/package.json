@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:ai": "node --experimental-strip-types --experimental-default-type=module --conditions=react-server --test lib/ai/__tests__/*.test.mjs"
+    "test:ai": "node --experimental-strip-types --experimental-default-type=module --test lib/ai/__tests__/*.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/gateway": "4.0.151",
