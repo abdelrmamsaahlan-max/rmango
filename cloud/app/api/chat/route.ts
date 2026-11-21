@@ -149,7 +149,7 @@ export async function POST(request: Request) {
     .filter(message => message.role === "user")
     .slice(-5, -1)
     .map(message => message.content)
-    .join("\\n")
+    .join("\n")
     .slice(-8_000);
   const skills = buildSkillContext(latestUserPrompt, {
     hasImage: hasImageAttachment,
