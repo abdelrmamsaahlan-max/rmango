@@ -136,3 +136,4 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 
 - Context retrieval emits a live activity item with the number of selected file metadata entries and memory notes. The durable task event records the same counts and whether the manifest is partial, making context selection auditable without logging file contents.
 - The relevance helper bounds query text and tokenizes it once per retrieval rather than repeatedly scanning the full request for every candidate.
+- Historical PDF/DOCX/text extracts from the recent conversation window are also ranked against the latest follow-up before reuse. The existing six-message lookup and 36,000-character total cap remain in place; attachment content remains marked as untrusted user-level context.

@@ -78,3 +78,17 @@ test("gives a modest recency boost without outranking strong lexical evidence", 
   assert.equal(ranked[0].title, "Save error");
   assert.ok(scoreProjectRelevance("save error", "Save error") > scoreProjectRelevance("save error", "Unrelated visual style"));
 });
+
+
+test("ranks earlier attachment extracts by the active follow-up request", () => {
+  const attachments = [
+    { name: "ShopDesign.pdf", text: "Visual layout notes for the shop UI and item cards." },
+    { name: "PlayerDataNotes.docx", text: "PlayerDataService profile loading, DataStore keys, UpdateAsync retries." },
+    { name: "MapIdeas.txt", text: "Street layout and environment art references." },
+  ];
+  const ranked = rankProjectItems(attachments, "debug PlayerDataService DataStore saving", {
+    getText: item => item.name + " " + item.text,
+  });
+
+  assert.equal(ranked[0].name, "PlayerDataNotes.docx");
+});
