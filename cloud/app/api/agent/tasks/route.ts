@@ -87,20 +87,21 @@ export async function POST(request: Request) {
     conversationId = conversation.id;
   }
 
+  const runToken = randomUUID();
   const { data: task, error: taskError } = await supabase.from("agent_tasks").insert({
     owner_id: user.id,
     project_id: payload.projectId,
     conversation_id: conversationId,
     status: "queued",
     task_text: payload.taskText,
-    result: { modelProfile: payload.profile, stage: "queued" },
+    result: { modelProfile: payload.profile, stage: "queued", runToken },
   }).select("id,project_id,conversation_id,status,task_text,result,created_at,updated_at").single();
 
   if (taskError || !task) return NextResponse.json({ error: "Could not create the durable agent task." }, { status: 503 });
   await appendEvent(user.id, task.id, "queued", "Task accepted and added to the durable workflow queue.");
 
   try {
-    const run = await start(runAgentTask, [task.id, user.id, payload.profile as ModelProfile]);
+    const run = await start(runAgentTask, [task.id, user.id, payload.profile as ModelProfile, runToken]);
     const { error: runUpdateError } = await supabase.from("agent_tasks")
       .update({ workflow_run_id: run.runId, updated_at: new Date().toISOString() })
       .eq("id", task.id)
