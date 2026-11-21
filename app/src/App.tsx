@@ -966,7 +966,7 @@ function App() {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       const isImage = /^image\/(png|jpeg|webp|gif)$/i.test(mimeType);
       if (isImage) {
-        setToast('Photo uploads are not supported by the current free Synap coding model. Attach a text/code file, PDF or DOCX instead.');
+        setToast('Photo uploads are not supported by the current free Cloudflare model. Attach a text/code file, PDF or DOCX instead.');
         continue;
       }
       const isDocument = ext === 'pdf' || ext === 'docx';
@@ -1016,7 +1016,7 @@ function App() {
     const trimmed = content.trim();
     const pending = attachmentOverride ? [...attachmentOverride] : [...attachments];
     if (pending.some(item => item.kind === 'image')) {
-      setToast('The current Synap free coding model is text-only. Remove image attachments and retry.');
+      setToast('The current Cloudflare free model is text-only. Remove image attachments and retry.');
       return;
     }
     if (!trimmed && pending.length === 0) return;
@@ -2001,7 +2001,7 @@ function App() {
                   <section className="settings-card">
                     <div className="settings-card-heading">
                       <div className="settings-card-icon"><Layers3 size={17}/></div>
-                      <div><h3>Available cloud profiles</h3><p>Synap Qwen3 Coder 30B powers these text-only profiles. Free-tier limits and availability are controlled by Synap.</p></div>
+                      <div><h3>Available cloud profiles</h3><p>Cloudflare GLM-4.7-Flash powers these text-only profiles. The Workers AI free allowance and availability are controlled by Cloudflare.</p></div>
                     </div>
                     {!cloudState?.signedIn
                       ? <div className="settings-empty"><LockKeyhole size={17}/><div><strong>Sign in to view your available profiles</strong><small>Your cloud model access appears here after you connect your account.</small></div><button type="button" className="settings-inline-button" onClick={() => setSettingsSection('account')}>Go to Account</button></div>
@@ -2030,7 +2030,7 @@ function App() {
                             </button>
                           )}
                         </div>}
-                    <p className="settings-card-footnote">The same text-only model powers each profile. Displayed per-token prices are conservative spend estimates; Synap applies its published free allowance first. Image understanding is not available in this configuration. Rmango does not invent benchmark scores.</p>
+                    <p className="settings-card-footnote">The same text-only model powers each profile. Displayed per-token prices are conservative estimates; Cloudflare's daily Workers AI free allowance is applied first. Image understanding is not enabled in this configuration. Rmango does not invent benchmark scores.</p>
                   </section>
                 </>}
 
