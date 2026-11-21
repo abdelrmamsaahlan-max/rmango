@@ -51,7 +51,9 @@ export type AgentTaskEvent = {
   created_at: string;
 };
 
-export type AgentTaskDetail = { task: AgentTask; events: AgentTaskEvent[] };
+export type AgentTaskFeedback = { helpful: boolean; updated_at: string };
+
+export type AgentTaskDetail = { task: AgentTask; events: AgentTaskEvent[]; feedback?: AgentTaskFeedback | null };
 
 export type ProjectIndexStatus = {
   project: { id: string; name: string };
@@ -178,6 +180,7 @@ declare global {
       getAgentTask: (taskId: string) => Promise<AgentTaskDetail>;
       createAgentTask: (payload: { projectId: string; conversationId?: string; taskText: string; profile: CloudProfile }) => Promise<{ task: AgentTask; conversationId: string; workflowRunId: string }>;
       controlAgentTask: (payload: { taskId: string; action: 'pause' | 'resume' | 'cancel' | 'retry' }) => Promise<{ ok: boolean; status: AgentTaskStatus; workflowRunId?: string }>;
+      submitAgentFeedback: (payload: { taskId: string; helpful: boolean }) => Promise<{ feedback: AgentTaskFeedback }>;
       getCloudProjectIndex: (projectId: string) => Promise<ProjectIndexStatus>;
       startCloudProjectIndex: (projectId: string) => Promise<{ workflowRunId?: string; status: string; alreadyRunning?: boolean }>;
       reviewCloudProjectChange: (payload: { projectId: string; changeId: string; decision: 'approve' | 'reject' }) => Promise<{ ok: boolean; status: string; relativePath?: string }>;
