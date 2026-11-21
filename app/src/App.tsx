@@ -7,8 +7,8 @@ import {
   Settings2, ShieldCheck, Sparkles, Upload, Wrench, X, Layers3
 } from 'lucide-react';
 import type {
-  AIProvider, AppState, AttachmentPayload, ChatAttachment, ChatMessage,
-  LocalAiState, ProjectFile, Settings, StudioApprovalRequest, UpdateState
+  AppState, AttachmentPayload, ChatAttachment, ChatMessage, CloudModels,
+  CloudProfile, CloudState, ProjectFile, StudioApprovalRequest, UpdateState
 } from './types';
 
 type ActivityItem = { name: string; detail: string; ok: boolean };
@@ -73,7 +73,10 @@ function inferMimeType(file: File) {
 
 function App() {
   const [appState, setAppState] = useState<AppState | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [cloudState, setCloudState] = useState<CloudState | null>(null);
+  const [cloudModels, setCloudModels] = useState<CloudModels | null>(null);
+  const [cloudProfile, setCloudProfile] = useState<CloudProfile>('developer');
+  const [conversationId, setConversationId] = useState<string | undefined>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [studioTools, setStudioTools] = useState<string[]>([]);
@@ -86,42 +89,50 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [diagnosticResult, setDiagnosticResult] = useState('');
-  const [provider, setProvider] = useState<AIProvider>('ollama');
-  const [model, setModel] = useState('qwen3.5:4b');
-  const [apiKey, setApiKey] = useState('');
-  const [savingSettings, setSavingSettings] = useState(false);
+  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authDisplayName, setAuthDisplayName] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
   const [search, setSearch] = useState('');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
-  const [localAi, setLocalAi] = useState<LocalAiState | null>(null);
-  const [checkingLocalAi, setCheckingLocalAi] = useState(false);
-  const [pullingModel, setPullingModel] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  const [cloudLoading, setCloudLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const unsubscribe = window.rmango.onUpdateStatus(state => setUpdateState(state));
+    const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
+    const unsubscribeDeltas = window.rmango.onCloudChatDelta(({ requestId, delta }) => {
+      setMessages(current => current.map(message =>
+        message.id === requestId ? { ...message, content: message.content + delta } : message
+      ));
+    });
     void window.rmango.getUpdateState().then(setUpdateState).catch(() => undefined);
-    return unsubscribe;
-  }, []);
 
-  useEffect(() => {
-    Promise.all([window.rmango.getAppState(), window.rmango.getSettings(), window.rmango.loadMessages()])
-      .then(async ([state, savedSettings, savedMessages]) => {
+    Promise.all([window.rmango.getAppState(), window.rmango.getCloudState(), window.rmango.loadMessages()])
+      .then(async ([state, cloud, savedMessages]) => {
         setAppState(state);
         setProjectFiles(state.projectFiles || []);
-        setSettings(savedSettings);
-        setProvider(savedSettings.provider);
-        setModel(savedSettings.model);
+        setCloudState(cloud);
         setMessages(savedMessages || []);
-        if (savedSettings.provider === 'ollama') setLocalAi(await window.rmango.getLocalAiState(savedSettings.model));
         if (state.studioConnected) void refreshMcpState();
+        if (cloud.signedIn && cloud.serviceReady) {
+          try { setCloudModels(await window.rmango.getCloudModels()); }
+          catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models.'); }
+        }
       })
-      .catch(() => setToast('Could not read local app state. Restart Rmango and try again.'));
+      .catch(() => setToast('Could not load Rmango cloud state. Check the backend configuration.'))
+      .finally(() => setCloudLoading(false));
+
+    return () => {
+      unsubscribeUpdates();
+      unsubscribeDeltas();
+    };
   }, []);
 
   useEffect(() => {
@@ -149,39 +160,51 @@ function App() {
     setAppState(prev => prev ? { ...prev, studioConnected: state.connected, studioToolCount: state.toolCount } : prev);
   }
 
-  async function refreshLocalAi() {
-    setCheckingLocalAi(true);
+  async function refreshCloudState() {
+    const state = await window.rmango.getCloudState();
+    setCloudState(state);
+    if (state.signedIn && state.serviceReady) {
+      try { setCloudModels(await window.rmango.getCloudModels()); }
+      catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models.'); }
+    } else {
+      setCloudModels(null);
+    }
+    return state;
+  }
+
+  async function handleAuth(event: FormEvent) {
+    event.preventDefault();
+    if (authBusy) return;
+    setAuthBusy(true);
     try {
-      const state = await window.rmango.getLocalAiState(model);
-      setLocalAi(state);
-      if (state.running && state.modelInstalled) setToast('Local AI is ready. Your prompts stay on this computer.');
-      else if (state.running) setToast('Ollama is running. Download the selected model to start chatting.');
-      else setToast('Ollama is not running yet. Install the local runtime first.');
+      const result = authMode === 'sign-in'
+        ? await window.rmango.cloudSignIn({ email: authEmail.trim(), password: authPassword })
+        : await window.rmango.cloudSignUp({ email: authEmail.trim(), password: authPassword, displayName: authDisplayName.trim() || undefined });
+      if (authMode === 'sign-up' && result.requiresEmailConfirmation) {
+        setToast('Check your email to confirm your Rmango account, then sign in.');
+        setAuthMode('sign-in');
+        setAuthPassword('');
+        return;
+      }
+      setAuthPassword('');
+      const state = await refreshCloudState();
+      setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
+      if (state.serviceReady) setSettingsOpen(false);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not check local AI.');
+      setToast(error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.');
     } finally {
-      setCheckingLocalAi(false);
+      setAuthBusy(false);
     }
   }
 
-  async function handlePullModel() {
-    if (!localAi?.running) {
-      setToast('Install and open Ollama first. Rmango will then download the model locally.');
-      return;
-    }
-    setPullingModel(true);
+  async function handleSignOut() {
     try {
-      const result = await window.rmango.pullLocalModel(model);
-      const nextSettings = await window.rmango.getSettings();
-      const state = await window.rmango.getLocalAiState(model);
-      setSettings(nextSettings);
-      setProvider('ollama');
-      setLocalAi(state);
-      setToast(result.message);
+      await window.rmango.cloudSignOut();
+      setCloudState(await window.rmango.getCloudState());
+      setCloudModels(null);
+      setToast('Signed out of Rmango Cloud.');
     } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not download the local model.');
-    } finally {
-      setPullingModel(false);
+      setToast(error instanceof Error ? error.message : 'Could not sign out.');
     }
   }
 
@@ -326,38 +349,66 @@ function App() {
     }
   }
 
-  async function sendMessage(content = input) {
+  async function sendMessage(content = input, selectedProfile?: CloudProfile) {
     const trimmed = content.trim();
     if ((!trimmed && attachments.length === 0) || busy) return;
-    if (provider === 'ollama' && (!localAi?.running || !localAi.modelInstalled)) {
-      setToast(!localAi?.running ? 'Set up Ollama in Settings before chatting.' : 'Download the local model in Settings before chatting.');
+    if (!cloudState?.configured || !cloudState.serviceReady) {
       setSettingsOpen(true);
+      setToast(cloudState?.message || 'Rmango Cloud has not been configured by the administrator yet.');
       return;
     }
+    if (!cloudState.signedIn) {
+      setSettingsOpen(true);
+      setToast('Sign in to your Rmango account to use cloud AI.');
+      return;
+    }
+
     const pending = [...attachments];
+    const requestId = crypto.randomUUID();
     const shownAttachments: ChatAttachment[] = pending.map(({ id, name, mimeType, kind, size, previewUrl }) => ({
       id, name, mimeType, kind, size, previewUrl,
     }));
     const userContent = trimmed || 'Please inspect the attached files and images.';
-    const nextMessages: ChatMessage[] = [
-      ...messages,
-      { role: 'user', content: userContent, createdAt: timeNow(), attachments: shownAttachments },
-    ];
-    setMessages(nextMessages);
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: userContent,
+      createdAt: timeNow(),
+      attachments: shownAttachments,
+    };
+    const assistantPlaceholder: ChatMessage = {
+      id: requestId,
+      role: 'assistant',
+      content: '',
+      createdAt: timeNow(),
+      modelProfile: selectedProfile || cloudProfile,
+    };
+    const nextMessages = [...messages, userMessage];
+    setMessages([...nextMessages, assistantPlaceholder]);
     setInput('');
     setAttachments([]);
     setBusy(true);
+
     try {
       const result = await window.rmango.sendMessage({
         messages: nextMessages.map(({ role, content: text }) => ({ role, content: text })),
         attachments: pending.map(({ name, mimeType, kind, size, data }) => ({ name, mimeType, kind, size, data })),
-        mode: 'agent',
+        profile: selectedProfile || cloudProfile,
+        conversationId,
+        requestId,
       });
+      if (result.conversationId) setConversationId(result.conversationId);
       setActivities(result.activity || []);
-      setMessages(current => [...current, { role: 'assistant', content: result.content, createdAt: timeNow() }]);
+      setMessages(current => current.map(message =>
+        message.id === requestId ? { ...message, content: result.content, modelProfile: result.profile } : message
+      ));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Something went wrong while contacting the local model.';
-      setMessages(current => [...current, { role: 'assistant', content: 'I could not complete that request.\n\n' + message, createdAt: timeNow() }]);
+      const message = error instanceof Error ? error.message : 'The Rmango cloud request failed.';
+      setMessages(current => current.map(item =>
+        item.id === requestId
+          ? { ...item, content: 'I could not complete that request.\n\n' + message }
+          : item
+      ));
       if (pending.length) setAttachments(current => [...pending, ...current].slice(0, 8));
     } finally {
       setBusy(false);
