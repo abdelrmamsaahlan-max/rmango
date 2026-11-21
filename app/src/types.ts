@@ -84,6 +84,16 @@ export type CloudState = {
   apiHost?: string;
   message?: string;
   currentProjectId?: string;
+  currentConversationId?: string;
+};
+
+export type CloudConversation = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  model_profile: CloudProfile;
+  created_at: string;
+  updated_at: string;
 };
 
 export type CloudModelProfile = {
@@ -136,6 +146,10 @@ declare global {
       cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => Promise<{ ok: boolean; requiresEmailConfirmation: boolean; user: { id: string; email?: string } }>;
       cloudSignOut: () => Promise<{ ok: boolean }>;
       getCloudModels: () => Promise<CloudModels>;
+      getCloudConversations: (projectId?: string) => Promise<CloudConversation[]>;
+      loadCloudConversation: (conversationId: string) => Promise<{ conversation: CloudConversation; messages: ChatMessage[] }>;
+      createCloudConversation: (payload: { title?: string; projectId?: string; modelProfile: CloudProfile }) => Promise<CloudConversation>;
+      setCurrentConversationId: (conversationId?: string | null) => Promise<{ ok: boolean }>;
       openProject: () => Promise<{ canceled?: boolean; path?: string; files?: ProjectFile[] }>;
       clearProject: () => Promise<any>;
       uploadCloudProject: () => Promise<{ ok: boolean; projectId: string; projectName: string; totalFiles: number; uploaded: number; skipped: Array<{ name: string; reason: string }> }>;
