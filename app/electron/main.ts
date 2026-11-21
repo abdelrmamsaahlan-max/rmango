@@ -1553,14 +1553,16 @@ function isNewerStableVersion(candidate: string, current: string): boolean {
 
 async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
   if (!app.isPackaged || process.platform !== 'win32') {
-    broadcastUpdateState({
-      status: 'unsupported',
-      message: 'GitHub updates are available in the installed Windows app.',
-    });
+    const message = process.platform === 'darwin'
+      ? 'macOS auto-updates need an Apple-signed and notarized release. Install the matching DMG from GitHub Releases.'
+      : process.platform === 'linux'
+        ? 'Linux auto-updates stay disabled until signed update manifests are configured. Install the latest AppImage or DEB release manually.'
+        : 'Automatic updates are available only in a packaged, publisher-signed Windows build.';
+    broadcastUpdateState({ status: 'unsupported', message });
     return appUpdateState;
   }
 
-  if (updateCheckInFlight || appUpdateState.status === 'downloading' || appUpdateState.status === 'downloaded') return appUpdateState;
+  if (updateCheckInFlight || updateDownloadInFlight || appUpdateState.status === 'downloading' || appUpdateState.status === 'downloaded') return appUpdateState;
   if (!force && Date.now() - lastUpdateCheckAt < 30_000 && appUpdateState.status === 'not-available') return appUpdateState;
 
   updateCheckInFlight = true;
@@ -1581,6 +1583,17 @@ async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
       return appUpdateState;
     }
 
+    if (lastDownloadedUpdateVersion === latestVersion) {
+      broadcastUpdateState({
+        status: 'downloaded',
+        availableVersion: latestVersion,
+        progress: 100,
+        message: 'The latest stable update is already downloaded and ready to install.',
+      });
+      return appUpdateState;
+    }
+
+    updateDownloadInFlight = true;
     broadcastUpdateState({
       status: 'downloading',
       availableVersion: latestVersion,
@@ -1597,6 +1610,7 @@ async function checkForAppUpdates(force = false): Promise<AppUpdateState> {
       message: 'Could not check or download the latest stable release.',
     });
   } finally {
+    updateDownloadInFlight = false;
     updateCheckInFlight = false;
   }
   return appUpdateState;
@@ -1624,11 +1638,20 @@ function initializeAutoUpdates() {
   });
 
   autoUpdater.on('update-available', info => {
+    if (!isNewerStableVersion(info.version, app.getVersion())) {
+      broadcastUpdateState({
+        status: 'not-available',
+        availableVersion: undefined,
+        message: 'You are already on the latest stable version.',
+      });
+      return;
+    }
+    if (lastDownloadedUpdateVersion === info.version || updateDownloadInFlight) return;
     broadcastUpdateState({
-      status: 'downloading',
+      status: 'checking',
       availableVersion: info.version,
       progress: 0,
-      message: 'Version ' + info.version + ' is available. Downloading in the background…',
+      message: 'Latest stable version ' + info.version + ' found. Preparing one download…',
       error: undefined,
     });
   });
@@ -1693,6 +1716,7 @@ app.on('before-quit', () => { void disconnectRoblox(); });
 handleIpc('app:get-state', async () => {
   const settings = await readSettings();
   const files = settings.projectPath ? await projectFiles(settings.projectPath) : [];
+  const secureStorageAvailable = await isSecureStorageAvailable();
   return {
     appVersion: app.getVersion(),
     platform: process.platform,
@@ -1700,9 +1724,9 @@ handleIpc('app:get-state', async () => {
     projectFiles: files,
     studioConnected: mcpAvailable(),
     studioToolCount: safeToolList().length,
-    secureStorageAvailable: await isSecureStorageAvailable(),
+    secureStorageAvailable,
     secureStorageProvider: secureStorageProvider(),
-    secureStorageMessage: (await isSecureStorageAvailable()) ? undefined : secureStorageHelpMessage(),
+    secureStorageMessage: secureStorageAvailable ? undefined : secureStorageHelpMessage(),
     appearance: settings.appearance,
     density: settings.density,
     animationsEnabled: settings.animationsEnabled,
