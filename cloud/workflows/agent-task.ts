@@ -39,6 +39,7 @@ type TaskVerification = {
   playtestAttempted: boolean;
   playtestPassed: boolean | null;
   consoleInspected: boolean;
+  consoleClean: boolean | null;
   studioEvidence: Array<{
     toolName: string;
     commandId?: string;
@@ -563,7 +564,7 @@ async function verifyTaskStep(
     .limit(50);
   if (conversationId) proposalQuery = proposalQuery.eq("conversation_id", conversationId);
 
-  const [{ data: proposals }, { data: events }] = await Promise.all([
+  const [{ data: proposals }, { data: events }, { data: studioCommands }] = await Promise.all([
     proposalQuery,
     admin.from("agent_events")
       .select("event_type,message,data,created_at")
@@ -572,27 +573,122 @@ async function verifyTaskStep(
       .gte("created_at", createdAt)
       .order("created_at", { ascending: true })
       .limit(300),
+    admin.from("studio_commands")
+      .select("id,tool_name,tool_arguments,tool_result,error,execution_status,approval_status,created_at")
+      .eq("task_id", taskId)
+      .eq("owner_id", ownerId)
+      .gte("created_at", createdAt)
+      .order("created_at", { ascending: true })
+      .limit(100),
   ]);
 
-  const evidence = (events || []).filter(event =>
-    event.event_type === "tool_completed" || event.event_type === "studio_tool_result" || event.event_type === "tool_failed"
-  ).map(event => {
+  const evidence = (studioCommands || []).map(command => ({
+    toolName: command.tool_name,
+    commandId: command.id,
+    summary: compactText(command.tool_result ?? command.error ?? command.execution_status, 1_400),
+    successful: command.execution_status === "completed",
+  }));
+  for (const event of (events || []).filter(item =>
+    item.event_type === "tool_completed" || item.event_type === "tool_failed"
+  )) {
     const data = (event.data || {}) as Record<string, unknown>;
-    return {
-      toolName: String(data.toolName || data.tool_name || "unknown_tool"),
+    evidence.push({
+      toolName: String(data.toolName || "unknown_tool"),
       commandId: typeof data.commandId === "string" ? data.commandId : undefined,
-      summary: String(data.outputPreview || data.resultPreview || event.message).slice(0, 1_000),
+      summary: String(data.outputPreview || event.message).slice(0, 1_000),
       successful: event.event_type !== "tool_failed" && data.successful !== false,
-    };
-  });
+    });
+  }
 
-  const playtestAttempted = evidence.some(item =>
-    /start_stop_play|subagent|run_script_in_play_mode/i.test(item.toolName) &&
-    (item.toolName !== "studio_subagent" || /playtest/i.test(item.summary))
+  const completedCommands = (studioCommands || []).filter(command => command.execution_status === "completed");
+  const playtestCommands = completedCommands.filter(command =>
+    /subagent|start_stop_play|run_script_in_play_mode/i.test(command.tool_name)
   );
-  const consoleInspected = evidence.some(item => /get_console_output/i.test(item.toolName));
-  // Runtime verification is intentionally not inferred from a tool name or a successful RPC.
-  // The evidence is retained for the UI/reviewer to inspect.
+  const consoleCommands = completedCommands.filter(command => /get_console_output/i.test(command.tool_name));
+  const playtestAttempted = playtestCommands.length > 0;
+  const consoleInspected = consoleCommands.length > 0;
+
+  const parseObject = (value: unknown): Record<string, unknown> | null => {
+    if (!value) return null;
+    if (typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+    if (typeof value !== "string") return null;
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+    } catch {
+      return null;
+    }
+  };
+  const studioText = (value: unknown): string => {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(studioText).join("\\n");
+    const object = parseObject(value);
+    if (object) {
+      const content = Array.isArray(object.content) ? studioText(object.content) : "";
+      const structured = object.structuredContent ? studioText(object.structuredContent) : "";
+      const text = typeof object.text === "string" ? object.text : "";
+      return [text, content, structured].filter(Boolean).join("\\n");
+    }
+    return value == null ? "" : String(value);
+  };
+  const findExplicitPass = (value: unknown, depth = 0): boolean | null => {
+    if (depth > 5 || value == null) return null;
+    const object = parseObject(value);
+    if (object) {
+      if (typeof object.passed === "boolean") return object.passed;
+      const status = typeof object.status === "string" ? object.status.toLowerCase() : "";
+      if (["passed", "pass", "success", "successful"].includes(status)) return true;
+      if (["failed", "fail", "error"].includes(status)) return false;
+      for (const key of ["structuredContent", "result", "output", "data", "tests", "checks", "content"]) {
+        if (key in object) {
+          const nested = findExplicitPass(object[key], depth + 1);
+          if (nested !== null) return nested;
+        }
+      }
+      return null;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const nested = findExplicitPass(item, depth + 1);
+        if (nested !== null) return nested;
+      }
+    }
+    if (typeof value === "string") {
+      const text = value.trim();
+      const parsed = parseObject(text);
+      if (parsed) return findExplicitPass(parsed, depth + 1);
+      if (/\\b(playtest|gameplay|test suite|acceptance checks?)\\b.{0,80}\\b(passed|successful)\\b/i.test(text)) return true;
+      if (/\\b(playtest|gameplay|test suite|acceptance checks?)\\b.{0,80}\\b(failed|unsuccessful)\\b/i.test(text)) return false;
+    }
+    return null;
+  };
+  const subagentCommands = playtestCommands.filter(command => /subagent/i.test(command.tool_name));
+  const playtestPassResults = subagentCommands.map(command => findExplicitPass(command.tool_result)).filter(value => value !== null);
+  const playtestPassed = playtestPassResults.length ? playtestPassResults[playtestPassResults.length - 1] : null;
+
+  const consoleResults = consoleCommands.map(command => {
+    const value = command.tool_result;
+    const object = parseObject(value);
+    if (object) {
+      if (typeof object.errorCount === "number") return object.errorCount === 0;
+      if (Array.isArray(object.errors)) return object.errors.length === 0;
+      if (object.structuredContent) {
+        const nested = parseObject(object.structuredContent);
+        if (nested && typeof nested.errorCount === "number") return nested.errorCount === 0;
+        if (nested && Array.isArray(nested.errors)) return nested.errors.length === 0;
+      }
+    }
+    const text = studioText(value);
+    if (/\\b(error|exception|traceback)\\b/i.test(text)) return false;
+    if (/\\b(no errors|0 errors|zero errors|error count:?\\s*0)\\b/i.test(text)) return true;
+    return null;
+  });
+  const knownConsoleResults = consoleResults.filter(value => value !== null);
+  const consoleClean = knownConsoleResults.length
+    ? knownConsoleResults.every(value => value === true)
+    : null;
+  const runtimeVerified = playtestAttempted && playtestPassed === true && consoleInspected && consoleClean === true;
+
   const latestStatus = (proposals || []).map(item => ({
     id: item.id,
     path: item.relative_path,
@@ -600,15 +696,18 @@ async function verifyTaskStep(
   }));
 
   return {
-    runtimeVerified: false,
+    runtimeVerified,
     playtestAttempted,
-    playtestPassed: null,
+    playtestPassed,
     consoleInspected,
+    consoleClean,
     studioEvidence: evidence.slice(-80),
     proposals: latestStatus,
-    note: playtestAttempted
-      ? "Studio playtest activity was recorded. The workflow does not infer a pass from a tool call; review the returned playtest and console evidence before treating runtime behavior as verified."
-      : "No confirmed Studio playtest evidence was recorded. Cloud source proposals and generated code are not runtime tests.",
+    note: runtimeVerified
+      ? "The connected Studio subagent returned an explicit passing playtest result and the inspected Studio console reported no errors. Review the saved evidence and tested scenario; this does not prove every game system or edge case is correct."
+      : playtestAttempted
+        ? "Studio playtest activity was recorded, but the workflow could not confirm both an explicit passing playtest result and a clean console result. Runtime verification remains incomplete."
+        : "No confirmed Studio playtest evidence was recorded. Cloud source proposals and generated code are not runtime tests.",
   };
 }
 
