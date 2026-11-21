@@ -192,7 +192,7 @@ export function AgentWorkspace({
       return;
     }
     if (!cloudReady) {
-      onNotify("Sign in and connect Rmango Cloud before starting a task.");
+      onNotify("RMango could not start your guest workspace. Retry the service connection.");
       return;
     }
     if (draft.trim().length < 8) return;
@@ -207,7 +207,7 @@ export function AgentWorkspace({
       setDraft("");
       setSelectedId(response.task.id);
       await refreshTasks();
-      onNotify("Agent task queued. Its progress is saved to your Rmango account.");
+      onNotify("Agent task queued. Its progress is saved to your private RMango workspace.");
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "Could not create the agent task.");
     } finally {
