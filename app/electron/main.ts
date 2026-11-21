@@ -58,7 +58,8 @@ let appUpdateState: AppUpdateState = {
 
 const userData = () => app.getPath('userData');
 const settingsPath = () => path.join(userData(), 'settings.json');
-const sessionPath = () => path.join(userData(), 'session.json');
+const legacyChatHistoryPath = () => path.join(userData(), 'session.json');
+const chatHistoryPath = () => path.join(userData(), 'chat-history.enc');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
 
 async function readSettings(): Promise<SettingsFile> {
@@ -107,6 +108,48 @@ async function writeCloudSession(session: CloudSession) {
   const encrypted = safeStorage.encryptString(JSON.stringify(session)).toString('base64');
   await fs.writeFile(cloudSessionPath(), encrypted, { encoding: 'utf8', mode: 0o600 });
 }
+
+function cleanChatHistory(messages: ChatMessage[]) {
+  return messages.slice(-100).map(message => ({
+    ...message,
+    attachments: (message as any).attachments
+      ? (message as any).attachments.map(({ id, name, mimeType, kind, size }: any) => ({ id, name, mimeType, kind, size }))
+      : undefined,
+  }));
+}
+
+async function writeChatHistory(messages: ChatMessage[]) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Rmango will not save chat history as plaintext.');
+  }
+  await fs.mkdir(userData(), { recursive: true });
+  const encrypted = safeStorage.encryptString(JSON.stringify(cleanChatHistory(messages))).toString('base64');
+  const temporaryPath = chatHistoryPath() + '.tmp';
+  await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(temporaryPath, chatHistoryPath());
+}
+
+async function readChatHistory(): Promise<ChatMessage[]> {
+  if (!safeStorage.isEncryptionAvailable()) return [];
+  try {
+    const encrypted = await fs.readFile(chatHistoryPath(), 'utf8');
+    const parsed = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+    return Array.isArray(parsed) ? parsed.slice(-100) as ChatMessage[] : [];
+  } catch {
+    // Migrate existing plaintext history only after encryption succeeds.
+    try {
+      const legacy = JSON.parse(await fs.readFile(legacyChatHistoryPath(), 'utf8')) as ChatMessage[];
+      if (!Array.isArray(legacy)) return [];
+      const cleaned = cleanChatHistory(legacy);
+      await writeChatHistory(cleaned);
+      await fs.rm(legacyChatHistoryPath(), { force: true });
+      return cleaned;
+    } catch {
+      return [];
+    }
+  }
+}
+
 
 async function clearCloudSession() {
   await stopStudioConnectorPolling();
@@ -1037,18 +1080,10 @@ ipcMain.handle('studio:approval-result', (_event, response: { requestId: string;
   return { ok: false };
 });
 
-ipcMain.handle('chat:load', async () => {
-  try { return JSON.parse(await fs.readFile(sessionPath(), 'utf8')) as ChatMessage[]; } catch { return []; }
-});
+ipcMain.handle('chat:load', async () => readChatHistory());
 ipcMain.handle('chat:save', async (_event, messages: ChatMessage[]) => {
-  await fs.mkdir(userData(), { recursive: true });
-  const cleaned = messages.slice(-100).map(message => ({
-    ...message,
-    attachments: (message as any).attachments
-      ? (message as any).attachments.map(({ id, name, mimeType, kind, size }: any) => ({ id, name, mimeType, kind, size }))
-      : undefined,
-  }));
-  await fs.writeFile(sessionPath(), JSON.stringify(cleaned, null, 2), 'utf8');
+  if (!Array.isArray(messages)) throw new Error('Chat history payload is invalid.');
+  await writeChatHistory(messages);
   return { ok: true };
 });
 
