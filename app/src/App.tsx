@@ -630,11 +630,23 @@ function App() {
       setToast('Sign in to a configured Rmango Cloud account before uploading this project.');
       return;
     }
+    const previousCloudProjectId = cloudProjectId;
     setUploadingProject(true);
     setProjectUploadProgress({ completed: 0, total: 0, uploaded: 0, skipped: 0, currentFile: 'Preparing project…' });
     try {
       const result = await window.rmango.uploadCloudProject();
+      const changedProject = previousCloudProjectId !== result.projectId;
+      if (changedProject) {
+        await window.rmango.setCurrentConversationId(null);
+        setConversationId(undefined);
+        setMessages([]);
+        setActivities([]);
+        setFollowupQueue([]);
+        followupQueueRef.current = [];
+      }
       setCloudProjectId(result.projectId);
+      const projectTasks = await window.rmango.getCloudTasks(result.projectId);
+      setCloudTasks(projectTasks);
       await window.rmango.setCurrentCloudProjectId(result.projectId);
       setCloudState(current => current ? { ...current, currentProjectId: result.projectId } : current);
       const [changeList, projects] = await Promise.all([
@@ -646,6 +658,7 @@ function App() {
       setToast(
         'Synced "' + result.projectName + '": ' + result.uploaded + ' files uploaded or updated, ' +
         result.unchanged + ' unchanged, ' + result.removed + ' removed.' +
+        (changedProject ? ' Started a fresh project conversation.' : '') +
         (result.skipped.length ? ' ' + result.skipped.length + ' files could not be synced.' : '')
       );
       if (result.skipped.length) {
