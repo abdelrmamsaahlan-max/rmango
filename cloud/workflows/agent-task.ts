@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { gateway } from "@ai-sdk/gateway";
 import { WorkflowAgent, type ModelCallStreamPart } from "@ai-sdk/workflow";
-import { generateText, isStepCount, type ToolSet } from "ai";
+import { generateText, isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { resolveProfile, type ModelProfile } from "@/lib/ai/models";
 import { createAdminClient } from "@/lib/supabase";
@@ -422,7 +422,7 @@ async function executeTaskWorkflow(
   ].join("\n");
 
   const reservation = await reserveAgentCallStep(ownerId, profile, prompt);
-  const tools: ToolSet = createProjectAgentTools(context, studioTools);
+  const tools = createProjectAgentTools(context, studioTools);
   const usedTools = new Set<string>();
   let actualModelId = reservation.modelId;
   let totalInputTokens = 0;
@@ -444,7 +444,7 @@ async function executeTaskWorkflow(
       "If evidence is incomplete, say runtimeVerified=false and identify exactly what remains unverified.",
       "Return a clear final report with systems investigated, exact edits, proposals, Studio tools, verification evidence, failures and remaining work. Never expose hidden chain-of-thought.",
     ].join("\n"),
-    tools,
+    tools: tools as any,
     temperature: 0.1,
     maxOutputTokens: reservation.maxOutputTokens,
     experimental_onStart: async () => {
