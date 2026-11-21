@@ -1,77 +1,89 @@
-# Rmango — Roblox AI Studio
+# Rmango — Roblox Studio AI
 
-Rmango is a Windows-first, local-first desktop workspace for AI-assisted Roblox development.
+Rmango is a Windows desktop workspace for Roblox development. Version 0.2.0 is local-first: the default AI runs on your computer through Ollama, with no hosted AI-provider API key.
 
-## Download and install (recommended)
+## Download and install
 
-**Download the `Rmango-Setup-x.y.z-x64.exe` file from the GitHub Releases page. Do not download the green Code → Download ZIP button to install the app.** That ZIP is only the source code.
+Open the [GitHub Releases page](https://github.com/abdelrmamsaahlan-max/rmango/releases) and download the asset named `Rmango-Setup-0.2.0-x64.exe`.
 
-1. Open the repository's **Releases** page: <https://github.com/abdelrmamsaahlan-max/rmango/releases>
-2. Under the latest release's **Assets**, download `Rmango-Setup-...-x64.exe`.
-3. Double-click the EXE and follow the Windows setup wizard.
-4. Choose an installation folder, then finish setup. Rmango will create Start Menu and optional desktop shortcuts.
-5. Launch **Rmango** from the Start Menu.
+The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is only source code, not an installer.
 
-The Windows installer is an NSIS setup executable. It installs the app; it does not ask you to extract a ZIP. Uninstall Rmango from Windows Settings → Apps. Your local settings and project chat are preserved when uninstalling.
+## First-run setup: local AI
 
-## Build the installer yourself
+1. Install [Ollama for Windows](https://ollama.com/download/windows).
+2. Open Ollama once and leave it running.
+3. Open Rmango → **Settings → Local AI**.
+4. Press **Check**. When Rmango detects Ollama, download the default `qwen3.5:4b` model.
+5. Once it is downloaded, chat with Rmango. Model requests are sent to the local Ollama service at `127.0.0.1:11434`; Rmango does not send prompts to an AI provider.
 
-Requirements: Windows 10/11, Node.js 22+, npm, and an internet connection for package installation.
+The model weights are downloaded once. After they are present, local inference can work without an internet connection. The first runtime/model installation needs an internet connection. Local speed and quality depend on your hardware and the selected model; a small local model is not equivalent to a frontier hosted model.
 
-1. Extract the source archive or clone this repository.
-2. Run `build-windows-installer.bat`.
-3. The final installer is written to `release/Rmango-Setup-0.1.1-x64.exe` (the exact version is based on `package.json`).
+## Photos and files
 
-Or run the commands manually:
+The chat composer accepts images (PNG, JPEG, WebP, GIF) and text/code files (Luau, Lua, TXT, Markdown, JSON, CSV, XML, YAML, TOML, JavaScript, TypeScript, CSS, and HTML). Images are sent to the selected local vision model; text files are included as context. Current limits are 8 attachments per message, 8 MB per image, and 512 KB per text file.
 
-```powershell
-npm install --no-audit --no-fund
-npm run dist:win
+## Connect Roblox Studio with MCP
+
+MCP means **Model Context Protocol**. It is the connector between the AI model and Roblox Studio. The model decides which action to request; the MCP client sends that request to Studio; Studio runs the corresponding tool.
+
+Roblox Studio already includes its own MCP server. You do not need to write a second Roblox plugin/server just to connect Rmango:
+
+1. Open Roblox Studio and the place you want Rmango to work on.
+2. Open **Assistant → … → Manage MCP Servers**.
+3. Enable **Studio as MCP server**.
+4. Keep Studio open and switch to Rmango.
+5. Press **Connect to Studio** in the right-hand panel.
+
+On Windows, the Roblox MCP launcher is normally at `%LOCALAPPDATA%\Roblox\mcp.bat`. Rmango starts that local process using stdio transport and discovers the available tools.
+
+For other MCP clients, Roblox documents this Windows entry:
+
+```json
+{
+  "mcpServers": {
+    "Roblox_Studio": {
+      "command": "cmd.exe",
+      "args": ["/c", "%LOCALAPPDATA%\\Roblox\\mcp.bat"]
+    }
+  }
+}
 ```
 
-## GitHub automated releases
+## Studio permissions
 
-The workflow at `.github/workflows/windows-installer.yml` builds Rmango on a Windows GitHub Actions runner and attaches the **`.exe` installer directly** to a GitHub Release.
+Read-only inspection tools can run without an approval prompt. Script edits, Luau execution, procedural models, asset insertion, uploads, playtest controls, player input, and saving a place require a visible **Approve / Deny** decision in Rmango. Denying or allowing an action is your choice. Rmango does not expose publishing or deletion tools in this build.
 
-- Push a version tag such as `v0.1.1`, or
-- Open **Actions → Build Windows Installer → Run workflow** and provide a new tag name.
+A map workflow should start by inspecting the existing place, then propose the layout and scale. After you approve a specific Studio operation, Rmango can use the available procedural-model, mesh/material, asset, and Luau tools in focused passes. Tool availability varies by Roblox Studio version.
 
-The source ZIP generated by GitHub's Code menu is not the installer. Only the EXE attached to a Release is the installation file.
+## Windows Smart App Control and publisher signing
 
-## Included capabilities
+The installer can be produced without a certificate, but an unsigned installer may be blocked by Windows Smart App Control because Windows cannot verify its publisher. That is not a reason to disable Windows protection.
 
-- Studio-style workspace with chat, project explorer, Studio inspector, and activity log.
-- Anthropic and OpenAI provider adapters with editable model IDs.
-- Separate encrypted local API-key storage per provider using Electron `safeStorage` when available.
-- Roblox Studio built-in MCP connection via `%LOCALAPPDATA%\Roblox\mcp.bat`.
-- Read-only Studio tools: read/search scripts, inspect state, view console output, and capture the viewport (depending on the Studio MCP version).
-- Local project-folder explorer and restricted source/text-file reader.
-- Local chat history in the app's user-data directory.
+For a trusted publisher identity, the application binaries and installer must be signed using a valid code-signing certificate from a certificate authority in Microsoft's Trusted Root Program (or Microsoft's supported Artifact Signing service). A self-signed test certificate does not establish a trusted publisher for Smart App Control.
 
-## Configure AI
+The GitHub workflow supports a PFX certificate through these repository secrets:
+- `RMANGO_SIGNING_PFX_BASE64`: Base64 contents of the certificate PFX.
+- `RMANGO_SIGNING_PFX_PASSWORD`: PFX password.
 
-1. Open **Settings**.
-2. Choose Anthropic or OpenAI.
-3. Enter a model ID supported by that provider account. Suggested IDs are available in the model field.
-4. Paste the API key for the selected provider and save.
+Only the repository owner or an authorized adult maintainer should manage a real publisher certificate and its secrets. Until those secrets are configured with a valid trusted certificate, GitHub builds are **unsigned** and Smart App Control may still block them.
 
-Suggested current IDs include `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5`, `gpt-6.2-astra`, and `gpt-6.2-sol`. Model availability and pricing are controlled by the provider. API usage is billed separately; Rmango does not include model credits.
+## Build from source
 
-API keys are stored locally. When Windows secure storage is available, keys are encrypted with Electron's OS-backed storage. Provider keys are kept separately so switching between Anthropic and OpenAI does not accidentally send one provider's key to the other.
+Requirements: Windows 10/11, Node.js 22+, npm, and internet access for dependency/model downloads.
 
-## Connect Roblox Studio
+```powershell
+cd app
+npm install --no-audit --no-fund
+npm run dev
+```
 
-1. Open Roblox Studio and your place.
-2. Open **Assistant → Manage MCP Servers**.
-3. Enable **Studio as MCP server**.
-4. Keep Studio running and click **Connect to Studio** in Rmango.
+For a Windows NSIS setup executable, run `app/build-windows-installer.bat` or `npm run dist:win` from the `app` folder.
 
-## Safety and MVP limits
+## Repository structure
 
-- Studio editing, publishing, inserting assets, and destructive actions are not enabled yet. The current Studio access is read-only.
-- Local project files are inspected only when requested by the agent and are not uploaded wholesale.
-- The project reader blocks path traversal and symlinks that resolve outside the selected project folder.
-- The app talks directly to your selected AI provider; there is no Rmango-hosted backend.
-- Review code suggestions before using them in a published experience.
-
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for technical details.
+- `app/`: editable React + Electron application.
+- `app/electron/main.ts`: Ollama/local inference, optional cloud adapters, MCP client, file context, and approval gate.
+- `app/src/App.tsx`: workspace UI, attachment composer, local AI setup, Studio inspector, and approval dialog.
+- `app/src/styles.css`: mango yellow / forest green visual system.
+- `app/build/generate-icon.ps1`: generates the 256×256 mango Windows icon.
+- `.github/workflows/windows-installer.yml`: Windows packaging, optional signing, and GitHub Release publishing.
