@@ -26,6 +26,10 @@ export type SelectedProjectContext = {
     sourceRef: string | null;
     updatedAt: string;
     freshness: "recent" | "aging" | "stale";
+    provenance: "legacy_unverified" | "model_unverified" | "source_excerpt";
+    verificationStatus: "unverified" | "excerpt_present" | "source_changed" | "source_deleted";
+    confidence: "unverified" | "source_excerpt_present";
+    revisionCount: number | null;
   }>;
   retrieval: {
     method: "bm25+dependency-graph" | "bm25";
@@ -74,13 +78,29 @@ export async function loadSelectedProjectContext(
 
   if (filesError) throw new Error("Could not load the selected project's file manifest.");
 
-  const { data: memories, error: memoriesError } = await supabase
+  const extendedMemoryQuery = await supabase
     .from("project_memories")
-    .select("id,memory_type,title,content,source_ref,updated_at")
+    .select("id,memory_type,title,content,source_ref,updated_at,provenance,verification_status,confidence,revision_count")
     .eq("project_id", projectId)
     .eq("owner_id", ownerId)
     .order("updated_at", { ascending: false })
     .limit(60);
+  const provenanceMissing = Boolean(extendedMemoryQuery.error && (
+    extendedMemoryQuery.error.code === "PGRST204" ||
+    extendedMemoryQuery.error.code === "42703" ||
+    /schema cache|column .* does not exist/i.test(extendedMemoryQuery.error.message || "")
+  ));
+  const legacyMemoryQuery = provenanceMissing
+    ? await supabase.from("project_memories")
+        .select("id,memory_type,title,content,source_ref,updated_at")
+        .eq("project_id", projectId)
+        .eq("owner_id", ownerId)
+        .order("updated_at", { ascending: false })
+        .limit(60)
+    : null;
+  const memories = provenanceMissing ? legacyMemoryQuery?.data : extendedMemoryQuery.data;
+  const memoriesError = provenanceMissing ? legacyMemoryQuery?.error : extendedMemoryQuery.error;
+  const provenanceAvailable = !provenanceMissing && !extendedMemoryQuery.error;
 
   if (memoriesError) throw new Error("Could not load the selected project's saved memories.");
 
@@ -168,6 +188,16 @@ export async function loadSelectedProjectContext(
       sourceRef: sourceMemory.source_ref ? String(sourceMemory.source_ref).slice(0, 300) : null,
       updatedAt,
       freshness: ageDays >= 180 ? "stale" as const : ageDays >= 60 ? "aging" as const : "recent" as const,
+      provenance: provenanceAvailable
+        ? String(sourceMemory.provenance || "legacy_unverified") as "legacy_unverified" | "model_unverified" | "source_excerpt"
+        : "legacy_unverified",
+      verificationStatus: provenanceAvailable
+        ? String(sourceMemory.verification_status || "unverified") as "unverified" | "excerpt_present" | "source_changed" | "source_deleted"
+        : "unverified",
+      confidence: provenanceAvailable
+        ? String(sourceMemory.confidence || "unverified") as "unverified" | "source_excerpt_present"
+        : "unverified",
+      revisionCount: provenanceAvailable ? Number(sourceMemory.revision_count || 0) : null,
     }];
   });
   return {

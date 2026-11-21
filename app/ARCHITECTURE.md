@@ -167,3 +167,13 @@ See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migrat
 - Checkpoint restoration uses the same read-back hash verification before updating file metadata. On mismatch it attempts to put the previously live bytes back, and reports a recovery conflict if that cannot also be verified.
 
 - The task inspector now displays the actual controller decision recorded in each task: intent, chosen intelligence level, model profile and whether it was automatic or manually selected, along with the applied step/file/memory/output budgets, verification depth and routing signals. Research tasks explicitly show when live external documentation access was unavailable.
+
+
+## Project memory provenance and revisions
+
+- Legacy notes are explicitly classified `legacy_unverified`; AI-created notes are `model_unverified` unless an exact source excerpt is supplied.
+- RMango checks that the source file belongs to the same project/owner, is a supported bounded text file, the downloaded bytes match the indexed SHA-256, and the exact excerpt is present.
+- A successful check records `source_excerpt` / `excerpt_present`. This verifies excerpt presence only; it does not prove the AI's interpretation or conclusion.
+- Database updates preserve the prior memory contents in `project_memory_revisions`; the current row exposes a revision count. Source-file hash changes or deletion invalidate excerpt-backed status.
+- The `list_project_memory_revisions` tool exposes earlier versions. Deployments without the new migration remain in legacy mode; changed same-title notes are inserted as new rows rather than overwriting the earlier note.
+- Apply `cloud/supabase/migrations/20261121224500_rmango_memory_provenance.sql` before expecting provenance labels or database revision history to persist.
