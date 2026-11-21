@@ -83,15 +83,6 @@ function encodeBytesBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
-function readDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Could not read ' + file.name + '.'));
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.readAsDataURL(file);
-  });
-}
-
 function inferMimeType(file: File) {
   if (file.type) return file.type;
   const ext = file.name.split('.').pop()?.toLowerCase();
@@ -1216,11 +1207,9 @@ function App() {
     event.target.value = '';
   }
 
-  function openFilePicker(imagesOnly = false) {
+  function openFilePicker() {
     if (!fileInputRef.current) return;
-    fileInputRef.current.accept = imagesOnly
-      ? 'image/png,image/jpeg,image/webp,image/gif'
-      : 'image/png,image/jpeg,image/webp,image/gif,.pdf,.docx,.lua,.luau,.txt,.md,.json,.csv,.xml,.yaml,.yml,.toml,.js,.jsx,.ts,.tsx,.css,.html';
+    fileInputRef.current.accept = '.pdf,.docx,.lua,.luau,.txt,.md,.json,.csv,.xml,.yaml,.yml,.toml,.js,.jsx,.ts,.tsx,.css,.html';
     fileInputRef.current.click();
   }
 
@@ -1591,13 +1580,13 @@ function App() {
               />
               <div className="composer-footer">
                 <div className="composer-left">
-                  <select className="profile-select" value={cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Cloud AI profile" disabled={!cloudState?.signedIn || busy}>
+                  <select className="profile-select" value={cloudProfile === 'vision' ? 'developer' : cloudProfile} onChange={event => setCloudProfile(event.target.value as CloudProfile)} title="Cloud AI profile" disabled={!cloudState?.signedIn || busy}>
                     <option value="fast">Rmango Fast</option>
                     <option value="developer">Rmango Developer</option>
                     <option value="think">Rmango Think</option>
                     <option value="agent">Rmango Agent</option>
                   </select>
-                  <button className="attach-button" title="Attach images or files" onClick={() => openFilePicker(false)}><Paperclip size={14}/> Attach</button>
+                  <button className="attach-button" title="Attach images or files" onClick={() => openFilePicker()}><Paperclip size={14}/> Attach</button>
                   <button className="attach-button attach-image" title="Image uploads are unavailable with the current text-only free model" disabled><ImageIcon size={14}/> Photo unavailable</button>
                   <input ref={fileInputRef} className="hidden-file-input" type="file" multiple onChange={handleFileChange}/>
                   <span className="composer-hint">Text/code, PDF and DOCX · Enter to send</span>
@@ -2000,7 +1989,7 @@ function App() {
                     </div>
                     <label className="settings-select-row settings-default-profile">
                       <span><strong>New conversation profile</strong><small>This is a routing preset, not a separate model or a model-training setting.</small></span>
-                      <select className="settings-input" value={cloudProfile} onChange={event => void handleDefaultProfileChange(event.target.value as CloudProfile)}>
+                      <select className="settings-input" value={cloudProfile === 'vision' ? 'developer' : cloudProfile} onChange={event => void handleDefaultProfileChange(event.target.value as CloudProfile)}>
                         <option value="fast">Fast · quick responses</option>
                         <option value="developer">Developer · Roblox coding</option>
                         <option value="think">Think · deeper reasoning</option>
