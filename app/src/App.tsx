@@ -116,10 +116,23 @@ function App() {
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
+    // Coalesce network chunks into one renderer update per animation frame.
+    const pendingDeltas = new Map<string, string>();
+    let deltaFrame: number | null = null;
+    let effectDisposed = false;
+    const flushDeltas = () => {
+      deltaFrame = null;
+      if (effectDisposed || pendingDeltas.size === 0) return;
+      const batch = new Map(pendingDeltas);
+      pendingDeltas.clear();
+      setMessages(current => current.map(message => {
+        const delta = batch.get(message.id || '');
+        return delta ? { ...message, content: message.content + delta } : message;
+      }));
+    };
     const unsubscribeDeltas = window.rmango.onCloudChatDelta(({ requestId, delta }) => {
-      setMessages(current => current.map(message =>
-        message.id === requestId ? { ...message, content: message.content + delta } : message
-      ));
+      pendingDeltas.set(requestId, (pendingDeltas.get(requestId) || '') + delta);
+      if (deltaFrame === null) deltaFrame = window.requestAnimationFrame(flushDeltas);
     });
     const unsubscribeProjectUpload = window.rmango.onProjectUploadProgress(progress => {
       setProjectUploadProgress(progress);
@@ -150,18 +163,38 @@ function App() {
 
     return () => {
       unsubscribeUpdates();
+      effectDisposed = true;
+      if (deltaFrame !== null) window.cancelAnimationFrame(deltaFrame);
       unsubscribeDeltas();
       unsubscribeProjectUpload();
     };
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    bottomRef.current?.scrollIntoView({ behavior: busy ? 'auto' : 'smooth', block: 'end' });
   }, [messages, busy, pendingApproval]);
 
+  const latestMessagesRef = useRef(messages);
+  const chatSaveTimerRef = useRef<number | null>(null);
+  latestMessagesRef.current = messages;
+
+  // Persist at most once per second while tokens stream, rather than writing the
+  // complete chat history for every network chunk.
   useEffect(() => {
-    if (messages.length) void window.rmango.saveMessages(messages);
+    if (!messages.length || chatSaveTimerRef.current !== null) return;
+    chatSaveTimerRef.current = window.setTimeout(() => {
+      chatSaveTimerRef.current = null;
+      void window.rmango.saveMessages(latestMessagesRef.current);
+    }, 1000);
   }, [messages]);
+
+  useEffect(() => () => {
+    if (chatSaveTimerRef.current !== null) {
+      window.clearTimeout(chatSaveTimerRef.current);
+      chatSaveTimerRef.current = null;
+      if (latestMessagesRef.current.length) void window.rmango.saveMessages(latestMessagesRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -470,7 +503,7 @@ function App() {
       createdAt: timeNow(),
       modelProfile: selectedProfile || cloudProfile,
     };
-    const nextMessages = [...messages, userMessage];
+    const nextMessages = [...messages, userMessage].slice(-99);
     setMessages([...nextMessages, assistantPlaceholder]);
     setInput('');
     setAttachments([]);
