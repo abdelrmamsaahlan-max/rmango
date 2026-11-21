@@ -13,6 +13,7 @@ import type {
 
 type ActivityItem = { name: string; detail: string; ok: boolean };
 type PendingAttachment = AttachmentPayload & { id: string; previewUrl?: string };
+type PendingFollowup = { id: string; content: string; profile: CloudProfile; attachments: PendingAttachment[]; queuedAt: string };
 
 const timeNow = () => new Date().toISOString();
 const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -47,6 +48,14 @@ function FileGlyph({ file }: { file: ProjectFile }) {
 
 function encodeTextBase64(value: string) {
   const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) binary += String.fromCharCode(...bytes.subarray(i, i + step));
+  return btoa(binary);
+}
+
+function encodeBytesBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
   let binary = '';
   const step = 0x8000;
   for (let i = 0; i < bytes.length; i += step) binary += String.fromCharCode(...bytes.subarray(i, i + step));
@@ -89,6 +98,8 @@ function App() {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [followupQueue, setFollowupQueue] = useState<PendingFollowup[]>([]);
+  const followupQueueRef = useRef<PendingFollowup[]>([]);
   const [busy, setBusy] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
@@ -433,19 +444,25 @@ function App() {
       'toml', 'js', 'jsx', 'ts', 'tsx', 'css', 'html',
     ]);
     const next: PendingAttachment[] = [];
+    let nextBytes = attachments.reduce((sum, item) => sum + item.size, 0);
     for (const file of files) {
       const mimeType = inferMimeType(file);
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       const isImage = /^image\/(png|jpeg|webp|gif)$/i.test(mimeType);
+      const isDocument = ext === 'pdf' || ext === 'docx';
       const isText = allowedTextExtensions.has(ext) && (/^text\/|application\/json/i.test(mimeType) || mimeType === 'application/octet-stream');
-      if (!isImage && !isText) {
-        setToast('Unsupported file: ' + file.name + '. Add an image or a text/code file.');
+      if (!isImage && !isText && !isDocument) {
+        setToast('Unsupported file: ' + file.name + '. Add an image, PDF, DOCX or text/code file.');
         continue;
       }
-      const maxBytes = isImage ? 8 * 1024 * 1024 : 512 * 1024;
+      const maxBytes = isImage ? 8 * 1024 * 1024 : isDocument ? 5 * 1024 * 1024 : 512 * 1024;
       if (file.size > maxBytes) {
-        setToast(file.name + ' is too large. Images: 8 MB max; text files: 512 KB max.');
+        setToast(file.name + (isDocument ? ' is too large. PDF/DOCX limit: 5 MB.' : isImage ? ' is too large. Images: 8 MB max.' : ' is too large. Text files: 512 KB max.'));
         continue;
+      }
+      if (nextBytes + file.size > 20 * 1024 * 1024) {
+        setToast('Attachments for one message must total 20 MB or less.');
+        break;
       }
       try {
         if (isImage) {
@@ -454,6 +471,15 @@ function App() {
             id: crypto.randomUUID(), name: file.name, mimeType, kind: 'image', size: file.size,
             data: dataUrl.split(',')[1] || '', previewUrl: dataUrl,
           });
+        } else if (isDocument) {
+          next.push({
+            id: crypto.randomUUID(),
+            name: file.name,
+            mimeType: ext === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            kind: 'file',
+            size: file.size,
+            data: encodeBytesBase64(await file.arrayBuffer()),
+          });
         } else {
           next.push({
             id: crypto.randomUUID(), name: file.name,
@@ -461,6 +487,7 @@ function App() {
             kind: 'file', size: file.size, data: encodeTextBase64(await file.text()),
           });
         }
+        nextBytes += file.size;
       } catch (error) {
         setToast(error instanceof Error ? error.message : 'Could not attach ' + file.name + '.');
       }
@@ -471,9 +498,10 @@ function App() {
     }
   }
 
-  async function sendMessage(content = input, selectedProfile?: CloudProfile) {
+  async function sendMessage(content = input, selectedProfile?: CloudProfile, attachmentOverride?: PendingAttachment[], fromQueue = false) {
     const trimmed = content.trim();
-    if ((!trimmed && attachments.length === 0) || busy) return;
+    const pending = attachmentOverride ? [...attachmentOverride] : [...attachments];
+    if (!trimmed && pending.length === 0) return;
     if (!cloudState?.configured || !cloudState.serviceReady) {
       setSettingsOpen(true);
       setToast(cloudState?.message || 'Rmango Cloud has not been configured by the administrator yet.');
@@ -485,7 +513,28 @@ function App() {
       return;
     }
 
-    const pending = [...attachments];
+    if (busy && !fromQueue) {
+      if (followupQueueRef.current.length >= 6) {
+        setToast('The follow-up queue is full. Remove one queued message before adding another.');
+        return;
+      }
+      const queued: PendingFollowup = {
+        id: crypto.randomUUID(),
+        content: trimmed || 'Please inspect the attached files and images.',
+        profile: selectedProfile || cloudProfile,
+        attachments: pending,
+        queuedAt: timeNow(),
+      };
+      const nextQueue = [...followupQueueRef.current, queued];
+      followupQueueRef.current = nextQueue;
+      setFollowupQueue(nextQueue);
+      setInput('');
+      setAttachments([]);
+      setToast('Follow-up queued. Rmango will read it and continue in this same chat after the current response.');
+      return;
+    }
+
+    if (busy && fromQueue) return;
     const requestId = crypto.randomUUID();
     activeRequestIdRef.current = requestId;
     cancelledRequestIdRef.current = null;
@@ -511,8 +560,10 @@ function App() {
     };
     const nextMessages = [...messages, userMessage].slice(-99);
     setMessages([...nextMessages, assistantPlaceholder]);
-    setInput('');
-    setAttachments([]);
+    if (!fromQueue) {
+      setInput('');
+      setAttachments([]);
+    }
     setBusy(true);
 
     try {
@@ -557,6 +608,22 @@ function App() {
       setBusy(false);
       composerRef.current?.focus();
     }
+  }
+
+  useEffect(() => {
+    if (busy || !cloudReady || !cloudState?.signedIn || followupQueue.length === 0) return;
+    const next = followupQueueRef.current[0];
+    if (!next) return;
+    const remaining = followupQueueRef.current.slice(1);
+    followupQueueRef.current = remaining;
+    setFollowupQueue(remaining);
+    void sendMessage(next.content, next.profile, next.attachments, true);
+  }, [busy, cloudReady, cloudState?.signedIn, followupQueue.length]);
+
+  function removeFollowup(id: string) {
+    const remaining = followupQueueRef.current.filter(item => item.id !== id);
+    followupQueueRef.current = remaining;
+    setFollowupQueue(remaining);
   }
 
   async function handleCancelMessage() {
@@ -604,7 +671,7 @@ function App() {
     if (!fileInputRef.current) return;
     fileInputRef.current.accept = imagesOnly
       ? 'image/png,image/jpeg,image/webp,image/gif'
-      : 'image/png,image/jpeg,image/webp,image/gif,.lua,.luau,.txt,.md,.json,.csv,.xml,.yaml,.yml,.toml,.js,.jsx,.ts,.tsx,.css,.html';
+      : 'image/png,image/jpeg,image/webp,image/gif,.pdf,.docx,.lua,.luau,.txt,.md,.json,.csv,.xml,.yaml,.yml,.toml,.js,.jsx,.ts,.tsx,.css,.html';
     fileInputRef.current.click();
   }
 
@@ -875,6 +942,15 @@ function App() {
                 </div>
               )}
             </div>}
+            {busy && <div className="composer-live-status"><span className="composer-live-dot"/><span>Rmango is working. You can send another instruction or attach files; they will be read at the next task checkpoint.</span><button type="button" className="composer-stop-button" onClick={() => void handleCancelMessage()} title="Stop current response" aria-label="Stop current response"><Square size={12} fill="currentColor"/></button></div>}
+            {followupQueue.length > 0 && <div className="followup-queue">
+              <div className="followup-queue-heading"><strong>FOLLOW-UP QUEUE</strong><span>{followupQueue.length}/6</span></div>
+              {followupQueue.map(item => <div className="followup-queue-item" key={item.id}>
+                <span className="followup-queue-text">{item.content}</span>
+                <span className="followup-queue-files">{item.attachments.length ? item.attachments.length + ' file(s)' : 'Text'}</span>
+                <button type="button" onClick={() => removeFollowup(item.id)} title="Remove queued follow-up" aria-label="Remove queued follow-up"><X size={12}/></button>
+              </div>)}
+            </div>}
             <div className="composer-box">
               <textarea
                 ref={composerRef}
@@ -882,7 +958,7 @@ function App() {
                 value={input}
                 onChange={event => setInput(event.target.value)}
                 onKeyDown={handleComposerKey}
-                placeholder="Ask Rmango to inspect, design, code, or improve your Roblox game…"
+                placeholder={busy ? 'Add a follow-up while Rmango works…' : 'Ask Rmango to inspect, design, code, or improve your Roblox game…'}
               />
               <div className="composer-footer">
                 <div className="composer-left">
@@ -898,14 +974,15 @@ function App() {
                   <input ref={fileInputRef} className="hidden-file-input" type="file" multiple onChange={handleFileChange}/>
                   <span className="composer-hint">Enter to send · Shift + Enter for new line</span>
                 </div>
+                {busy && <button type="button" className="composer-stop-button composer-stop-inline" onClick={() => void handleCancelMessage()} title="Stop current response" aria-label="Stop current response"><Square size={12} fill="currentColor"/></button>}
                 <button
-                  className={'send-button ' + (busy ? 'cancel-button' : '')}
-                  title={busy ? 'Stop generating' : 'Send message'}
-                  aria-label={busy ? 'Stop generating' : 'Send message'}
-                  disabled={!busy && ((!input.trim() && attachments.length === 0) || !cloudReady || !cloudState?.signedIn)}
-                  onClick={() => busy ? void handleCancelMessage() : void sendMessage()}
+                  className="send-button"
+                  title={busy ? 'Queue follow-up' : 'Send message'}
+                  aria-label={busy ? 'Queue follow-up' : 'Send message'}
+                  disabled={(!input.trim() && attachments.length === 0) || !cloudReady || !cloudState?.signedIn}
+                  onClick={() => void sendMessage()}
                 >
-                  {busy ? <Square size={13} fill="currentColor"/> : <Send size={15}/>}
+                  <Send size={15}/>
                 </button>
               </div>
             </div>
