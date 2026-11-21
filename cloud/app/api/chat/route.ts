@@ -467,6 +467,7 @@ export async function POST(request: Request) {
   if (agentTaskId) {
     await recordAgentEvent("started", "Started a coordinated Roblox development task.", {
       profile,
+      strategy: workflow.strategy,
       domains: workflow.domains,
       projectId: selectedProjectId || null,
     });
@@ -854,7 +855,12 @@ export async function POST(request: Request) {
             result: {
               modelId: actualModelId,
               profile,
+              strategy: workflow.strategy,
+              domains: workflow.domains,
               selectedSkills: skills.ids,
+              // This records completion of the model response, not proof that the user's
+              // requested behavior passed an independent runtime or gameplay test.
+              completionSemantics: "model_response_finished_verification_must_be_reported_separately",
               responsePreview: finalText.slice(0, 3_000),
             },
             updated_at: new Date().toISOString(),
@@ -884,6 +890,8 @@ export async function POST(request: Request) {
       "Cache-Control": "no-store, no-transform",
       "X-Rmango-Model-Profile": profile,
       "X-Rmango-Model": choice.primary.id,
+      "X-Rmango-Execution-Strategy": workflow.strategy,
+      "X-Rmango-Workflow-Mode": workflow.mode,
       "X-Rmango-Request-Id": requestId,
       "X-Rmango-Selected-Skills": skills.ids.join(","),
     });
