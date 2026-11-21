@@ -1618,7 +1618,7 @@ function App() {
 
       <div className="workspace-layout">
         <nav className="activity-rail">
-          <button className="rail-button active" title="Workspace" aria-label="Workspace" onClick={() => { setLeftSidebarOpen(true); setRightPanelOpen(false); }}><Bot size={18}/></button>
+          <button className="rail-button active" title="Workspace" aria-label="Workspace" onClick={() => { setLeftSidebarCollapsed(false); setLeftSidebarOpen(true); setRightPanelOpen(false); }}><Bot size={18}/></button>
           <button className={"rail-button " + (!leftSidebarCollapsed ? "active" : "")} title="Toggle project sidebar (Ctrl+B)" aria-label="Toggle project sidebar" onClick={() => { setLeftSidebarCollapsed(value => !value); setLeftSidebarOpen(true); }}><Folder size={18}/></button>
           <button className="rail-button" title="Cloud projects" aria-label="Cloud projects" onClick={() => { setLeftSidebarOpen(true); setCloudProjectSearch(''); }}><Layers3 size={18}/></button>
           <button className="rail-button" title="AI chat" aria-label="Focus chat composer" onClick={() => composerRef.current?.focus()}><MessageSquare size={18}/></button>
@@ -2193,7 +2193,19 @@ function App() {
                     </div>
                     <div className="settings-shortcut-row">
                       <div><strong>Open Settings</strong><small>Open this panel from anywhere in Rmango.</small></div>
-                      <kbd>Ctrl</kbd><span>+</span><kbd>,</kbd>
+                      <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd><span>+</span><kbd>,</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Toggle project sidebar</strong><small>Show or hide the project explorer.</small></div>
+                      <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd><span>+</span><kbd>B</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Toggle session inspector</strong><small>Show or hide Studio status and task activity.</small></div>
+                      <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>I</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Focus chat composer</strong><small>Jump directly to the message box.</small></div>
+                      <kbd>{appState?.platform === 'darwin' ? '⌘' : 'Ctrl'}</kbd><span>+</span><kbd>L</kbd>
                     </div>
                   </section>
 
@@ -2210,7 +2222,7 @@ function App() {
 
                   <section className="settings-tip">
                     <Info size={16}/>
-                    <div><strong>Your settings are saved automatically</strong><p>Changes are stored locally on this Windows account. You do not need to press a Save button.</p></div>
+                    <div><strong>Your settings are saved automatically</strong><p>Changes are stored locally for this device account. You do not need to press a Save button.</p></div>
                   </section>
                 </>}
 
