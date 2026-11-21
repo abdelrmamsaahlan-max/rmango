@@ -29,7 +29,7 @@ No hosted model request or paid inference has been run from this code. No cloud 
 8. Set the GitHub Actions repository variable `RMANGO_CLOUD_API_URL` to the public HTTPS Vercel URL.
 9. Push/rebuild the desktop installer so the public cloud URL is included in `app/cloud-config.json`.
 
-Cloud inference has a cost. User quotas are enforced in the database before the AI request starts, but they do not replace an administrator-configured provider/Gateway spending limit.
+Cloud inference has a cost. The database usage policy is disabled by default; an administrator must set global daily/monthly USD caps and explicitly enable it before any inference request can start. Per-user request/token quotas and a second Vercel AI Gateway budget provide additional limits.
 
 ## Download and install the Windows app
 
