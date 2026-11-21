@@ -832,6 +832,16 @@ async function controlAgentTask(payload: { taskId: string; action: "pause" | "re
   });
 }
 
+async function submitAgentFeedback(payload: { taskId: string; helpful: boolean }) {
+  if (!payload || typeof payload.helpful !== "boolean") throw new Error("Feedback must be helpful or not helpful.");
+  validateCloudUuid(payload.taskId, "agent task ID");
+  return cloudApiRequest<any>("/api/agent/tasks/" + payload.taskId + "/feedback", {
+    method: "POST",
+    body: JSON.stringify({ helpful: payload.helpful }),
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
 async function getCloudProjectIndex(projectId: string) {
   validateCloudUuid(projectId, "cloud project ID");
   return cloudApiRequest<any>("/api/projects/" + projectId + "/index");
@@ -1164,6 +1174,7 @@ registerTrustedIpcHandler('agent:tasks:list', (_event, projectId?: string) => li
 registerTrustedIpcHandler('agent:tasks:get', (_event, taskId: string) => getAgentTask(taskId));
 registerTrustedIpcHandler('agent:tasks:create', (_event, payload: { projectId: string; conversationId?: string; taskText: string; profile: CloudProfile }) => createAgentTask(payload));
 registerTrustedIpcHandler('agent:tasks:control', (_event, payload: { taskId: string; action: "pause" | "resume" | "cancel" | "retry" }) => controlAgentTask(payload));
+registerTrustedIpcHandler('agent:tasks:feedback', (_event, payload: { taskId: string; helpful: boolean }) => submitAgentFeedback(payload));
 registerTrustedIpcHandler('project:index:get', (_event, projectId: string) => getCloudProjectIndex(projectId));
 registerTrustedIpcHandler('project:index:start', (_event, projectId: string) => startCloudProjectIndex(projectId));
 registerTrustedIpcHandler('project:review-change', (_event, payload: { projectId: string; changeId: string; decision: "approve" | "reject" }) => {
