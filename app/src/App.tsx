@@ -149,7 +149,7 @@ function App() {
           catch (error) { setToast(error instanceof Error ? error.message : 'Could not load cloud models.'); }
         }
       })
-      .catch(() => setToast('Could not load Rmango cloud state. Check the backend configuration.'))
+      .catch(() => setToast('Could not connect to RMango AI. Check your internet connection and retry.'))
       .finally(() => setCloudLoading(false));
 
     return () => {
@@ -515,7 +515,7 @@ function App() {
   }, [projectFiles, search]);
 
   const studioConnected = appState?.studioConnected ?? false;
-  const cloudReady = Boolean(cloudState?.configured && cloudState.serviceReady);
+  const cloudReady = Boolean(cloudState?.configured && cloudState.serviceReady && cloudState.signedIn);
   const currentProfile = cloudModels?.profiles.find(item => item.profile === cloudProfile);
   const cloudStatusLabel = cloudLoading
     ? 'CONNECTING TO RMANGO AI'
