@@ -47,7 +47,7 @@ Never paste either value into chat, commit it, or put it in a source file. Keep 
 4. Run the workflow only when you intend to deploy. The selected branch's cloud build must pass first.
 5. Read the deployment URL in the logs or Cloudflare Workers & Pages.
 
-The workflow installs dependencies, checks the Cloudflare credentials, builds the OpenNext Worker, and deploys the Worker named `rmango-cloud`. It does not edit the desktop app's production API URL.
+The workflow installs dependencies, checks the Cloudflare credentials, builds the OpenNext Worker, and deploys the Worker named `rmango-cloud`. It does not edit the desktop app's production API URL. Pull-request CI runs `npm run cf-check`, which builds the OpenNext output and runs `wrangler deploy --dry-run` to validate the final Worker package without uploading or deploying it.
 
 ### Configure Supabase runtime secrets
 
@@ -61,7 +61,7 @@ After the first Worker deploy, open **Workers & Pages → rmango-cloud → Setti
 
 Keep `SUPABASE_SECRET_KEY` server-side. Do not add it to the desktop app, GitHub variables, or source control. The optional legacy `SUPABASE_SERVICE_ROLE_KEY` is supported as a fallback if already used.
 
-After setting secrets, deploy the same branch again using the manual workflow. Open `https://<your-worker-url>/api/health`; it should report `status: "ready"` and `aiReady: true` once the database and existing RMango usage policy are ready.
+After setting secrets, deploy the same branch again using the manual workflow. Open `https://<your-worker-url>/api/health`; it should report `status: "ready"` and `aiReady: true` once the database and existing RMango usage policy are ready. This endpoint checks configuration, database reachability and the RMango usage policy; it does not send a model prompt, prove that Workers AI inference currently succeeds, or measure remaining daily Neurons. Verify inference separately with an authenticated chat request.
 
 Then verify authenticated chat, at least one multi-step tool call, project file storage, the Studio connector round-trip, and ZIP export. **Do not change `app/cloud-config.json` or remove the old Vercel deployment before those checks pass.**
 
@@ -72,7 +72,7 @@ Only after verification, update `app/cloud-config.json` to the exact Cloudflare 
 ```powershell
 npm install --no-audit --no-fund
 npm run typecheck
-npm run cf-build
+npm run cf-check
 npm run cf-preview
 ```
 
@@ -99,7 +99,7 @@ The RMango database usage policy is a second, internal request guard. It does no
 
 - `cloud/app/api/chat/route.ts`: authenticated streaming chat, project context, and Roblox Studio tools.
 - `cloud/lib/ai/models.ts`: Cloudflare Workers AI model binding and profile metadata.
-- `cloud/wrangler.jsonc`: Workers Free deployment, AI binding, assets, CPU cap and observability.
+- `cloud/wrangler.jsonc`: Workers Free deployment, AI binding, assets, CPU cap, logs and traces.
 - `cloud/open-next.config.ts`: Next.js adapter configuration.
 - `cloud/supabase/migrations/`: owner-scoped account, project, conversation, storage and usage schema.
 - `app/cloud-config.json`: public cloud API URL packaged with the Windows desktop client.
