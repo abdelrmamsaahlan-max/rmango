@@ -119,6 +119,10 @@ export async function POST(request: Request, context: { params: Promise<{ projec
     return NextResponse.json({ error: "Could not index the uploaded source file." }, { status: 503 });
   }
 
+  await supabase.from("projects")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", projectId).eq("owner_id", user.id);
+
   return NextResponse.json({ file }, { status: 201 });
 }
 
@@ -178,6 +182,10 @@ export async function DELETE(request: Request, context: { params: Promise<{ proj
       return NextResponse.json({ error: "Private file objects were removed, but their index rows could not be deleted." }, { status: 503 });
     }
   }
+
+  await supabase.from("projects")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", projectId).eq("owner_id", user.id);
 
   return NextResponse.json({
     ok: true,
