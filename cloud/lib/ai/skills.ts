@@ -181,7 +181,7 @@ export function buildSkillContext(input: string, options?: { hasImage?: boolean;
   );
   return {
     ids: skills.map(skill => skill.id),
-    version: "1.1.0",
+    version: "1.2.0",
     systemText: [
       "ACTIVE RMANGO SKILLS — versioned, locally selected without an extra model call.",
       "Use only the skills relevant to this turn; do not repeat the whole playbook to the user.",
