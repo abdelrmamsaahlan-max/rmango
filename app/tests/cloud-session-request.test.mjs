@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sendWithCloudSessionRefresh } from "../electron/cloud-session-request.ts";
+import {
+  selectCurrentSessionForRefresh,
+  sendWithCloudSessionRefresh,
+} from "../electron/cloud-session-request.ts";
 
 test("refreshes a rejected access token and retries the chat request once", async () => {
   const initial = { accessToken: "old-access-token", refreshToken: "refresh-token" };
@@ -91,4 +94,45 @@ test("does not create an unbounded retry loop when the refreshed token is also r
   assert.equal(sendCount, 2);
   assert.equal(refreshCount, 1);
   assert.equal(result.response.status, 401);
+});
+
+
+test("reuses the newest saved session when another request already rotated the refresh token", () => {
+  const stale = {
+    accessToken: "old-access-token",
+    refreshToken: "used-refresh-token",
+    user: { id: "same-user" },
+  };
+  const current = {
+    accessToken: "new-access-token",
+    refreshToken: "new-refresh-token",
+    user: { id: "same-user" },
+  };
+
+  assert.equal(selectCurrentSessionForRefresh(stale, current), current);
+});
+
+test("keeps the requested session when no refresh rotation has happened", () => {
+  const requested = {
+    accessToken: "access-token",
+    refreshToken: "refresh-token",
+    user: { id: "same-user" },
+  };
+
+  assert.equal(selectCurrentSessionForRefresh(requested, { ...requested }), requested);
+});
+
+test("rejects a missing or different-account session instead of refreshing the wrong account", () => {
+  const requested = {
+    accessToken: "access-token",
+    refreshToken: "refresh-token",
+    user: { id: "user-a" },
+  };
+  const otherAccount = {
+    ...requested,
+    user: { id: "user-b" },
+  };
+
+  assert.throws(() => selectCurrentSessionForRefresh(requested, null), /session is no longer available/);
+  assert.throws(() => selectCurrentSessionForRefresh(requested, otherAccount), /session is no longer available/);
 });
