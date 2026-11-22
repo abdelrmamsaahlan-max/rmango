@@ -352,13 +352,13 @@ jobs:
             $line = ([string]$subject).Trim()
             if (-not $line) { continue }
             $clean = $line -replace '^[A-Za-z]+(\([^)]+\))?!?:\s*', ''
-            if ($line -match '^(feat|feature|add)(\([^)]+\))?!?:') {
+            if ($line -match '^(feat|feature)(\([^)]+\))?!?:' -or $line -match '^(add|added|create|created|implement|implemented|introduce|introduced)\b') {
               $categories.Added.Add($clean)
-            } elseif ($line -match '^(fix|bug)(\([^)]+\))?!?:') {
+            } elseif ($line -match '^(fix|bug)(\([^)]+\))?!?:' -or $line -match '^(fix|fixed|repair|repaired|correct|corrected)\b') {
               $categories.Fixed.Add($clean)
-            } elseif ($line -match '^(perf|improve|refactor|ui|design)(\([^)]+\))?!?:') {
+            } elseif ($line -match '^(perf|improve|refactor|ui|design)(\([^)]+\))?!?:' -or $line -match '^(improve|improved|upgrade|upgraded|polish|polished|optimize|optimized)\b') {
               $categories.Improved.Add($clean)
-            } elseif ($line -match '^(docs|test|chore|ci|build|release)(\([^)]+\))?!?:') {
+            } elseif ($line -match '^(docs|test|chore|ci|build|release)(\([^)]+\))?!?:' -or $line -match '^(docs|documentation|test|tests|chore|build|ci)\b') {
               $categories.Maintenance.Add($clean)
             } else {
               $categories.Other.Add($line)
