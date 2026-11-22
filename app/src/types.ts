@@ -192,6 +192,7 @@ export type UpdateState = {
   status: 'idle' | 'unsupported' | 'checking' | 'downloading' | 'downloaded' | 'not-available' | 'error';
   currentVersion: string;
   availableVersion?: string;
+  releaseNotes?: string;
   progress?: number;
   message?: string;
   error?: string;
