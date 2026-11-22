@@ -3,14 +3,13 @@ import { z } from "zod";
 import { getSupabasePublicConfig } from "@/lib/supabase";
 import {
   createSupabaseOAuthAuthorizeUrl,
-  isRmangoOAuthProvider,
   isValidOAuthCodeChallenge,
 } from "@/lib/auth/oauth";
 
 export const runtime = "nodejs";
 
 const schema = z.object({
-  provider: z.string().refine(isRmangoOAuthProvider),
+  provider: z.enum(["google", "custom:roblox"]),
   codeChallenge: z.string().refine(isValidOAuthCodeChallenge),
 });
 
