@@ -22,12 +22,11 @@ export async function GET(request: Request) {
         .eq("id", true)
         .maybeSingle();
       if (error) {
-        // Log only safe diagnostics: never include request headers, API keys,
-        // credentials, or full request URLs in public health output.
-        console.error("[rmango-health] Supabase usage-policy query failed", {
-          code: error.code || "unknown",
-          name: error.name || "PostgrestError",
-        });
+        // Keep diagnostics useful in Cloudflare logs without exposing messages,
+        // request headers, API keys, credentials, or full request URLs.
+        const code = error.code || "unknown";
+        const name = error.name || "PostgrestError";
+        console.error(`[rmango-health] Supabase usage-policy query failed code=${code} name=${name}`);
       }
       databaseReachable = !error && Boolean(policy);
       inferenceEnabled = Boolean(
@@ -36,9 +35,8 @@ export async function GET(request: Request) {
         Number(policy.monthly_spend_limit_usd) > 0
       );
     } catch (cause) {
-      console.error("[rmango-health] Supabase usage-policy connection failed", {
-        name: cause instanceof Error ? cause.name : "UnknownError",
-      });
+      const name = cause instanceof Error ? cause.name : "UnknownError";
+      console.error(`[rmango-health] Supabase usage-policy connection failed name=${name}`);
       databaseReachable = false;
       inferenceEnabled = false;
     }
