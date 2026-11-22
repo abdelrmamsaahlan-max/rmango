@@ -131,7 +131,7 @@ export async function POST(request: Request) {
   const { context, response } = await getAuthErrorResponse(request);
   if (response) return response;
   const { supabase, user } = context!;
-  const admin = createAdminClient();
+  const admin = await createAdminClient();
 
   let body: z.infer<typeof requestSchema>;
   try {
