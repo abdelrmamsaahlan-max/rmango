@@ -44,11 +44,14 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Generate Cloudflare Worker binding types
+        run: npx wrangler types
+
       - name: Type-check cloud backend
         run: npm run typecheck
 
-      - name: Build cloud backend
-        run: npm run build
+      - name: Build Cloudflare Worker artifact
+        run: npm run build:cloudflare
 
   desktop:
     name: Type-check and build RMango desktop client
