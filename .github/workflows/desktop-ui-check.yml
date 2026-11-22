@@ -38,5 +38,7 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Test saved cloud-session validation
         run: npm run test:session
+      - name: Test built-in Roblox Studio MCP path discovery
+        run: npm run test:studio-mcp-path
       - name: Typecheck and build
         run: npm run build
