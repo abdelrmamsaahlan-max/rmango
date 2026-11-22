@@ -26,7 +26,6 @@ export async function GET(request: Request) {
         // credentials, or full request URLs in public health output.
         console.error("[rmango-health] Supabase usage-policy query failed", {
           code: error.code || "unknown",
-          status: error.status || null,
           name: error.name || "PostgrestError",
         });
       }
