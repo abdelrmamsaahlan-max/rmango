@@ -144,6 +144,9 @@ jobs:
           console.log("All three existing Supabase Worker secrets are present. Their values were not read or changed.");
           NODE
 
+      - name: Build Cloudflare Worker artifact for deployment job
+        run: npm run build:cloudflare
+
       - name: Deploy Worker while preserving existing Supabase secrets
         run: npx opennextjs-cloudflare deploy
 
