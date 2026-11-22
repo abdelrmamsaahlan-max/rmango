@@ -61,6 +61,9 @@ jobs:
       - name: Test bounded project source search
         run: npm run test:source-search
 
+      - name: Test task-aware project context ranking
+        run: npm run test:project-relevance
+
       - name: Build Cloudflare Worker artifact
         run: npm run build:cloudflare
 

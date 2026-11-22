@@ -321,7 +321,7 @@ export async function POST(request: Request) {
   let selectedProjectContextText = "";
   if (selectedProjectId) {
     try {
-      const selectedProjectContext = await loadSelectedProjectContext(supabase, user.id, selectedProjectId);
+      const selectedProjectContext = await loadSelectedProjectContext(supabase, user.id, selectedProjectId, latestUserPrompt);
       if (!selectedProjectContext) {
         return NextResponse.json({ error: "The selected cloud project is no longer available to this account." }, { status: 404 });
       }

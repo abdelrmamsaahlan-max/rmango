@@ -1,5 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  deduplicateProjectMemories,
+  rankProjectItemsWithEvidence,
+  tokenizeProjectQuery,
+} from "./project-relevance";
 
 export type SelectedProjectContext = {
   project: {
@@ -17,6 +22,15 @@ export type SelectedProjectContext = {
     sha256: string | null;
   }>;
   manifestTruncated: boolean;
+  retrieval: {
+    method: "bm25";
+    queryTerms: string[];
+    fileCandidates: number;
+    filesWithMatches: number;
+    memoryCandidates: number;
+    memoriesWithMatches: number;
+    candidateWindowTruncated: boolean;
+  };
   memories: Array<{
     id: string;
     type: string;
@@ -28,13 +42,15 @@ export type SelectedProjectContext = {
 };
 
 /**
- * Fetches only metadata for a project owned by the authenticated user.
- * File contents are deliberately retrieved on-demand through read_project_file.
+ * Fetches owner-checked metadata only, then ranks the bounded candidate window
+ * against the active request. File contents remain on-demand through
+ * read_project_file; BM25 metadata matches are navigation hints, not proof.
  */
 export async function loadSelectedProjectContext(
   supabase: SupabaseClient,
   ownerId: string,
   projectId: string,
+  query = "",
 ): Promise<SelectedProjectContext | null> {
   const { data: project, error: projectError } = await supabase
     .from("projects")
@@ -47,13 +63,14 @@ export async function loadSelectedProjectContext(
   if (!project) return null;
 
   const manifestLimit = 80;
+  const candidateLimit = 500;
   const { data: files, error: filesError } = await supabase
     .from("project_files")
     .select("id,relative_path,file_name,mime_type,size_bytes,sha256")
     .eq("project_id", projectId)
     .eq("owner_id", ownerId)
     .order("relative_path", { ascending: true })
-    .limit(manifestLimit + 1);
+    .limit(candidateLimit + 1);
 
   if (filesError) throw new Error("Could not load the selected project's file manifest.");
 
@@ -63,13 +80,29 @@ export async function loadSelectedProjectContext(
     .eq("project_id", projectId)
     .eq("owner_id", ownerId)
     .order("updated_at", { ascending: false })
-    .limit(20);
+    .limit(60);
 
   if (memoriesError) throw new Error("Could not load the selected project's saved memories.");
 
-  const rows = files || [];
+  const fileRows = files || [];
+  const fileEvidence = rankProjectItemsWithEvidence(fileRows, query, {
+    getText: file => [file.relative_path, file.file_name].join(" "),
+  });
+  const selectedFiles = fileEvidence.slice(0, manifestLimit).map(result => result.item);
+
+  const distinctMemories = deduplicateProjectMemories(memories || []);
+  const memoryEvidence = rankProjectItemsWithEvidence(distinctMemories, query, {
+    getText: memory => [
+      memory.memory_type,
+      memory.title,
+      String(memory.content || "").slice(0, 2_000),
+      memory.source_ref,
+    ].join(" "),
+    updatedAt: memory => memory.updated_at,
+  });
+
   let memoryCharactersRemaining = 16_000;
-  const boundedMemories = (memories || []).flatMap(memory => {
+  const boundedMemories = memoryEvidence.slice(0, 20).flatMap(({ item: memory }) => {
     if (memoryCharactersRemaining <= 0) return [];
     const content = String(memory.content || "").slice(0, Math.min(1_500, memoryCharactersRemaining));
     memoryCharactersRemaining -= content.length;
@@ -82,14 +115,15 @@ export async function loadSelectedProjectContext(
       updatedAt: String(memory.updated_at || ""),
     }];
   });
+
   return {
     project: {
       id: project.id,
       name: String(project.name || "").slice(0, 120),
-      description: String(project.description || "").slice(0, 1000),
+      description: String(project.description || "").slice(0, 1_000),
       updatedAt: project.updated_at,
     },
-    files: rows.slice(0, manifestLimit).map(file => ({
+    files: selectedFiles.map(file => ({
       id: file.id,
       path: String(file.relative_path || "").slice(0, 500),
       name: String(file.file_name || "").slice(0, 200),
@@ -97,7 +131,16 @@ export async function loadSelectedProjectContext(
       sizeBytes: Math.max(0, Number(file.size_bytes) || 0),
       sha256: file.sha256 ? String(file.sha256).slice(0, 64) : null,
     })),
-    manifestTruncated: rows.length > manifestLimit,
+    manifestTruncated: fileRows.length > manifestLimit,
+    retrieval: {
+      method: "bm25",
+      queryTerms: tokenizeProjectQuery(query).slice(0, 16),
+      fileCandidates: fileRows.length,
+      filesWithMatches: fileEvidence.filter(result => result.matchedTerms.length > 0).length,
+      memoryCandidates: distinctMemories.length,
+      memoriesWithMatches: memoryEvidence.filter(result => result.matchedTerms.length > 0).length,
+      candidateWindowTruncated: fileRows.length > candidateLimit,
+    },
     memories: boundedMemories,
   };
 }
