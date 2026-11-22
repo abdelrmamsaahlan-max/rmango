@@ -34,9 +34,9 @@ jobs:
         run: |
           $packagePath = "package.json"
           $package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
-          $package.version = "0.2.281-preview.${{ github.run_number }}"
+          $package.version = "0.2.325-preview.${{ github.run_number }}"
           Set-Content -LiteralPath $packagePath -Value ($package | ConvertTo-Json -Depth 100) -Encoding utf8
-          Write-Host "Building preview version $($package.version); no public release will be created."
+          Write-Host "Building preview version $($package.version); no public release will be created. This version supersedes the reported v0.2.324 desktop build."
 
       - name: Verify the desktop targets the Cloudflare Worker
         shell: pwsh
