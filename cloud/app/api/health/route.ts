@@ -6,7 +6,7 @@ import { publicApiStatus } from "@/lib/env";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   const { env } = await getCloudflareContext({ async: true });
   const configuration = publicApiStatus(Boolean(env.AI));
 
@@ -22,11 +22,18 @@ export async function GET(request: Request) {
         .eq("id", true)
         .maybeSingle();
       if (error) {
-        // Keep diagnostics useful in Cloudflare logs without exposing messages,
-        // request headers, API keys, credentials, or full request URLs.
-        const code = error.code || "unknown";
-        const name = error.name || "PostgrestError";
-        console.error(`[rmango-health] Supabase usage-policy query failed code=${code} name=${name}`);
+        // Log only a bounded PostgREST diagnostic. Never include request headers,
+        // API keys, credentials, or full request URLs in public health output.
+        const diagnosticError = error as typeof error & { status?: number };
+        const diagnostic = {
+          code: error.code || "unknown",
+          name: error.name || "PostgrestError",
+          status: Number.isInteger(diagnosticError.status) ? diagnosticError.status : null,
+          message: String(error.message || "No PostgREST error message.")
+            .replace(/[\r\n\t]+/g, " ")
+            .slice(0, 240),
+        };
+        console.error("[rmango-health] Supabase usage-policy query failed " + JSON.stringify(diagnostic));
       }
       databaseReachable = !error && Boolean(policy);
       inferenceEnabled = Boolean(
