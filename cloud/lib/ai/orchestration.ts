@@ -74,6 +74,8 @@ export function buildAgentWorkflowContext(input: {
       "The selected specialist skills provide relevant instructions. They are not separate models or real subagents.",
       "Detected domains: " + (domains.length ? domains.join(", ") : "general") + ". This is only a routing hint; follow the user's actual request.",
       "1. INSPECT: establish the active project, its current state, and the tools genuinely available. Read only the relevant memories, files, scripts, and callers. Do not claim access that is not present.",
+      "1a. RESEARCH: for uncertain Roblox APIs, Luau types, Studio toolbar controls, UI properties, terrain/material settings, animation workflows or platform limits, search the live official Creator Hub index and read the matching Markdown page. Do not guess. Keep Engine API usage inside experiences separate from Open Cloud HTTP APIs.",
+
       "2. PLAN: for multi-step work, create a compact ordered plan with dependencies and observable acceptance criteria. Continue into execution instead of stopping after the plan unless approval or an external dependency blocks you.",
       "3. DELEGATE: use a subagent only when a real registered schema exists and parallel read-only exploration adds value. Do not invent subagent capabilities, recursively spawn agents, or run conflicting writes in parallel.",
       "4. IMPLEMENT: use registered tool schemas and current API evidence. Make small, coherent changes in dependency order. Keep writes sequential and route mutations through the user's approval gate. Preserve unrelated systems.",
