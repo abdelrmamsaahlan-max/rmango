@@ -112,14 +112,19 @@ test("reuses the newest saved session when another request already rotated the r
   assert.equal(selectCurrentSessionForRefresh(stale, current), current);
 });
 
-test("keeps the requested session when no refresh rotation has happened", () => {
+test("prefers the latest saved session even when its refresh token is unchanged", () => {
   const requested = {
-    accessToken: "access-token",
+    accessToken: "old-access-token",
+    refreshToken: "refresh-token",
+    user: { id: "same-user" },
+  };
+  const current = {
+    accessToken: "current-access-token",
     refreshToken: "refresh-token",
     user: { id: "same-user" },
   };
 
-  assert.equal(selectCurrentSessionForRefresh(requested, { ...requested }), requested);
+  assert.equal(selectCurrentSessionForRefresh(requested, current), current);
 });
 
 test("rejects a missing or different-account session instead of refreshing the wrong account", () => {
