@@ -8,6 +8,7 @@ import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
 import { resolveProfile, type ModelProfile } from "@/lib/ai/models";
 import { optionalEnv } from "@/lib/env";
 import { isAllowedStudioTool } from "@/lib/studio-connector";
+import { STUDIO_COMMAND_MAX_POLL_ATTEMPTS, STUDIO_COMMAND_POLL_INTERVAL_MS } from "@/lib/studio-command-timing";
 import { formatSelectedProjectContext, loadSelectedProjectContext } from "@/lib/ai/project-context";
 import { buildSkillContext } from "@/lib/ai/skills";
 import { buildAgentWorkflowContext } from "@/lib/ai/orchestration";
@@ -903,14 +904,14 @@ export async function POST(request: Request) {
             .single();
           if (queueError || !queued) throw new Error("Could not queue the Studio connector command.");
 
-          for (let attempt = 0; attempt < 70; attempt++) {
+          for (let attempt = 0; attempt < STUDIO_COMMAND_MAX_POLL_ATTEMPTS; attempt++) {
             if (options.abortSignal?.aborted) {
               await supabase.from("studio_commands")
                 .update({ execution_status: "cancelled", error: "Agent request cancelled.", updated_at: new Date().toISOString() })
                 .eq("id", queued.id).eq("owner_id", user.id);
               throw new Error("The Studio command was cancelled.");
             }
-            await new Promise(resolve => setTimeout(resolve, 750));
+            await new Promise(resolve => setTimeout(resolve, STUDIO_COMMAND_POLL_INTERVAL_MS));
             const { data: state, error: stateError } = await supabase
               .from("studio_commands")
               .select("execution_status,tool_result,error")
@@ -925,7 +926,7 @@ export async function POST(request: Request) {
           }
 
           await supabase.from("studio_commands")
-            .update({ execution_status: "cancelled", error: "The Studio connector did not respond before the command timeout.", updated_at: new Date().toISOString() })
+            .update({ execution_status: "cancelled", error: "The Studio connector did not respond within the command wait window.", updated_at: new Date().toISOString() })
             .eq("id", queued.id).eq("owner_id", user.id);
           throw new Error("The connected Studio session did not respond in time. Check that Rmango and Roblox Studio are still open.");
         },
