@@ -44,7 +44,7 @@ export async function GET(_request: Request) {
       );
     } catch (cause) {
       const name = cause instanceof Error ? cause.name : "UnknownError";
-      console.error(\`[rmango-health] Supabase usage-policy connection failed name=\${name}\`);
+      console.error("[rmango-health] Supabase usage-policy connection failed name=" + name);
       databaseReachable = false;
       inferenceEnabled = false;
     }
