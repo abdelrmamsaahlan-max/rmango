@@ -133,7 +133,30 @@ jobs:
           if (!process.env.SUPABASE_SECRET_KEY.startsWith("sb_secret_")) {
             throw new Error("SUPABASE_SECRET_KEY is not a Supabase secret key. No deployment was started.");
           }
-          console.log("Deployment target verified. Secret values were not printed.");
+          const probeUrl = new URL("/rest/v1/usage_policies?select=id,enabled,daily_spend_limit_usd,monthly_spend_limit_usd&id=eq.true", url);
+          const probe = await fetch(probeUrl, {
+            method: "GET",
+            headers: {
+              apikey: process.env.SUPABASE_SECRET_KEY,
+              accept: "application/json",
+            },
+            signal: AbortSignal.timeout(15000),
+          });
+          const probeText = await probe.text();
+          if (!probe.ok) {
+            throw new Error(`Supabase secret-key preflight failed (HTTP ${probe.status}). Check the GitHub Actions Supabase secrets and Data API access. No Cloudflare deployment was started.`);
+          }
+          let rows;
+          try { rows = JSON.parse(probeText); } catch {
+            throw new Error("Supabase secret-key preflight returned non-JSON. No Cloudflare deployment was started.");
+          }
+          if (!Array.isArray(rows) || rows.length !== 1 || rows[0].id !== true) {
+            throw new Error("Supabase secret-key preflight could not read the RMango usage policy. No Cloudflare deployment was started.");
+          }
+          if (rows[0].enabled !== true || Number(rows[0].daily_spend_limit_usd) <= 0 || Number(rows[0].monthly_spend_limit_usd) <= 0) {
+            throw new Error("The RMango global AI spend policy is disabled or has zero limits. No Cloudflare deployment was started.");
+          }
+          console.log("Supabase secret-key preflight passed. Secret values and spend limits were not printed.");
           NODE
 
       - name: Deploy Worker and synchronize protected Supabase secrets
