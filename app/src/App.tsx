@@ -2159,8 +2159,8 @@ function App() {
                     </div>
                     {cloudState.message?.includes('SUPABASE_SECRET_KEY') && <div className="cloud-setup-instructions">
                       <strong>Server setup is incomplete</strong>
-                      <span>Open Vercel → rmango-cloud → Settings → Environment Variables and configure <code>SUPABASE_SECRET_KEY</code>. Keep it on the cloud server; never add it to the desktop app or source code.</span>
-                      <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://vercel.com/abdelrmamsaahlan-3675s-projects/rmango-cloud/settings/environment-variables')}><ExternalLink size={13}/> Open Vercel settings</button>
+                      <span>Open Cloudflare Dashboard → Workers &amp; Pages → rmango → Settings → Variables and Secrets. Add <code>SUPABASE_SECRET_KEY</code> as a secret on the production Worker. Keep it on the server; never add it to the desktop app or source code.</span>
+                      <button type="button" className="outline-action" onClick={() => void window.rmango.openExternal('https://dash.cloudflare.com/a78a2c6606dc061264d9da950fda21b2/workers/services/view/rmango/production')}><ExternalLink size={13}/> Open Vercel settings</button>
                     </div>}
                     <button type="button" className="settings-secondary-button" disabled={cloudRefreshing} onClick={() => void handleRefreshCloud()}>
                       {cloudRefreshing ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>} Test cloud connection
