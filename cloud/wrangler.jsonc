@@ -17,7 +17,19 @@
     "binding": "AI"
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "redactQueryString": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05,
+      "persist": true
+    }
   },
   "workers_dev": true,
   "secrets": {
