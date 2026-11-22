@@ -13,6 +13,11 @@ on:
         required: false
         default: ""
         type: string
+      publish_stable_release:
+        description: "Publish a stable GitHub Release and in-app update feed. Keep disabled for a downloadable test artifact."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -194,16 +199,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RMANGO_CLOUD_CONFIGURED: ${{ steps.cloud-config.outputs.configured }}
+          RMANGO_PUBLISH_RELEASE: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publish_stable_release == true) }}
         shell: pwsh
         run: |
-          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true" -and $env:RMANGO_HAS_SIGNING_CERT -eq "true") {
-            # Only a verified publisher build may publish a GitHub Release and update feed.
+          if ($env:RMANGO_CLOUD_CONFIGURED -eq "true" -and $env:RMANGO_HAS_SIGNING_CERT -eq "true" -and $env:RMANGO_PUBLISH_RELEASE -eq "true") {
+            # Only a verified publisher build with explicit release intent may publish.
             npm run dist:win:publish
           } else {
-            # Unsigned builds are test artifacts only; never publish them as stable updates.
+            # Manual builds default to a downloadable CI artifact; no stable release is created.
             npm run dist:win
-            if ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
+            if ($env:RMANGO_CLOUD_CONFIGURED -eq "true" -and $env:RMANGO_HAS_SIGNING_CERT -ne "true") {
               Write-Warning "No trusted publisher certificate is configured. Built a downloadable CI artifact only; no public release or update feed was published."
+            } elseif ($env:RMANGO_CLOUD_CONFIGURED -eq "true") {
+              Write-Host "Stable publishing was not requested. Built a downloadable CI artifact only."
             } else {
               Write-Warning "Cloud URL is missing, so this installer is CI-only and cannot be discovered by the in-app updater."
             }
@@ -211,6 +219,8 @@ jobs:
 
       - name: Verify setup executable and update manifest
         id: verify
+        env:
+          RMANGO_PUBLISH_RELEASE: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publish_stable_release == true) }}
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
@@ -223,7 +233,7 @@ jobs:
           $configured = "${{ steps.cloud-config.outputs.configured }}"
           $signed = "${{ steps.signing.outputs.has_certificate }}"
           $manifest = Join-Path "app-src/release" "latest.yml"
-          $willPublish = $configured -eq "true" -and $signed -eq "true"
+          $willPublish = $configured -eq "true" -and $signed -eq "true" -and $env:RMANGO_PUBLISH_RELEASE -eq "true"
           if ($willPublish) {
             if (-not (Test-Path $manifest)) {
               throw "Missing latest.yml. The auto-update feed would not work."
