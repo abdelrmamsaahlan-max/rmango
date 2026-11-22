@@ -199,7 +199,10 @@ async function configureAutoUpdateSchedule(enabled: boolean) {
 }
 
 async function getCloudApiBaseUrl(): Promise<string> {
-  const fromEnvironment = process.env.RMANGO_CLOUD_API_URL?.trim();
+  // Packaged releases always use the committed Cloudflare endpoint. Keep the
+  // environment override only for local development so a machine-level legacy
+  // variable cannot silently redirect production traffic back to Vercel.
+  const fromEnvironment = app.isPackaged ? '' : process.env.RMANGO_CLOUD_API_URL?.trim();
   if (fromEnvironment) return fromEnvironment.replace(/\/+$/, '');
   try {
     const configPath = path.join(app.getAppPath(), 'cloud-config.json');
@@ -427,7 +430,7 @@ async function getCloudState() {
     const infrastructureReady = health.status === 'ready';
     serviceReady = infrastructureReady && health.aiReady === true;
     if (!infrastructureReady) {
-      healthError = health.error || 'Cloud backend needs its database and Vercel AI Gateway to be configured.';
+      healthError = health.error || 'Cloud backend needs its Supabase database and Cloudflare Workers AI binding to be configured.';
     } else if (!serviceReady) {
       healthError = health.error || 'Cloud AI inference is not enabled for this deployment.';
     }

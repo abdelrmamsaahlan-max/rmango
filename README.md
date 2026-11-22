@@ -4,29 +4,30 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 
 ## Current cloud architecture
 
-- **Vercel + Next.js** hosts the API and agent routes.
-- **Vercel AI Gateway** routes hosted models and exposes live model capability/pricing metadata.
-- **Vercel OIDC** authenticates AI Gateway requests from Vercel deployments. No static AI Gateway key or provider key is configured in production.
+- **Cloudflare Workers + OpenNext** host the Next.js API and agent routes.
+- **Cloudflare Workers AI** serves hosted model inference through the Worker's AI binding.
+- The desktop uses a public Worker URL only; all AI and Supabase secrets remain server-side.
 - **Supabase Auth, Postgres and private Storage** hold user accounts, projects, conversations, messages, uploaded source files, project proposals and usage events.
 - The Windows desktop connects over HTTPS and stores only the user's Rmango account session encrypted with Windows secure storage.
 - A small local Roblox Studio MCP connector is still needed for a live private Studio session. It is a tool bridge only; it does not run any AI model.
 
 ## Current cloud deployment status
 
-- The Next.js cloud backend is deployed at [rmango-cloud.vercel.app](https://rmango-cloud.vercel.app) with Vercel OIDC enabled.
+- The production API target is `https://rmango.abdosony222.workers.dev`; the live deploy and health gate must pass before this cutover is considered complete.
 - The dedicated Supabase project `rmango-cloud` is active in Frankfurt, and migration `202611210001_rmango_cloud.sql` has been applied.
-- Encrypted `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and the server-only `SUPABASE_SECRET_KEY` are configured for the production cloud deployment. Never put the server key in the desktop app or source control.
-- The desktop build contains the public API endpoint in `app/cloud-config.json`; the GitHub Actions variable `RMANGO_CLOUD_API_URL` can override it during packaging.
-- The production usage policy has been enabled with conservative request, token and USD spend caps. The database policy is still fail-closed by default for a fresh deployment; the administrator must review budgets and external AI provider billing separately.
+- `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and the server-only `SUPABASE_SECRET_KEY` are Cloudflare Worker runtime secrets. Never put the server key in the desktop app or source control.
+- The desktop build contains the public Cloudflare Worker endpoint in `app/cloud-config.json`; packaged apps use that committed URL and ignore machine-level legacy endpoint overrides.
+- The production inference policy is checked by `/api/health`; it must remain enabled only with administrator-approved request, token and USD caps.
 
 ## Remaining cloud setup
 
-1. Keep production Supabase keys server-side and redeploy after any environment-variable changes.
-2. Keep the GitHub Actions `RMANGO_CLOUD_API_URL` aligned with `https://rmango-cloud.vercel.app`.
-3. Verify each Windows Release contains both its versioned installer and `latest.yml`; a workflow artifact alone is not an in-app update.
-4. Review the database usage policy and Vercel AI Gateway/provider billing caps regularly.
+1. Keep production Supabase keys in Cloudflare Worker runtime secrets and redeploy after any secret change.
+2. Keep `app/cloud-config.json` pointed at the approved Cloudflare Worker.
+3. Verify the Cloudflare production health gate before publishing a Windows release.
+4. Verify each Windows Release contains both its versioned installer and `latest.yml`; a workflow artifact alone is not an in-app update.
+5. Review the Supabase usage policy and Cloudflare Workers AI spend regularly.
 
-Cloud inference has a cost. Fresh deployments default to a disabled global policy; an administrator must explicitly enable usage and set daily/monthly USD caps before inference can start. The current production project has a small enabled budget, but database caps are not a substitute for separate Vercel AI Gateway and provider billing limits. Per-user request/token quotas provide additional limits.
+Cloud inference can incur costs. The Supabase global usage policy is checked before each model request, while Cloudflare Workers AI usage remains subject to the account's Cloudflare limits and billing. Keep daily/monthly budgets conservative; the migration does not raise or bypass existing spend controls. Per-user request/token quotas provide additional limits.
 
 ## Download and install the Windows app
 
@@ -64,7 +65,7 @@ npm run build
 npm run dev
 ~~~
 
-Authenticated API tests require a dedicated test Supabase project. Production Gateway inference requires a Vercel deployment with OIDC. Do not add model-provider keys to the desktop project.
+Authenticated API tests require a dedicated test Supabase project or an explicitly authorized test account. Workers AI inference is called only from the Cloudflare Worker; do not add model-provider keys to the desktop project.
 
 ## Roblox Studio MCP connection
 
@@ -93,17 +94,17 @@ Current source-file import is limited to 120 files, 512 KB per file and supporte
 
 ## Current limitations
 
-- The production health endpoint confirms the database and AI Gateway configuration, but a full desktop sign-in, real hosted model response, private upload, Studio round-trip and ZIP export should still be tested end to end after each release.
+- The production health endpoint checks the Worker AI binding and Supabase usage-policy read. A full desktop sign-in, real hosted model response, private upload, Studio round-trip and ZIP export should still be tested end to end after each release.
 - Model profiles are dynamically selected from live Gateway catalogue metadata. Rmango skills are versioned Roblox engineering instruction packs, not separately trained/fine-tuned models. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
 - Long-running agent work is not yet moved to a durable workflow/worker system; current chat requests and Studio tool calls have bounded request timeouts.
 - Admin usage dashboard, admin model-routing editor, durable task queue, PDF/DOCX parsing, vector RAG, full project dependency indexing and binary Roblox project import are not complete.
-- Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. A separate Vercel AI Gateway budget is still required.
+- Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. Review Cloudflare Workers AI usage and the approved account spend limits.
 
 ## Repository structure
 
 - `app/`: React + Electron Windows desktop client.
 - `cloud/`: Next.js hosted API and agent service.
-- `cloud/lib/ai/models.ts`: live Vercel AI Gateway model discovery and role profiles.
+- `cloud/lib/ai/models.ts`: live Cloudflare Workers AI supported-model catalogue and role profiles.
 - `cloud/app/api/chat/route.ts`: streaming cloud inference, account/project context, quota reservation and tools.
 - `cloud/supabase/migrations/`: owner-scoped cloud database, RLS, storage and usage limits.
 - `.github/workflows/cloud-build.yml`: cloud-backend typecheck/production build.

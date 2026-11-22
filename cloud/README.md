@@ -81,7 +81,7 @@ Run from this directory:
 5. `npm run build:cloudflare`
 6. `npm run preview:cloudflare`
 
-The production desktop API URL must not be changed until Cloudflare health, auth, model listing, chat streaming, project CRUD, private file storage and conversation persistence have been tested end-to-end.
+The desktop API URL is committed in `app/cloud-config.json`. The CI production health gate verifies the Cloudflare AI binding, Supabase runtime configuration, a real policy read and the inference-enabled flag. That is an infrastructure gate, not a substitute for an authenticated desktop sign-in, real streamed chat, project CRUD, private-file upload, conversation persistence and Studio round-trip test.
 
 ## Remaining limitations
 

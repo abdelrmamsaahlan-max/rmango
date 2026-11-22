@@ -12,15 +12,15 @@ Windows desktop (React + Electron)
   Cloud account session · GitHub updater · Studio MCP tool bridge
            │ HTTPS / encrypted account session
            ▼
-Vercel Next.js cloud backend
+Cloudflare Workers + OpenNext
   Supabase auth · model profiles · quota reservation
-  AI Gateway streamText · cloud project tools · Studio command queue
+  Workers AI streamText · cloud project tools · Studio command queue
        │                         │
        ▼                         ▼
-Vercel AI Gateway             Supabase
-  Vercel OIDC                 Postgres · Auth · private Storage
+Cloudflare Workers AI        Supabase
+  AI binding                  Postgres · Auth · private Storage
   hosted models               accounts · projects · messages
-  live model metadata         usage · project changes · connector queue
+  curated model profiles     usage · project changes · connector queue
                                   ▲
                                   │ authenticated outbound polling
                                   │
@@ -31,12 +31,12 @@ Vercel AI Gateway             Supabase
 
 ## Model routing
 
-- The backend uses Vercel AI Gateway and the AI SDK.
-- It reads Gateway's live `/v1/models` catalogue; it does not hardcode the “smartest” model.
-- Admin-configured model IDs can override Rmango Fast, Developer, Think, Vision and Agent profiles.
-- Fallback model IDs can be configured for each profile.
-- Capability and price information is displayed only when present in Gateway metadata. No benchmark scores are fabricated.
-- Production Gateway authentication uses the Vercel deployment's OIDC identity. There is no `AI_GATEWAY_API_KEY` fallback and no user provider API key.
+- The backend uses the Cloudflare Workers AI binding through the AI SDK.
+- The supported Workers AI model catalogue and capability metadata are versioned in `cloud/lib/ai/models.ts`; no unsupported models are shown as available.
+- Rmango Fast, Developer, Think, Vision and Agent profiles select Cloudflare-hosted models.
+- Profile model overrides and no-more-expensive fallback IDs can be configured through Worker environment variables.
+- Model pricing metadata is kept with the supported catalogue; benchmark scores are not fabricated.
+- The desktop never receives Cloudflare or Supabase server secrets, and users do not provide model-provider API keys.
 
 ## Auth and storage
 
@@ -50,7 +50,7 @@ Vercel AI Gateway             Supabase
 
 Before starting inference, the cloud backend reserves a request and estimated token budget in Postgres. Requests are blocked when the global policy is disabled or a user's daily/monthly request/token limit is reached. After completion, actual token counts and an estimated cost are recorded. Failed requests release their reservation; abandoned reservations expire after two hours.
 
-Default policy: 40 requests/day, 800/month, 120k tokens/day, 1.5m tokens/month, max output 4096. These are product quotas, not a substitute for a separate administrator-configured Vercel AI Gateway/provider spending budget.
+Default policy: 40 requests/day, 800/month, 120k tokens/day, 1.5m tokens/month, max output 4096. These are product quotas, not a substitute for reviewing Cloudflare Workers AI usage and the account's approved spend limits.
 
 ## Agent and project workspace
 
@@ -76,7 +76,7 @@ The cloud agent can therefore operate only on an open Studio session that the us
 
 ## Desktop updates
 
-The Windows app uses electron-updater with GitHub Releases. The build injects only the public HTTPS `RMANGO_CLOUD_API_URL` GitHub Actions variable; no provider/database secrets enter the client. If the URL is not configured, CI produces an artifact but does not publish a public release. Once configured, stable releases include the installer and `latest.yml`. The app checks shortly after startup and every five minutes, downloads in background, and waits for the user to choose restart/install.
+The Windows app uses electron-updater with GitHub Releases. Packaged releases read the public Cloudflare Worker URL from `app/cloud-config.json`; a machine-level environment variable cannot redirect a packaged build to a legacy backend. No provider or database secrets enter the client. Stable releases include the installer and `latest.yml`. The app checks shortly after startup and every five minutes, downloads in background, and waits for the user to choose restart/install.
 
 ## Development reload
 
@@ -84,8 +84,8 @@ Vite handles React/CSS HMR. Nodemon rebuilds Electron main/preload source and re
 
 ## Not complete yet
 
-- The Vercel cloud deployment and dedicated Supabase database are provisioned. The server-only Supabase service-role secret and desktop public cloud URL still need final configuration; paid inference remains disabled.
-- Full authenticated end-to-end tests are still pending. Model inference is intentionally not tested or enabled until a separate paid budget is approved.
+- The Cloudflare migration must pass the production Worker deploy and live health gate before Vercel can be retired.
+- The deployment health gate checks the Workers AI binding, the Supabase runtime secret configuration, a live database policy read, and whether the approved inference policy is enabled. Full authenticated desktop sign-in, real chat streaming, uploads and Studio round-trip still need a user-session test.
 - Durable workflow/worker execution for tasks longer than bounded chat request timeouts.
 - Admin model policy and cost dashboard.
 - Embeddings/vector RAG and project-wide dependency indexing. PDF/DOCX text extraction is now supported for bounded attachments; scanned PDFs without selectable text need screenshots.
@@ -94,7 +94,7 @@ Vite handles React/CSS HMR. Nodemon rebuilds Electron main/preload source and re
 
 ## Deployment
 
-See [cloud/README.md](../cloud/README.md) for Vercel OIDC setup, Supabase migration and GitHub `RMANGO_CLOUD_API_URL` configuration.
+See [cloud/README.md](../cloud/README.md) for Cloudflare Workers deployment, Workers AI binding, Supabase runtime secrets and production health checks.
 
 
 ## Phase 2 security and context updates
