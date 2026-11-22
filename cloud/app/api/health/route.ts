@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createAdminClient } from "@/lib/supabase";
-import { publicApiStatus } from "@/lib/env";
+import { publicApiStatus, type SupabaseRuntimeEnv } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request) {
   const { env } = await getCloudflareContext({ async: true });
-  const configuration = publicApiStatus(Boolean(env.AI));
+  const runtimeEnv = env as typeof env & SupabaseRuntimeEnv;
+  const configuration = publicApiStatus(Boolean(env.AI), runtimeEnv);
 
   let databaseReachable = false;
   let inferenceEnabled = false;
@@ -30,7 +31,7 @@ export async function GET(_request: Request) {
           name: error.name || "PostgrestError",
           status: Number.isInteger(diagnosticError.status) ? diagnosticError.status : null,
           message: String(error.message || "No PostgREST error message.")
-            .replace(/[\r\n\t]+/g, " ")
+            .replace(/[\\r\\n\\t]+/g, " ")
             .slice(0, 240),
         };
         console.error("[rmango-health] Supabase usage-policy query failed " + JSON.stringify(diagnostic));
