@@ -783,9 +783,13 @@ export async function POST(request: Request) {
   try {
     const { env } = await getCloudflareContext({ async: true });
     const cloudflareAI = createAI({ binding: env.AI });
-    const cloudflareModel = choice.fallbackIds.length
-      ? cloudflareAI(choice.primary.id, { fallback: choice.fallbackIds })
-      : cloudflareAI(choice.primary.id);
+    const cloudflareModelOptions = {
+      ...(choice.fallbackIds.length ? { fallback: choice.fallbackIds } : {}),
+      ...(profile === "think"
+        ? { reasoningEffort: "high" as const }
+        : { chatTemplateKwargs: { enable_thinking: false } }),
+    };
+    const cloudflareModel = cloudflareAI(choice.primary.id, cloudflareModelOptions);
     const result = streamText({
       model: cloudflareModel,
       system: systemPrompt,
