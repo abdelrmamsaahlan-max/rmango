@@ -127,7 +127,7 @@ const PROFILE_POLICIES: Record<ModelProfile, ProfilePolicy> = {
       "Answer simple questions directly and concisely. Do not create a plan or call tools unless a tool is needed for accuracy.",
       "For a small code fix, inspect the relevant source, make a narrow change, and run the most relevant available check.",
       "Never trade correctness, safety, or factual grounding for speed. State uncertainty instead of guessing.",
-    ].join("\\n"),
+    ].join("\n"),
   },
   developer: {
     maxOutputTokens: 3072,
@@ -138,7 +138,7 @@ const PROFILE_POLICIES: Record<ModelProfile, ProfilePolicy> = {
       "For code tasks, inspect relevant entry points, callers, data contracts, and server/client boundaries before editing.",
       "Prefer typed, maintainable, minimal-diff implementations. Explain important trade-offs and include focused verification.",
       "Do not output a full replacement file when a smaller patch is safer. Never claim code was tested unless a test actually ran.",
-    ].join("\\n"),
+    ].join("\n"),
   },
   think: {
     maxOutputTokens: 4096,
@@ -150,7 +150,7 @@ const PROFILE_POLICIES: Record<ModelProfile, ProfilePolicy> = {
       "Compare practical alternatives for consequential decisions and explain why the chosen option fits the evidence.",
       "Keep private reasoning private. Present conclusions, key evidence, material assumptions, and concise rationale rather than hidden chain-of-thought.",
       "Do not overcomplicate simple requests or invent certainty where evidence is missing.",
-    ].join("\\n"),
+    ].join("\n"),
   },
   vision: {
     maxOutputTokens: 3072,
@@ -161,7 +161,7 @@ const PROFILE_POLICIES: Record<ModelProfile, ProfilePolicy> = {
       "Separate direct observations from interpretations. Mention ambiguity when an image is cropped, blurry, small, or missing context.",
       "For Roblox Studio screenshots, identify visible UI, hierarchy, error text, and layout details before proposing changes.",
       "Do not claim to inspect hidden project files or unseen Studio state from a screenshot.",
-    ].join("\\n"),
+    ].join("\n"),
   },
   agent: {
     maxOutputTokens: 4096,
@@ -173,7 +173,7 @@ const PROFILE_POLICIES: Record<ModelProfile, ProfilePolicy> = {
       "Execute in dependency order. Use read-only tools to establish facts, approval gates for mutations, and verification before relying on a result.",
       "When a tool fails, inspect the error, adapt the approach, and do not repeat an identical failing call unchanged.",
       "Distinguish completed work, tool-confirmed work, tested behavior, and blockers requiring the user's device or approval.",
-    ].join("\\n"),
+    ].join("\n"),
   },
 };
 
