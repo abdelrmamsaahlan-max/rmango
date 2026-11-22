@@ -2,18 +2,24 @@ import "server-only";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { getSupabaseServerKey, type SupabaseRuntimeEnv } from "@/lib/env";
+import { selectSupabaseRuntimeEnv, validateSupabaseProjectUrl } from "@/lib/supabase-runtime-env";
 
 /**
- * Resolve secrets from the active Worker request first. Cloudflare bindings
- * are the source of truth in production; process.env is only a fallback for
- * local environments that don't have an OpenNext Worker context.
+ * Resolve secrets from the actual Cloudflare request context. OpenNext's
+ * Node.js route runtime exposes the request bindings asynchronously; a
+ * synchronous lookup can throw and accidentally fall back to stale build
+ * variables. Production must fail closed if Worker bindings are unavailable.
  */
-function getRuntimeSupabaseEnv(): SupabaseRuntimeEnv {
+async function getRuntimeSupabaseEnv(): Promise<SupabaseRuntimeEnv> {
+  let workerEnv: SupabaseRuntimeEnv | undefined;
   try {
-    return getCloudflareContext().env as SupabaseRuntimeEnv;
+    const context = await getCloudflareContext({ async: true });
+    workerEnv = context.env as SupabaseRuntimeEnv;
   } catch {
-    return process.env;
+    // Local Next.js development has no Worker context. Production does not
+    // silently fall back to process.env because that can point at another host.
   }
+  return selectSupabaseRuntimeEnv(workerEnv, process.env, process.env.NODE_ENV === "production");
 }
 
 function requiredRuntimeEnv(name: keyof SupabaseRuntimeEnv, env: SupabaseRuntimeEnv): string {
@@ -42,8 +48,8 @@ export type AuthContext = {
   user: User;
 };
 
-export function createAdminClient() {
-  const runtimeEnv = getRuntimeSupabaseEnv();
+export async function createAdminClient(): Promise<SupabaseClient> {
+  const runtimeEnv = await getRuntimeSupabaseEnv();
   const serverKey = getSupabaseServerKey(runtimeEnv);
   if (!serverKey) {
     throw new Error(
@@ -51,7 +57,7 @@ export function createAdminClient() {
     );
   }
 
-  return createClient(requiredRuntimeEnv("SUPABASE_URL", runtimeEnv), serverKey, {
+  return createClient(validateSupabaseProjectUrl(requiredRuntimeEnv("SUPABASE_URL", runtimeEnv)), serverKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
@@ -65,17 +71,17 @@ export function createAdminClient() {
   });
 }
 
-export function getSupabasePublicConfig() {
-  const runtimeEnv = getRuntimeSupabaseEnv();
+export async function getSupabasePublicConfig() {
+  const runtimeEnv = await getRuntimeSupabaseEnv();
   return {
-    url: requiredRuntimeEnv("SUPABASE_URL", runtimeEnv),
+    url: validateSupabaseProjectUrl(requiredRuntimeEnv("SUPABASE_URL", runtimeEnv)),
     publishableKey: requiredRuntimeEnv("SUPABASE_PUBLISHABLE_KEY", runtimeEnv),
   };
 }
 
-export function createAuthClient(accessToken?: string) {
-  const runtimeEnv = getRuntimeSupabaseEnv();
-  const url = requiredRuntimeEnv("SUPABASE_URL", runtimeEnv);
+export async function createAuthClient(accessToken?: string): Promise<SupabaseClient> {
+  const runtimeEnv = await getRuntimeSupabaseEnv();
+  const url = validateSupabaseProjectUrl(requiredRuntimeEnv("SUPABASE_URL", runtimeEnv));
   const key = requiredRuntimeEnv("SUPABASE_PUBLISHABLE_KEY", runtimeEnv);
   return createClient(url, key, {
     auth: {
@@ -95,7 +101,7 @@ export async function getAuthContext(request: Request): Promise<AuthContext> {
   if (!match) throw new Error("Sign in to your Rmango account first.");
 
   const token = match[1];
-  const supabase = createAuthClient(token);
+  const supabase = await createAuthClient(token);
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data.user) throw new Error("Your Rmango session is invalid or has expired. Sign in again.");
 
