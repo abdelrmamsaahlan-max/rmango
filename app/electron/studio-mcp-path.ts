@@ -4,35 +4,38 @@ import path from "node:path";
 /**
  * Locate the newest built-in Roblox Studio MCP executable on Windows.
  *
- * Launching StudioMCP.exe directly avoids errors in some versions of Roblox's
- * mcp.bat wrapper when the Windows user/profile path contains spaces.
+ * Roblox Studio has used both a versioned Roblox\Versions directory and a
+ * standalone Roblox Studio directory. Prefer the newest executable found in
+ * either layout, before falling back to Roblox's generated mcp.bat wrapper.
  */
 export async function findStudioMcpExecutable(localAppData: string): Promise<string | null> {
   if (!localAppData.trim()) return null;
 
-  const versionsRoot = path.join(localAppData, "Roblox", "Versions");
-  let entries;
+  const candidates: Array<{ executablePath: string; modifiedAt: number }> = [];
 
+  const addCandidate = async (executablePath: string) => {
+    try {
+      const stats = await fs.stat(executablePath);
+      if (stats.isFile()) candidates.push({ executablePath, modifiedAt: stats.mtimeMs });
+    } catch {
+      // A missing layout is normal; check the other supported install path.
+    }
+  };
+
+  await addCandidate(path.join(localAppData, "Roblox Studio", "StudioMCP.exe"));
+
+  const versionsRoot = path.join(localAppData, "Roblox", "Versions");
   try {
-    entries = await fs.readdir(versionsRoot, { withFileTypes: true });
+    const entries = await fs.readdir(versionsRoot, { withFileTypes: true });
+    await Promise.all(
+      entries
+        .filter(entry => entry.isDirectory() && /^version-/i.test(entry.name))
+        .map(entry => addCandidate(path.join(versionsRoot, entry.name, "StudioMCP.exe"))),
+    );
   } catch {
-    return null;
+    // The versioned install layout may not exist on newer installations.
   }
 
-  const candidates = await Promise.all(
-    entries
-      .filter(entry => entry.isDirectory() && /^version-/i.test(entry.name))
-      .map(async entry => {
-        const executablePath = path.join(versionsRoot, entry.name, "StudioMCP.exe");
-        try {
-          const stats = await fs.stat(executablePath);
-          return stats.isFile() ? { executablePath, modifiedAt: stats.mtimeMs } : null;
-        } catch {
-          return null;
-        }
-      }),
-  );
-
-  candidates.sort((left, right) => (right?.modifiedAt ?? -1) - (left?.modifiedAt ?? -1));
-  return candidates.find((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)?.executablePath ?? null;
+  candidates.sort((left, right) => right.modifiedAt - left.modifiedAt);
+  return candidates[0]?.executablePath ?? null;
 }
