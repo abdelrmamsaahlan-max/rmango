@@ -36,5 +36,7 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Test saved cloud-session validation
+        run: npm run test:session
       - name: Typecheck and build
         run: npm run build

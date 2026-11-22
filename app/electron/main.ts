@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { isValidStoredCloudSession } from './cloud-session-validation.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import electronUpdater from 'electron-updater';
@@ -217,9 +218,17 @@ async function readCloudSession(): Promise<CloudSession | null> {
   if (!safeStorage.isEncryptionAvailable()) return null;
   try {
     const encrypted = await fs.readFile(cloudSessionPath(), 'utf8');
-    const parsed = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64'))) as CloudSession;
-    if (!parsed.accessToken || !parsed.refreshToken || !parsed.user?.id) return null;
-    return parsed;
+    const parsed: unknown = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+    if (!isValidStoredCloudSession(parsed)) {
+      // Older builds could persist a non-empty but truncated refresh token.
+      // Do not keep telling the UI that this account is signed in: discard only
+      // the malformed local credential and require a fresh, normal sign-in.
+      await fs.rm(cloudSessionPath(), { force: true }).catch(() => undefined);
+      cloudAuthGeneration += 1;
+      cloudRefreshFlight = null;
+      return null;
+    }
+    return parsed as CloudSession;
   } catch {
     return null;
   }
@@ -262,7 +271,7 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
     catch { payload = { error: raw.slice(0, 500) }; }
 
     if (!response.ok || !payload.session || !payload.user) {
-      if (response.status === 401 && generation === cloudAuthGeneration) {
+      if ((response.status === 400 || response.status === 401) && generation === cloudAuthGeneration) {
         const stored = await readCloudSession();
         if (stored?.refreshToken === session.refreshToken && stored.user.id === session.user.id) {
           await clearCloudSession();
