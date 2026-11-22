@@ -374,6 +374,20 @@ export async function POST(request: Request) {
   const estimatedText = systemPrompt + JSON.stringify(body.messages) + selectedProjectContextText + previousAttachmentContextText + "\n" + textAttachmentSections.join("\n");
   const imageTokenReserve = attachmentParts.length * 20_000;
   const estimateInputTokens = Math.ceil(estimateTokens(estimatedText) * 1.25) + imageTokenReserve;
+  const contextSafetyReserve = Math.min(8_192, Math.ceil(choice.primary.contextWindow * 0.05));
+  const maximumInputTokens = Math.max(
+    1,
+    choice.primary.contextWindow - maxOutputTokens - contextSafetyReserve,
+  );
+  if (estimateInputTokens > maximumInputTokens) {
+    return NextResponse.json({
+      error: "This request is too large for the selected model's context window. Start a shorter conversation or remove some attachments, then try again.",
+      reason: "context_window_exceeded",
+      estimatedInputTokens: estimateInputTokens,
+      maximumInputTokens,
+      contextWindow: choice.primary.contextWindow,
+    }, { status: 413 });
+  }
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
   const estimatedCost = estimateCostUsd(
     estimateInputTokens,
