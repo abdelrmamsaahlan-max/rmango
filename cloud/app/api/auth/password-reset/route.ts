@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const supabase = createAuthClient();
+    const supabase = await createAuthClient();
     // Use a configured canonical origin, not the request Host header, to
     // prevent attacker-controlled recovery redirect destinations.
     const redirectTo = getPasswordRecoveryRedirect(optionalEnv("RMANGO_PUBLIC_URL"));
