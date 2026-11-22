@@ -139,7 +139,6 @@ export async function POST(request: Request) {
   const profile: ModelProfile = hasImageAttachment ? "vision" : body.profile as ModelProfile;
   const skills = buildSkillContext(latestUserPrompt, { hasImage: hasImageAttachment, hasDocument: hasDocumentAttachment });
   const workflow = buildAgentWorkflowContext({ profile, prompt: latestUserPrompt });
-  const systemPrompt = [SYSTEM_PROMPT, skills.systemText, workflow.systemText].filter(Boolean).join("\n\n");
   let choice;
   try {
     choice = resolveProfile(profile);
@@ -147,9 +146,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No cloud model is configured." }, { status: 503 });
   }
 
+  const systemPrompt = [
+    SYSTEM_PROMPT,
+    choice.primary.instructions,
+    skills.systemText,
+    workflow.systemText,
+  ].filter(Boolean).join("\n\n");
+
+  const configuredMaxOutputTokens = Number(
+    optionalEnv("RMANGO_MAX_OUTPUT_TOKENS") || choice.primary.maxOutputTokens,
+  ) || choice.primary.maxOutputTokens;
   const maxOutputTokens = Math.max(
     256,
-    Math.min(4096, Number(optionalEnv("RMANGO_MAX_OUTPUT_TOKENS") || 4096) || 4096),
+    Math.min(choice.primary.maxOutputTokens, configuredMaxOutputTokens),
   );
 
   const messages = body.messages.slice(-24).map(message => ({
@@ -785,7 +794,7 @@ export async function POST(request: Request) {
       tools: { ...projectTools, ...studioTools },
       stopWhen: stepCountIs(workflow.maxSteps),
       maxOutputTokens: enforcedMaxOutputTokens,
-      temperature: 0.2,
+      temperature: choice.primary.temperature,
       abortSignal: request.signal,
       onFinish: async ({ text, usage, response: modelResponse }) => {
         const inputTokens = Number(usage.inputTokens ?? 0);
