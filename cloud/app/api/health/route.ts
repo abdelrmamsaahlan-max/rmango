@@ -31,7 +31,7 @@ export async function GET(_request: Request) {
           name: error.name || "PostgrestError",
           status: Number.isInteger(diagnosticError.status) ? diagnosticError.status : null,
           message: String(error.message || "No PostgREST error message.")
-            .replace(/[\\r\\n\\t]+/g, " ")
+            .replace(/[\r\n\t]+/g, " ")
             .slice(0, 240),
         };
         console.error("[rmango-health] Supabase usage-policy query failed " + JSON.stringify(diagnostic));
@@ -44,7 +44,7 @@ export async function GET(_request: Request) {
       );
     } catch (cause) {
       const name = cause instanceof Error ? cause.name : "UnknownError";
-      console.error(`[rmango-health] Supabase usage-policy connection failed name=${name}`);
+      console.error(\`[rmango-health] Supabase usage-policy connection failed name=\${name}\`);
       databaseReachable = false;
       inferenceEnabled = false;
     }
