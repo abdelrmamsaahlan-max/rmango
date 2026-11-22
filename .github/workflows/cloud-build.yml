@@ -144,6 +144,9 @@ jobs:
           console.log("All three existing Supabase Worker secrets are present. Their values were not read or changed.");
           NODE
 
+      - name: Build Cloudflare Worker bundle for this deploy job
+        run: npm run build:cloudflare
+
       - name: Deploy Worker while preserving existing Supabase secrets
         run: npx opennextjs-cloudflare deploy
 
@@ -166,7 +169,15 @@ jobs:
           } catch {
             throw new Error(`Cloudflare health endpoint returned non-JSON (HTTP ${response.status}): ${raw.slice(0, 500)}`);
           }
-          if (!response.ok || health.status !== "ready" || health.aiReady !== true || health.databaseReachable !== true) {
+          if (
+            !response.ok ||
+            health.deployment !== "cloudflare-workers" ||
+            health.status !== "ready" ||
+            health.aiReady !== true ||
+            health.aiBindingConfigured !== true ||
+            health.databaseReachable !== true ||
+            health.inferenceEnabled !== true
+          ) {
             throw new Error(`Cloudflare is not ready after deployment (HTTP ${response.status}): ${health.error || JSON.stringify(health)}`);
           }
           console.log("Cloudflare health passed: AI binding, Supabase connectivity, and global inference policy are ready.");
