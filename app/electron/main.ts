@@ -1804,9 +1804,10 @@ function initializeAutoUpdates() {
   }
 
   // NSIS + electron-updater is the supported Windows self-update path.
-  // Downloads happen in the background; installation always waits for the user's click.
+  // Updates download in the background and install on the next normal app exit.
+  // The explicit Restart & install button remains available for immediate updates.
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.logger = console;
@@ -1839,7 +1840,7 @@ function initializeAutoUpdates() {
       availableVersion: info.version,
       progress: 100,
       releaseNotes: formatReleaseNotes(info.releaseNotes),
-      message: 'Version ' + info.version + ' is ready to install.',
+      message: 'Version ' + info.version + ' is ready. Restart now or close Rmango normally to install it.',
     });
   });
 
