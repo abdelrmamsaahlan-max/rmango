@@ -19,5 +19,12 @@
   "observability": {
     "enabled": true
   },
-  "workers_dev": true
+  "workers_dev": true,
+  "secrets": {
+    "required": [
+      "SUPABASE_URL",
+      "SUPABASE_PUBLISHABLE_KEY",
+      "SUPABASE_SECRET_KEY"
+    ]
+  }
 }
