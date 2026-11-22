@@ -23,6 +23,8 @@ export type ModelChoice = {
   description: string;
   contextWindow: number;
   maxOutputTokens: number;
+  temperature: number;
+  instructions: string;
   inputModalities: string[];
   capabilities: string[];
   inputUsdPerMillionTokens: number | null;
@@ -104,19 +106,111 @@ function pricePerMillion(value: string): number | null {
   return Number.isFinite(numeric) && numeric >= 0 ? numeric * 1_000_000 : null;
 }
 
+
+type ProfilePolicy = {
+  maxOutputTokens: number;
+  temperature: number;
+  instructions: string;
+};
+
+/**
+ * These policies make the UI profiles behaviorally distinct even when two
+ * profiles use the same underlying model. They do not pretend to be separate
+ * model weights or guarantee a benchmark improvement.
+ */
+const PROFILE_POLICIES: Record<ModelProfile, ProfilePolicy> = {
+  fast: {
+    maxOutputTokens: 1536,
+    temperature: 0.2,
+    instructions: [
+      "ACTIVE PROFILE: FAST.",
+      "Answer simple questions directly and concisely. Do not create a plan or call tools unless a tool is needed for accuracy.",
+      "For a small code fix, inspect the relevant source, make a narrow change, and run the most relevant available check.",
+      "Never trade correctness, safety, or factual grounding for speed. State uncertainty instead of guessing.",
+    ].join("\\n"),
+  },
+  developer: {
+    maxOutputTokens: 3072,
+    temperature: 0.15,
+    instructions: [
+      "ACTIVE PROFILE: DEVELOPER.",
+      "Act as a careful Roblox software engineer. Establish the current architecture and constraints before recommending changes.",
+      "For code tasks, inspect relevant entry points, callers, data contracts, and server/client boundaries before editing.",
+      "Prefer typed, maintainable, minimal-diff implementations. Explain important trade-offs and include focused verification.",
+      "Do not output a full replacement file when a smaller patch is safer. Never claim code was tested unless a test actually ran.",
+    ].join("\\n"),
+  },
+  think: {
+    maxOutputTokens: 4096,
+    temperature: 0.1,
+    instructions: [
+      "ACTIVE PROFILE: THINK.",
+      "For difficult problems, define the goal, constraints, known evidence, assumptions, alternatives, edge cases, and a verification method.",
+      "Check whether the apparent problem is a symptom of a deeper architectural or data-flow issue before proposing a fix.",
+      "Compare practical alternatives for consequential decisions and explain why the chosen option fits the evidence.",
+      "Keep private reasoning private. Present conclusions, key evidence, material assumptions, and concise rationale rather than hidden chain-of-thought.",
+      "Do not overcomplicate simple requests or invent certainty where evidence is missing.",
+    ].join("\\n"),
+  },
+  vision: {
+    maxOutputTokens: 3072,
+    temperature: 0.1,
+    instructions: [
+      "ACTIVE PROFILE: VISION.",
+      "Use only visual details actually present in the supplied images and relevant conversation context.",
+      "Separate direct observations from interpretations. Mention ambiguity when an image is cropped, blurry, small, or missing context.",
+      "For Roblox Studio screenshots, identify visible UI, hierarchy, error text, and layout details before proposing changes.",
+      "Do not claim to inspect hidden project files or unseen Studio state from a screenshot.",
+    ].join("\\n"),
+  },
+  agent: {
+    maxOutputTokens: 4096,
+    temperature: 0.15,
+    instructions: [
+      "ACTIVE PROFILE: AGENT.",
+      "Make concrete progress with the tools actually available instead of only describing a plan.",
+      "Inspect the current project state and relevant tool schemas. Make a compact ordered plan only when the task spans dependent steps.",
+      "Execute in dependency order. Use read-only tools to establish facts, approval gates for mutations, and verification before relying on a result.",
+      "When a tool fails, inspect the error, adapt the approach, and do not repeat an identical failing call unchanged.",
+      "Distinguish completed work, tool-confirmed work, tested behavior, and blockers requiring the user's device or approval.",
+    ].join("\\n"),
+  },
+};
+
 function normalise(model: CloudflareAIModel, profile: ModelProfile): ModelChoice {
+  const policy = PROFILE_POLICIES[profile];
   return {
     id: model.id,
     name: model.name,
     description: model.description,
     contextWindow: model.context_window,
-    maxOutputTokens: model.max_tokens,
+    maxOutputTokens: Math.min(model.max_tokens, policy.maxOutputTokens),
+    temperature: policy.temperature,
+    instructions: policy.instructions,
     inputModalities: model.modalities.input,
     capabilities: capabilityTags(model),
     inputUsdPerMillionTokens: pricePerMillion(model.pricing.input),
     outputUsdPerMillionTokens: pricePerMillion(model.pricing.output),
     profile,
     profileLabel: PROFILE_LABELS[profile],
+  };
+}
+
+/** Public model metadata deliberately excludes internal prompt instructions and sampling policy. */
+function toPublicModelChoice(model: CloudflareAIModel, profile: ModelProfile): Omit<ModelChoice, "temperature" | "instructions"> {
+  const choice = normalise(model, profile);
+  return {
+    id: choice.id,
+    name: choice.name,
+    description: choice.description,
+    contextWindow: choice.contextWindow,
+    maxOutputTokens: choice.maxOutputTokens,
+    inputModalities: choice.inputModalities,
+    capabilities: choice.capabilities,
+    inputUsdPerMillionTokens: choice.inputUsdPerMillionTokens,
+    outputUsdPerMillionTokens: choice.outputUsdPerMillionTokens,
+    profile: choice.profile,
+    profileLabel: choice.profileLabel,
   };
 }
 
@@ -218,9 +312,9 @@ export async function getModelProfiles() {
   const profiles = (["fast", "developer", "think", "vision", "agent"] as ModelProfile[])
     .map(profile => {
       const model = resolvePrimary(profile, catalog);
-      return model && supportsProfile(model, profile) ? normalise(model, profile) : null;
+      return model && supportsProfile(model, profile) ? toPublicModelChoice(model, profile) : null;
     })
-    .filter((item): item is ModelChoice => Boolean(item));
+    .filter((item): item is Omit<ModelChoice, "temperature" | "instructions"> => Boolean(item));
   return { profiles, availableModelCount: catalog.length };
 }
 
