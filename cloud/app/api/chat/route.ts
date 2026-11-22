@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { gateway } from "@ai-sdk/gateway";
+import { createAI } from "agents/models/ai-sdk";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import { z } from "zod";
 import { createAdminClient, getAuthErrorResponse } from "@/lib/supabase";
@@ -143,10 +144,7 @@ export async function POST(request: Request) {
   const systemPrompt = [SYSTEM_PROMPT, skills.systemText, workflow.systemText].filter(Boolean).join("\n\n");
   let choice;
   try {
-    // Match /api/models: use the short-lived OIDC token supplied to this
-    // function request instead of relying only on a module-scope env snapshot.
-    const oidcToken = request.headers.get("x-vercel-oidc-token");
-    choice = await resolveProfile(profile, oidcToken);
+    choice = await resolveProfile(profile);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No cloud model is configured." }, { status: 503 });
   }
@@ -781,13 +779,15 @@ export async function POST(request: Request) {
   }
 
   const requestMessages = messages;
-  const gatewayOptions = choice.fallbackIds.length
-    ? { gateway: { models: choice.fallbackIds } }
-    : undefined;
 
   try {
+    const { env } = await getCloudflareContext({ async: true });
+    const cloudflareAI = createAI({ binding: env.AI });
+    const cloudflareModel = choice.fallbackIds.length
+      ? cloudflareAI(choice.primary.id, { fallback: choice.fallbackIds })
+      : cloudflareAI(choice.primary.id);
     const result = streamText({
-      model: gateway(choice.primary.id),
+      model: cloudflareModel,
       system: systemPrompt,
       messages: requestMessages,
       tools: { ...projectTools, ...studioTools },
@@ -795,7 +795,6 @@ export async function POST(request: Request) {
       maxOutputTokens: enforcedMaxOutputTokens,
       temperature: 0.2,
       abortSignal: request.signal,
-      providerOptions: gatewayOptions,
       onFinish: async ({ text, usage, response: modelResponse }) => {
         const inputTokens = Number(usage.inputTokens ?? 0);
         const outputTokens = Number(usage.outputTokens ?? 0);
@@ -841,7 +840,7 @@ export async function POST(request: Request) {
           p_request_id: requestId,
           p_model_profile: profile,
           p_model_id: actualModelId,
-          p_provider: "vercel-ai-gateway",
+          p_provider: "cloudflare-workers-ai",
           p_input_tokens: inputTokens,
           p_output_tokens: outputTokens,
           p_estimated_cost_usd: recordedCost,
@@ -903,7 +902,7 @@ export async function POST(request: Request) {
           for await (const part of result.fullStream) {
             if (part.type === "text-delta" && part.text) { emit({ type: "text", text: part.text }); continue; }
             if (part.type === "start") {
-              emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Started a request through the hosted AI Gateway.", status: "running", ok: false } });
+              emit({ type: "activity", activity: { id: "model", name: "Model request", detail: "Started a request through Cloudflare Workers AI.", status: "running", ok: false } });
               continue;
             }
             if (part.type === "tool-call") {
