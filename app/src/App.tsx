@@ -1510,7 +1510,7 @@ function App() {
             <span>
               {updateState.status === 'checking' && 'Looking for a newer version on GitHub Releases…'}
               {updateState.status === 'downloading' && (updateState.message || 'Downloading update in the background…')}
-              {updateState.status === 'downloaded' && ('Version ' + (updateState.availableVersion || '') + ' is ready. Restart when you are ready.')}
+              {updateState.status === 'downloaded' && ('Version ' + (updateState.availableVersion || '') + ' is ready. It will install when you close RMango normally, or you can restart now.')}
               {updateState.status === 'error' && (updateState.error || updateState.message || 'Check your internet connection and try again.')}
             </span>
             {updateState.status === 'downloading' && (
@@ -2496,7 +2496,7 @@ function App() {
                       <div><span>PLATFORM</span><strong>{appState?.platform || '—'}</strong></div>
                     </div>
                     <div className="settings-row">
-                      <div><strong>Automatic update checks</strong><small>Check for stable releases every five minutes. Updates are downloaded in the background and install only when you choose.</small></div>
+                      <div><strong>Automatic update checks</strong><small>Checks stable releases every five minutes. Downloads happen in the background and install when you close RMango normally; you can also install immediately.</small></div>
                       <button type="button" role="switch" aria-checked={autoUpdatesEnabled} className={'preference-switch ' + (autoUpdatesEnabled ? 'on' : '')} onClick={() => { const value = !autoUpdatesEnabled; setAutoUpdatesEnabled(value); void savePreferences({ autoUpdatesEnabled: value }); }}><i/></button>
                     </div>
                     <div className="settings-update-status">
