@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { isValidStoredCloudSession } from './cloud-session-validation.js';
+import { findStudioMcpExecutable } from './studio-mcp-path.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import electronUpdater from 'electron-updater';
@@ -897,47 +898,84 @@ async function connectRoblox() {
   if (process.platform !== 'win32') {
     return { ok: false, connected: false, studioReady: false, error: 'The bundled Roblox Studio MCP connection is configured for Windows.' };
   }
+
   const localAppData = process.env.LOCALAPPDATA;
   if (!localAppData) return { ok: false, connected: false, studioReady: false, error: 'Windows LOCALAPPDATA was not found.' };
+
   const mcpBat = path.join(localAppData, 'Roblox', 'mcp.bat');
-  if (!existsSync(mcpBat)) {
+  const studioMcpExecutable = await findStudioMcpExecutable(localAppData);
+  const launchTargets: Array<{ command: string; args: string[]; label: string }> = [];
+
+  // Prefer the built-in executable. The batch wrapper can fail on some Windows
+  // profiles whose folder path contains spaces; direct stdio avoids cmd.exe parsing.
+  if (studioMcpExecutable) {
+    launchTargets.push({
+      command: studioMcpExecutable,
+      args: [],
+      label: 'StudioMCP.exe',
+    });
+  }
+  if (existsSync(mcpBat)) {
+    launchTargets.push({
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', '"' + mcpBat + '"'],
+      label: 'Roblox mcp.bat',
+    });
+  }
+  if (!launchTargets.length) {
     return {
       ok: false,
       connected: false,
       studioReady: false,
-      error: 'Roblox MCP launcher was not found at ' + mcpBat + '. Update Roblox Studio, then enable Assistant → Manage MCP Servers → Enable Studio as MCP server.',
+      error: 'The built-in Roblox Studio MCP server was not found. Update Roblox Studio, then enable Assistant → Manage MCP Servers → Enable Studio as MCP server.',
     };
   }
+
   try {
-    const transport = new StdioClientTransport({
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', '"' + mcpBat + '"'],
-      env: getStudioProcessEnvironment(),
-    });
-    const client = new Client({ name: 'rmango-desktop', version: app.getVersion() }, { capabilities: {} });
-    await client.connect(transport);
-    const result = await client.listTools();
-    mcpClient = client;
-    mcpTransport = transport;
-    connectedTools = result.tools as McpTool[];
-    await discoverStudioInstances().catch(() => []);
-    const cloudLink = selectedStudioId
-      ? await registerCloudStudioConnector().catch(error => ({
-          linked: false,
-          message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
-        }))
-      : { linked: false, message: "MCP bridge connected. Open a place in Roblox Studio, then choose Refresh Studio connection." };
-    return {
-      ok: true,
-      connected: true,
-      studioReady: Boolean(selectedStudioId),
-      toolCount: connectedTools.length,
-      tools: connectedTools.map(tool => tool.name),
-      studioId: selectedStudioId,
-      studioInstances,
-      cloudLinked: cloudLink.linked,
-      cloudMessage: cloudLink.message,
-    };
+    let lastLaunchError = 'No MCP launch target was available.';
+    for (const target of launchTargets) {
+      const transport = new StdioClientTransport({
+        command: target.command,
+        args: target.args,
+        env: getStudioProcessEnvironment(),
+      });
+      const client = new Client({ name: 'rmango-desktop', version: app.getVersion() }, { capabilities: {} });
+      try {
+        await client.connect(transport);
+        const result = await client.listTools();
+        const tools = result.tools as McpTool[];
+        if (!tools.some(tool => tool.name === 'list_roblox_studios')) {
+          throw new Error('The responding MCP server does not expose list_roblox_studios. RMango requires the built-in Roblox Studio MCP server. Enable it in Assistant → Manage MCP Servers, then restart Roblox Studio and RMango.');
+        }
+
+        mcpClient = client;
+        mcpTransport = transport;
+        connectedTools = tools;
+        await discoverStudioInstances().catch(() => []);
+        const cloudLink = selectedStudioId
+          ? await registerCloudStudioConnector().catch(error => ({
+              linked: false,
+              message: error instanceof Error ? error.message : "Could not link the Studio connector to cloud.",
+            }))
+          : { linked: false, message: "MCP bridge connected. Open a place in Roblox Studio, then choose Refresh Studio connection." };
+        return {
+          ok: true,
+          connected: true,
+          studioReady: Boolean(selectedStudioId),
+          toolCount: connectedTools.length,
+          tools: connectedTools.map(tool => tool.name),
+          studioId: selectedStudioId,
+          studioInstances,
+          cloudLinked: cloudLink.linked,
+          cloudMessage: cloudLink.message,
+        };
+      } catch (error) {
+        lastLaunchError = target.label + ': ' + (error instanceof Error ? error.message : String(error));
+        await client.close().catch(() => undefined);
+        await transport.close().catch(() => undefined);
+      }
+    }
+    throw new Error(lastLaunchError);
   } catch (error) {
     mcpClient = null;
     mcpTransport = null;
