@@ -61,6 +61,9 @@ jobs:
       - name: Test bounded project source search
         run: npm run test:source-search
 
+      - name: Test Studio connector heartbeat
+        run: npm run test:studio-heartbeat
+
       - name: Build Cloudflare Worker artifact
         run: npm run build:cloudflare
 
