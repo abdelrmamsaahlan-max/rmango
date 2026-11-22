@@ -1,18 +1,24 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { parseRefreshSessionInput } from "@/lib/auth/refresh-session-input";
 import { createAuthClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 
-const schema = z.object({ refreshToken: z.string().min(20).max(4096) });
-
 export async function POST(request: Request) {
-  let payload: z.infer<typeof schema>;
+  let body: unknown;
   try {
-    payload = schema.parse(await request.json());
+    body = await request.json();
   } catch {
-    return NextResponse.json({ error: "A valid session refresh token is required." }, { status: 400 });
+    return NextResponse.json({ error: "The session refresh request must contain valid JSON." }, { status: 400 });
   }
+
+  const parsed = parseRefreshSessionInput(body);
+  if (!parsed.success) {
+    // An invalid or truncated refresh token means the saved credentials are no
+    // longer usable. Return 401 so older desktop builds also clear the session.
+    return NextResponse.json({ error: "Your saved session is invalid. Sign in again." }, { status: 401 });
+  }
+  const payload = parsed.data;
 
   const supabase = createAuthClient();
   const { data, error } = await supabase.auth.refreshSession({ refresh_token: payload.refreshToken });

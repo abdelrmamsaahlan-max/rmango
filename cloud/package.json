@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:auth": "node --experimental-strip-types --test tests/auth-urls.test.mjs",
+    "test:auth": "node --experimental-strip-types --test tests/auth-urls.test.mjs tests/auth-refresh-input.test.mjs",
     "build:cloudflare": "wrangler types --env-interface CloudflareEnv && opennextjs-cloudflare build",
     "preview:cloudflare": "opennextjs-cloudflare build && wrangler dev",
     "deploy:cloudflare": "node scripts/sync-runtime-secrets.mjs && opennextjs-cloudflare deploy",
