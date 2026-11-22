@@ -1,4 +1,25 @@
 export type CloudAccessSession = { accessToken: string };
+export type CloudRefreshSession = CloudAccessSession & {
+  refreshToken: string;
+  user: { id: string };
+};
+
+/**
+ * Resolve a refresh request against the newest encrypted session on disk.
+ * Another API call may already have rotated the refresh token; in that case
+ * reuse the newer token rather than trying to refresh an already-used token.
+ */
+export function selectCurrentSessionForRefresh<T extends CloudRefreshSession>(
+  requestedSession: T,
+  currentSession: T | null,
+): T {
+  if (!currentSession || currentSession.user.id !== requestedSession.user.id) {
+    throw new Error("Your Rmango account session is no longer available. Sign in again.");
+  }
+  return currentSession.refreshToken === requestedSession.refreshToken
+    ? requestedSession
+    : currentSession;
+}
 
 /**
  * Send an authenticated request and refresh exactly once when the access token
