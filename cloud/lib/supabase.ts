@@ -83,7 +83,7 @@ export function createAuthClient(accessToken?: string) {
 
 export async function getAuthContext(request: Request): Promise<AuthContext> {
   const authorization = request.headers.get("authorization") || "";
-  const match = authorization.match(/^Bearer\\s+(.+)$/i);
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
   if (!match) throw new Error("Sign in to your Rmango account first.");
 
   const token = match[1];
