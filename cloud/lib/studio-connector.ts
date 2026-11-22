@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { shouldRefreshStudioConnectorHeartbeat } from "./studio-heartbeat";
 
 export const STUDIO_READ_ONLY_TOOLS = new Set([
   "list_roblox_studios", "get_studio_state", "script_read", "script_search",
@@ -45,5 +46,22 @@ export async function verifyConnector(
     .maybeSingle();
 
   if (error || !data || !safeEqualHash(connectorSecret, data.connector_secret_hash)) return null;
+
+  // The chat route only exposes Studio tools when last_seen_at is newer than
+  // 30 seconds. Refresh it during authenticated polling/result requests, but
+  // throttle writes so the 1.4 second desktop poll does not write every time.
+  if (shouldRefreshStudioConnectorHeartbeat(data.last_seen_at)) {
+    const { data: heartbeat, error: heartbeatError } = await supabase
+      .from("studio_connectors")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("id", connectorId)
+      .eq("owner_id", user.id)
+      .is("disconnected_at", null)
+      .select("id")
+      .maybeSingle();
+
+    if (heartbeatError || !heartbeat) return null;
+  }
+
   return data;
 }
