@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { isValidStoredCloudSession } from './cloud-session-validation.js';
+import { sendWithCloudSessionRefresh } from './cloud-session-request.js';
 import { findStudioMcpExecutable } from './studio-mcp-path.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -662,17 +663,24 @@ async function sendCloudMessage(payload: {
   timeout.unref?.();
 
   try {
-    const session = await getValidCloudSession();
+    const initialSession = await getValidCloudSession();
     const baseUrl = await getCloudApiBaseUrl();
     if (controller.signal.aborted) throw controller.signal.reason || new Error('The cloud request was cancelled.');
     if (!baseUrl) throw new Error('The Rmango cloud backend is not configured.');
 
-    const response = await fetch(baseUrl + '/api/chat', {
+    const sendChatRequest = (activeSession: CloudSession) => fetch(baseUrl + '/api/chat', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + session.accessToken },
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + activeSession.accessToken },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+    // Unlike the JSON endpoints, chat streams previously stopped on the first
+    // 401. Refresh once and retry before telling a still-signed-in user to log in.
+    const { session, response } = await sendWithCloudSessionRefresh(
+      initialSession,
+      sendChatRequest,
+      refreshCloudSession,
+    );
     const responseConversationId = response.headers.get('X-Rmango-Conversation-Id');
     if (responseConversationId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(responseConversationId)) {
       const latest = await readCloudSession();
