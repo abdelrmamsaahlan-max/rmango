@@ -6,3 +6,10 @@ out/
 .env.*
 !.env.example
 *.tsbuildinfo
+
+# Cloudflare OpenNext and Wrangler build artifacts
+.open-next/
+.wrangler/
+worker-configuration.d.ts
+cloudflare-env.d.ts
+.dev.vars*
