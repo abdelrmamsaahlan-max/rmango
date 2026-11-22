@@ -98,10 +98,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-      RMANGO_EXPECTED_SUPABASE_HOST: jqkcrtnbxewyqrdpnqap.supabase.co
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -116,51 +112,40 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Validate deployment targets and protected secrets
+      - name: Verify existing Cloudflare runtime secrets
         run: |
           node --input-type=module <<'NODE'
-          const required = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY"];
-          for (const name of required) {
-            if (!process.env[name]?.trim()) throw new Error(`Missing required GitHub Actions secret: ${name}`);
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          if (!token?.trim() || !accountId?.trim()) {
+            throw new Error("Cloudflare deployment credentials are missing. No deployment was started.");
           }
-          const url = new URL(process.env.SUPABASE_URL);
-          if (url.protocol !== "https:" || url.hostname !== process.env.RMANGO_EXPECTED_SUPABASE_HOST || url.username || url.password) {
-            throw new Error("SUPABASE_URL does not match the intended RMango Supabase project. No deployment was started.");
-          }
-          if (!process.env.SUPABASE_PUBLISHABLE_KEY.startsWith("sb_publishable_")) {
-            throw new Error("SUPABASE_PUBLISHABLE_KEY is not a Supabase publishable key. No deployment was started.");
-          }
-          if (!process.env.SUPABASE_SECRET_KEY.startsWith("sb_secret_")) {
-            throw new Error("SUPABASE_SECRET_KEY is not a Supabase secret key. No deployment was started.");
-          }
-          const probeUrl = new URL("/rest/v1/usage_policies?select=id,enabled,daily_spend_limit_usd,monthly_spend_limit_usd&id=eq.true", url);
-          const probe = await fetch(probeUrl, {
-            method: "GET",
+          const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/rmango/secrets`;
+          const response = await fetch(url, {
             headers: {
-              apikey: process.env.SUPABASE_SECRET_KEY,
+              Authorization: `Bearer ${token}`,
               accept: "application/json",
             },
             signal: AbortSignal.timeout(15000),
           });
-          const probeText = await probe.text();
-          if (!probe.ok) {
-            throw new Error(`Supabase secret-key preflight failed (HTTP ${probe.status}). Check the GitHub Actions Supabase secrets and Data API access. No Cloudflare deployment was started.`);
+          if (!response.ok) {
+            throw new Error(`Could not verify the existing Worker secret metadata (HTTP ${response.status}). No deployment was started.`);
           }
-          let rows;
-          try { rows = JSON.parse(probeText); } catch {
-            throw new Error("Supabase secret-key preflight returned non-JSON. No Cloudflare deployment was started.");
+          const payload = await response.json();
+          if (payload.success !== true || !Array.isArray(payload.result)) {
+            throw new Error("Cloudflare returned an invalid secret-metadata response. No deployment was started.");
           }
-          if (!Array.isArray(rows) || rows.length !== 1 || rows[0].id !== true) {
-            throw new Error("Supabase secret-key preflight could not read the RMango usage policy. No Cloudflare deployment was started.");
+          const names = new Set(payload.result.map(item => item.name));
+          const required = ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY"];
+          const missing = required.filter(name => !names.has(name));
+          if (missing.length) {
+            throw new Error("The existing Worker is missing required Supabase runtime secrets: " + missing.join(", ") + ". No deployment was started.");
           }
-          if (rows[0].enabled !== true || Number(rows[0].daily_spend_limit_usd) <= 0 || Number(rows[0].monthly_spend_limit_usd) <= 0) {
-            throw new Error("The RMango global AI spend policy is disabled or has zero limits. No Cloudflare deployment was started.");
-          }
-          console.log("Supabase secret-key preflight passed. Secret values and spend limits were not printed.");
+          console.log("All three existing Supabase Worker secrets are present. Their values were not read or changed.");
           NODE
 
-      - name: Deploy Worker and synchronize protected Supabase secrets
-        run: npm run deploy:cloudflare
+      - name: Deploy Worker while preserving existing Supabase secrets
+        run: npx opennextjs-cloudflare deploy
 
       - name: Smoke-test live Cloudflare health endpoint
         working-directory: .
