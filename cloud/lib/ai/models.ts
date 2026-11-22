@@ -1,8 +1,9 @@
 import "server-only";
 import { optionalEnv } from "@/lib/env";
+import type { CloudflareLanguageModelId } from "agents/models/ai-sdk";
 
 export type CloudflareAIModel = {
-  id: string;
+  id: CloudflareLanguageModelId;
   name: string;
   description: string;
   type: "language";
@@ -17,7 +18,7 @@ export type CloudflareAIModel = {
 export type ModelProfile = "fast" | "developer" | "think" | "vision" | "agent";
 
 export type ModelChoice = {
-  id: string;
+  id: CloudflareLanguageModelId;
   name: string;
   description: string;
   contextWindow: number;
