@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAuthClient } from "@/lib/supabase";
+import { optionalEnv } from "@/lib/env";
+import { getPasswordRecoveryRedirect } from "@/lib/auth-urls";
 
 export const runtime = "nodejs";
 
@@ -18,7 +20,9 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createAuthClient();
-    const redirectTo = new URL("/auth/reset-password", request.url).toString();
+    // Use a configured canonical origin, not the request Host header, to
+    // prevent attacker-controlled recovery redirect destinations.
+    const redirectTo = getPasswordRecoveryRedirect(optionalEnv("RMANGO_PUBLIC_URL"));
     const { error } = await supabase.auth.resetPasswordForEmail(payload.email, { redirectTo });
 
     if (error) {
