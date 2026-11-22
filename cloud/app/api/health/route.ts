@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createAdminClient } from "@/lib/supabase";
 import { publicApiStatus } from "@/lib/env";
 
@@ -6,9 +7,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  // Vercel can provide the deployment OIDC token per request rather than as
-  // a process-wide environment snapshot. Never return or log the token itself.
-  const configuration = publicApiStatus(Boolean(request.headers.get("x-vercel-oidc-token")));
+  const { env } = await getCloudflareContext({ async: true });
+  const configuration = publicApiStatus(Boolean(env.AI));
 
   let databaseReachable = false;
   let inferenceEnabled = false;
@@ -33,14 +33,14 @@ export async function GET(request: Request) {
     }
   }
 
-  const infrastructureReady = configuration.gatewayConfigured &&
+  const infrastructureReady = configuration.aiBindingConfigured &&
     configuration.databaseConfigured &&
     databaseReachable;
   const aiReady = infrastructureReady && inferenceEnabled;
 
   let error: string | undefined;
-  if (!configuration.gatewayConfigured) {
-    error = "Vercel AI Gateway deployment identity is missing.";
+  if (!configuration.aiBindingConfigured) {
+    error = "Cloudflare Workers AI binding is missing.";
   } else if (!configuration.databaseConfigured) {
     error = "Supabase configuration is incomplete. The cloud needs SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, and a server-only SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY).";
   } else if (!databaseReachable) {
