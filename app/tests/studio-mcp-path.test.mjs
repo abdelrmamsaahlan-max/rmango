@@ -14,7 +14,7 @@ test("returns null when Roblox Studio is not installed", async () => {
   }
 });
 
-test("selects the newest installed StudioMCP.exe and supports paths containing spaces", async () => {
+test("selects the newest installed StudioMCP.exe and supports profile paths containing spaces", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "rmango-studio path "));
   try {
     const versionsRoot = path.join(root, "Roblox", "Versions");
@@ -39,7 +39,40 @@ test("selects the newest installed StudioMCP.exe and supports paths containing s
   }
 });
 
-test("ignores version folders without StudioMCP.exe", async () => {
+test("supports the standalone Roblox Studio installation directory", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "rmango-studio-standalone-"));
+  try {
+    const standaloneExe = path.join(root, "Roblox Studio", "StudioMCP.exe");
+    await fs.mkdir(path.dirname(standaloneExe), { recursive: true });
+    await fs.writeFile(standaloneExe, "studio-mcp");
+    assert.equal(await findStudioMcpExecutable(root), standaloneExe);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("chooses the newest executable across both supported Roblox install layouts", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "rmango-studio-layouts-"));
+  try {
+    const standaloneExe = path.join(root, "Roblox Studio", "StudioMCP.exe");
+    const versionedExe = path.join(root, "Roblox", "Versions", "version-abc", "StudioMCP.exe");
+    await fs.mkdir(path.dirname(standaloneExe), { recursive: true });
+    await fs.mkdir(path.dirname(versionedExe), { recursive: true });
+    await fs.writeFile(standaloneExe, "standalone");
+    await fs.writeFile(versionedExe, "versioned");
+
+    const older = new Date("2026-01-01T00:00:00.000Z");
+    const newer = new Date("2026-11-22T00:00:00.000Z");
+    await fs.utimes(standaloneExe, older, older);
+    await fs.utimes(versionedExe, newer, newer);
+
+    assert.equal(await findStudioMcpExecutable(root), versionedExe);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("ignores folders without StudioMCP.exe", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "rmango-empty-version-"));
   try {
     await fs.mkdir(path.join(root, "Roblox", "Versions", "version-no-mcp"), { recursive: true });
