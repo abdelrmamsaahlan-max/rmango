@@ -141,7 +141,6 @@ export async function POST(request: Request) {
   const profile: ModelProfile = hasImageAttachment ? "vision" : body.profile as ModelProfile;
   const skills = buildSkillContext(latestUserPrompt, { hasImage: hasImageAttachment, hasDocument: hasDocumentAttachment });
   const workflow = buildAgentWorkflowContext({ profile, prompt: latestUserPrompt });
-  const systemPrompt = [SYSTEM_PROMPT, skills.systemText, workflow.systemText].filter(Boolean).join("\n\n");
   let choice;
   try {
     choice = await resolveProfile(profile);
@@ -149,9 +148,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No cloud model is configured." }, { status: 503 });
   }
 
+  const systemPrompt = [
+    SYSTEM_PROMPT,
+    choice.primary.instructions,
+    skills.systemText,
+    workflow.systemText,
+  ].filter(Boolean).join("\n\n");
+
+  const configuredMaxOutputTokens = Number(
+    optionalEnv("RMANGO_MAX_OUTPUT_TOKENS") || choice.primary.maxOutputTokens,
+  ) || choice.primary.maxOutputTokens;
+  // An environment override may lower the budget, but never exceed the model's advertised maximum.
   const maxOutputTokens = Math.max(
     256,
-    Math.min(8192, Number(optionalEnv("RMANGO_MAX_OUTPUT_TOKENS") || 4096) || 4096),
+    Math.min(choice.primary.maxOutputTokens, configuredMaxOutputTokens),
   );
 
   const messages = body.messages.slice(-24).map(message => ({
@@ -364,6 +374,20 @@ export async function POST(request: Request) {
   const estimatedText = systemPrompt + JSON.stringify(body.messages) + selectedProjectContextText + previousAttachmentContextText + "\n" + textAttachmentSections.join("\n");
   const imageTokenReserve = attachmentParts.length * 20_000;
   const estimateInputTokens = Math.ceil(estimateTokens(estimatedText) * 1.25) + imageTokenReserve;
+  const contextSafetyReserve = Math.min(8_192, Math.ceil(choice.primary.contextWindow * 0.05));
+  const maximumInputTokens = Math.max(
+    1,
+    choice.primary.contextWindow - maxOutputTokens - contextSafetyReserve,
+  );
+  if (estimateInputTokens > maximumInputTokens) {
+    return NextResponse.json({
+      error: "This request is too large for the selected model's context window. Start a shorter conversation or remove some attachments, then try again.",
+      reason: "context_window_exceeded",
+      estimatedInputTokens: estimateInputTokens,
+      maximumInputTokens,
+      contextWindow: choice.primary.contextWindow,
+    }, { status: 413 });
+  }
   const estimatedTokens = estimateInputTokens + maxOutputTokens;
   const estimatedCost = estimateCostUsd(
     estimateInputTokens,
@@ -797,7 +821,7 @@ export async function POST(request: Request) {
       tools: { ...projectTools, ...studioTools },
       stopWhen: stepCountIs(workflow.maxSteps),
       maxOutputTokens: enforcedMaxOutputTokens,
-      temperature: 0.2,
+      temperature: choice.primary.temperature,
       abortSignal: request.signal,
       onFinish: async ({ text, usage, response: modelResponse }) => {
         const inputTokens = Number(usage.inputTokens ?? 0);

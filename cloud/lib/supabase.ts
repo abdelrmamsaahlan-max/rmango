@@ -2,6 +2,19 @@ import "server-only";
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { getSupabaseServerKey, requiredEnv } from "@/lib/env";
 
+/**
+ * Supabase's newer sb_secret_* keys are opaque API keys, not JWTs. supabase-js
+ * normally sends its configured key in both apikey and Authorization: Bearer.
+ * Supabase requires new publishable/secret keys on apikey only, so remove the
+ * automatically-added Bearer header for server-side secret-key requests.
+ */
+const fetchWithSecretKeyAuth: typeof fetch = async (input, init) => {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+  headers.delete("authorization");
+  return fetch(input, { ...init, headers });
+};
+
 export type AuthContext = {
   supabase: SupabaseClient;
   user: User;
@@ -21,6 +34,11 @@ export function createAdminClient() {
       persistSession: false,
       detectSessionInUrl: false,
     },
+    // Legacy service_role keys are JWTs and keep the SDK's default Bearer
+    // behavior. New sb_secret_* keys are sent only through the apikey header.
+    ...(serverKey.startsWith("sb_secret_")
+      ? { global: { fetch: fetchWithSecretKeyAuth } }
+      : {}),
   });
 }
 
