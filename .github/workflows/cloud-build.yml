@@ -64,6 +64,9 @@ jobs:
       - name: Test Studio connector heartbeat
         run: npm run test:studio-heartbeat
 
+      - name: Test Studio approval timing
+        run: npm run test:studio-command-timing
+
       - name: Build Cloudflare Worker artifact
         run: npm run build:cloudflare
 
