@@ -1,0 +1,106 @@
+/*
+ * Lovable RMango UI design-system port.
+ * This file carries across the approved graphite/mango palette, surface ladder,
+ * syntax colors and compact focus treatments without copying the demo's mocked
+ * chat responses or simulated Roblox Studio actions.
+ */
+.app-shell[data-theme="dark"] {
+  --rm-bg: oklch(0.12 0.005 255);
+  --rm-panel: oklch(0.172 0.007 255);
+  --rm-panel-raised: oklch(0.195 0.007 255);
+  --rm-panel-soft: oklch(0.235 0.008 255);
+  --rm-line: oklch(0.29 0.008 255);
+  --rm-line-soft: oklch(0.255 0.008 255);
+  --rm-text: oklch(0.945 0.008 85);
+  --rm-muted: oklch(0.66 0.012 255);
+  --rm-faint: oklch(0.54 0.012 255);
+  --rm-mango: oklch(0.8 0.16 70);
+  --rm-mango-soft: oklch(0.94 0.08 92);
+  --rm-leaf: oklch(0.7 0.14 148);
+  --rm-blue: oklch(0.74 0.1 235);
+  --rm-success: oklch(0.74 0.14 150);
+  --rm-warning: oklch(0.82 0.14 85);
+  --rm-syn-keyword: oklch(0.76 0.14 45);
+  --rm-syn-string: oklch(0.79 0.12 145);
+  --rm-syn-number: oklch(0.8 0.1 200);
+  --rm-syn-comment: oklch(0.54 0.012 255);
+  --rm-syn-global: oklch(0.84 0.12 88);
+  --rm-syn-function: oklch(0.8 0.09 235);
+
+  --bg: var(--rm-bg);
+  --panel: var(--rm-panel);
+  --panel2: var(--rm-panel-raised);
+  --panel3: var(--rm-panel-soft);
+  --line: var(--rm-line);
+  --line-soft: var(--rm-line-soft);
+  --text: var(--rm-text);
+  --muted: var(--rm-muted);
+  --muted2: oklch(0.78 0.01 255);
+  --gold: var(--rm-mango);
+  --gold-soft: var(--rm-mango-soft);
+  --green: var(--rm-leaf);
+  --green-deep: oklch(0.36 0.08 148);
+
+  color: var(--rm-text);
+  font-family: Geist, Inter, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  background:
+    radial-gradient(ellipse at 52% 0%, color-mix(in oklab, var(--rm-mango) 5%, transparent), transparent 36%),
+    radial-gradient(ellipse at 0% 100%, color-mix(in oklab, var(--rm-leaf) 7%, transparent), transparent 38%),
+    var(--rm-bg);
+}
+
+.app-shell[data-theme="dark"] .topbar,
+.app-shell[data-theme="dark"] .main-toolbar {
+  background: color-mix(in oklab, var(--rm-panel) 92%, transparent);
+  border-color: var(--rm-line-soft);
+}
+
+.app-shell[data-theme="dark"] .activity-rail,
+.app-shell[data-theme="dark"] .left-sidebar,
+.app-shell[data-theme="dark"] .right-sidebar {
+  background: var(--rm-panel);
+  border-color: var(--rm-line-soft);
+}
+
+.app-shell[data-theme="dark"] .main-panel {
+  background: color-mix(in oklab, var(--rm-bg) 84%, transparent);
+}
+
+.app-shell[data-theme="dark"] .project-card,
+.app-shell[data-theme="dark"] .cloud-projects-panel,
+.app-shell[data-theme="dark"] .quick-card,
+.app-shell[data-theme="dark"] .composer-box,
+.app-shell[data-theme="dark"] .workspace-map-shell,
+.app-shell[data-theme="dark"] .inspector-section,
+.app-shell[data-theme="dark"] .settings-card {
+  border-color: color-mix(in oklab, var(--rm-line) 76%, var(--rm-mango) 8%);
+}
+
+.app-shell[data-theme="dark"] .composer-box {
+  background: var(--rm-panel);
+}
+
+.app-shell[data-theme="dark"] .composer-box:focus-within {
+  border-color: color-mix(in oklab, var(--rm-mango) 70%, var(--rm-line));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--rm-mango) 10%, transparent);
+}
+
+.app-shell[data-theme="dark"] :is(button, input, textarea, select):focus-visible {
+  outline-color: color-mix(in oklab, var(--rm-blue) 90%, white);
+}
+
+.app-shell[data-theme="dark"] ::selection {
+  color: oklch(0.18 0.02 255);
+  background: var(--rm-mango-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *,
+  .app-shell *::before,
+  .app-shell *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

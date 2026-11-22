@@ -141,3 +141,15 @@ test("rejects a missing or different-account session instead of refreshing the w
   assert.throws(() => selectCurrentSessionForRefresh(requested, null), /session is no longer available/);
   assert.throws(() => selectCurrentSessionForRefresh(requested, otherAccount), /session is no longer available/);
 });
+
+
+test("joins an in-flight refresh only for the same token and account generation", async () => {
+  const pending = Promise.resolve({ accessToken: "new-access-token" });
+  const flight = { refreshToken: "refresh-token", generation: 7, promise: pending };
+
+  const { getMatchingCloudRefreshFlight } = await import("../electron/cloud-session-request.ts");
+  assert.equal(getMatchingCloudRefreshFlight("refresh-token", 7, flight), pending);
+  assert.equal(getMatchingCloudRefreshFlight("older-token", 7, flight), null);
+  assert.equal(getMatchingCloudRefreshFlight("refresh-token", 8, flight), null);
+  assert.equal(getMatchingCloudRefreshFlight("refresh-token", 7, null), null);
+});

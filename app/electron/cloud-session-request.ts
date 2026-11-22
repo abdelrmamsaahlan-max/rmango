@@ -40,3 +40,15 @@ export async function sendWithCloudSessionRefresh<T extends CloudAccessSession>(
 
   return { session, response };
 }
+
+
+export function getMatchingCloudRefreshFlight<T>(
+  refreshToken: string,
+  generation: number,
+  flight: { refreshToken: string; generation: number; promise: Promise<T> } | null,
+): Promise<T> | null {
+  if (!flight || flight.generation !== generation || flight.refreshToken !== refreshToken) {
+    return null;
+  }
+  return flight.promise;
+}

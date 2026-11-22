@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { isValidStoredCloudSession } from './cloud-session-validation.js';
-import { selectCurrentSessionForRefresh, sendWithCloudSessionRefresh } from './cloud-session-request.js';
+import { getMatchingCloudRefreshFlight, selectCurrentSessionForRefresh, sendWithCloudSessionRefresh } from './cloud-session-request.js';
 import { findStudioMcpExecutable } from './studio-mcp-path.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -252,10 +252,8 @@ async function clearCloudSession() {
 
 async function refreshCloudSession(session: CloudSession): Promise<CloudSession> {
   const generation = cloudAuthGeneration;
-  const currentFlight = cloudRefreshFlight;
-  if (currentFlight && currentFlight.refreshToken === session.refreshToken && currentFlight.generation === generation) {
-    return currentFlight.promise;
-  }
+  const currentFlight = getMatchingCloudRefreshFlight(session.refreshToken, generation, cloudRefreshFlight);
+  if (currentFlight) return currentFlight;
 
   // A parallel request may already have rotated this refresh token and written
   // the new session. Never send an older one to Supabase after that happens.
@@ -264,6 +262,14 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
   if (generation !== cloudAuthGeneration) {
     throw new Error('Your Rmango account changed while the session was being refreshed. Please retry.');
   }
+
+  // Re-check after the asynchronous disk read. Otherwise two callers can both
+  // pass the first check and submit the same one-time refresh token to Supabase.
+  const competingFlight = storedBeforeRefresh
+    ? getMatchingCloudRefreshFlight(storedBeforeRefresh.refreshToken, generation, cloudRefreshFlight)
+    : null;
+  if (competingFlight) return competingFlight;
+
   session = selectCurrentSessionForRefresh(requestedSession, storedBeforeRefresh);
   if (session.refreshToken !== requestedSession.refreshToken) return session;
 
