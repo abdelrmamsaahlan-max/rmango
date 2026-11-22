@@ -27,7 +27,7 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 4. Verify each Windows Release contains both its versioned installer and `latest.yml`; a workflow artifact alone is not an in-app update.
 5. Review the Supabase usage policy and Cloudflare Workers AI spend regularly.
 
-Cloud inference has a cost. Fresh deployments default to a disabled global policy; an administrator must explicitly enable usage and set daily/monthly USD caps before inference can start. The current production project has a small enabled budget, but database caps are not a substitute for separate Vercel AI Gateway and provider billing limits. Per-user request/token quotas provide additional limits.
+Cloud inference can incur costs. The Supabase global usage policy is checked before each model request, while Cloudflare Workers AI usage remains subject to the account's Cloudflare limits and billing. Keep daily/monthly budgets conservative; the migration does not raise or bypass existing spend controls. Per-user request/token quotas provide additional limits.
 
 ## Download and install the Windows app
 
