@@ -75,6 +75,35 @@ $vein.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
 $vein.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
 $graphics.DrawBezier($vein, 276, 131, 321, 105, 358, 89, 391, 82)
 
+# RMango robot visor and friendly glowing eyes.
+$visor = New-RoundedPath 151 204 210 126 48
+$visorBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
+  [System.Drawing.Rectangle]::new(151, 204, 210, 126),
+  [System.Drawing.Color]::FromArgb(255, 37, 52, 77),
+  [System.Drawing.Color]::FromArgb(255, 7, 14, 30),
+  [single]90
+)
+$visorPen = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255, 9, 13, 23), 10)
+$graphics.FillPath($visorBrush, $visor)
+$graphics.DrawPath($visorPen, $visor)
+
+# Curved white eyes, matching the uploaded mascot's friendly expression.
+$eyePen = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255, 255, 255, 255), 13)
+$eyePen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+$eyePen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+$graphics.DrawArc($eyePen, 193, 246, 63, 54, 190, 160)
+$graphics.DrawArc($eyePen, 258, 246, 63, 54, 190, 160)
+
+# Soft ivory headphone pads on both sides of the fruit.
+$padBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 248, 239, 226))
+$padPen = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255, 16, 18, 25), 7)
+$leftPad = New-RoundedPath 103 220 47 132 17
+$rightPad = New-RoundedPath 362 220 47 132 17
+$graphics.FillPath($padBrush, $leftPad)
+$graphics.DrawPath($padPen, $leftPad)
+$graphics.FillPath($padBrush, $rightPad)
+$graphics.DrawPath($padPen, $rightPad)
+
 # Tiny golden sparkle to make the mark readable at taskbar size.
 $sparkBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 255, 236, 151))
 $graphics.FillEllipse($sparkBrush, 390, 350, 13, 13)
@@ -125,6 +154,14 @@ $leafBrush.Dispose()
 $leafOutline.Dispose()
 $vein.Dispose()
 $sparkBrush.Dispose()
+$visor.Dispose()
+$visorBrush.Dispose()
+$visorPen.Dispose()
+$eyePen.Dispose()
+$padBrush.Dispose()
+$padPen.Dispose()
+$leftPad.Dispose()
+$rightPad.Dispose()
 
 Write-Host "Generated Rmango mango icon (256x256): $target"
 Write-Host "ICO payload size: $($icoBytes.Length) bytes"
