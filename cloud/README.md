@@ -40,6 +40,29 @@ These must exist as **Production runtime** secrets under the Worker Settings →
 
 The secret API key must never be exposed to the browser or desktop app, committed to Git, or logged. Do not use `NEXT_PUBLIC_*` for any of these values.
 
+## Canonical Supabase and authentication URLs
+
+The production Worker must use the existing Supabase project URL exactly:
+
+- `SUPABASE_URL=https://jqkcrtnbxewyqrdpnqap.supabase.co`
+- Password recovery origin: `https://rmango.abdosony222.workers.dev`
+
+Never set `SUPABASE_URL` to the RMango Worker URL or the retired Vercel application URL. The Cloudflare deployment workflow re-applies the verified Supabase URL before deployment while leaving the publishable and secret API keys untouched.
+
+In Supabase Dashboard → Authentication → URL Configuration, add this Redirect URL:
+
+`https://rmango.abdosony222.workers.dev/auth/reset-password`
+
+The password-reset API uses `RMANGO_PUBLIC_URL` when configured and otherwise defaults to the Cloudflare Worker origin. It never derives the recovery destination from the incoming request host.
+
+For Google OAuth, the provider callback is:
+
+`https://jqkcrtnbxewyqrdpnqap.supabase.co/auth/v1/callback`
+
+The desktop loopback redirect, when Google OAuth is configured, is:
+
+`http://127.0.0.1:43821/auth/callback`
+
 ## Workers AI profiles
 
 RMango retains the five existing model profiles:
