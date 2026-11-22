@@ -58,6 +58,34 @@ jobs:
       - name: Build Cloudflare Worker artifact
         run: npm run build:cloudflare
 
+      - name: Smoke-test live Cloudflare health endpoint
+        working-directory: .
+        env:
+          RMANGO_HEALTH_URL: https://rmango.abdosony222.workers.dev/api/health
+        run: |
+          node --input-type=module <<'NODE'
+          const url = process.env.RMANGO_HEALTH_URL;
+          const response = await fetch(url, {
+            method: "GET",
+            headers: { "accept": "application/json" },
+            signal: AbortSignal.timeout(15000),
+          });
+          const raw = await response.text();
+          let health;
+          try {
+            health = JSON.parse(raw);
+          } catch {
+            throw new Error(`Cloudflare health endpoint returned non-JSON (HTTP ${response.status}): ${raw.slice(0, 500)}`);
+          }
+          if (!response.ok) {
+            throw new Error(`Cloudflare health endpoint returned HTTP ${response.status}: ${health.error || raw.slice(0, 500)}`);
+          }
+          if (health.status !== "ready" || health.aiReady !== true || health.databaseReachable !== true) {
+            throw new Error(`Cloudflare infrastructure or AI authorization is not ready: ${JSON.stringify(health)}`);
+          }
+          console.log("Cloudflare live health check passed: AI binding, Supabase connectivity, and global inference policy are ready.");
+          NODE
+
   desktop:
     name: Type-check and build RMango desktop client
     runs-on: ubuntu-latest
