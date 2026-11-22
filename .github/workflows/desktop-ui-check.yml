@@ -2,7 +2,7 @@ name: RMango Desktop UI Checks
 
 on:
   push:
-    branches: [rmango-brand-ui-refresh]
+    branches: [main, rmango-brand-ui-refresh]
     paths:
       - "app/**"
       - ".github/workflows/desktop-ui-check.yml"

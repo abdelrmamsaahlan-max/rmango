@@ -1,29 +1,62 @@
-# Activating Rmango Cloud AI
+# RMango Cloud AI Operations
 
-The desktop app is intentionally a thin client. Model inference, Studio orchestration, project APIs, and usage accounting run on the hosted service.
+The Windows desktop is a thin client. Authentication, model selection, inference, project APIs, Studio orchestration and usage accounting run through RMango Cloud.
 
-## 1. Add the server-only Supabase key
+## Production endpoint
 
-The Vercel production deployment currently has the Supabase project URL and publishable key, but does not have the server-only key required by the cloud API.
+Packaged desktop builds use only:
 
-In the Vercel project **rmango-cloud → Settings → Environment Variables**, add:
+`https://rmango.abdosony222.workers.dev`
 
-- Name: `SUPABASE_SECRET_KEY`
-- Value: the Supabase project's server-side secret key from **Supabase → Project Settings → API Keys**
-- Environments: Production, Preview, and Development
+The endpoint is committed in `app/cloud-config.json`. Packaged builds ignore the legacy `RMANGO_CLOUD_API_URL` environment override, so an old machine-level Vercel URL cannot redirect production traffic.
 
-The legacy `SUPABASE_SERVICE_ROLE_KEY` variable is supported for compatibility, but the newer `SUPABASE_SECRET_KEY` is preferred.
+## Cloudflare Worker configuration
 
-Do not put this key in the desktop app, renderer code, GitHub source files, screenshots, or chat messages. Redeploy the Vercel project after adding it.
+The production Worker is named `rmango` and must have:
 
-## 2. Verify infrastructure
+- The Workers AI binding named `AI`.
+- Runtime secrets `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and server-only `SUPABASE_SECRET_KEY`.
+- `SUPABASE_URL=https://jqkcrtnbxewyqrdpnqap.supabase.co`.
 
-Open the production `/api/health` endpoint. The service should report that its database is configured and reachable. The Supabase project itself can be healthy while the Vercel deployment is unable to connect because the server key is absent.
+Keep the Supabase secret key in Cloudflare Worker secrets only. Never put it in desktop files, renderer code, Git, screenshots or chat messages.
 
-## 3. Authorize a usage budget
+**RMango does not use Vercel AI Gateway.** The cloud chat route uses the Cloudflare Workers AI binding. No Vercel project, Vercel environment variable, AI Gateway card setup or external model-provider API key is required for inference.
 
-The database's `public.usage_policies` row currently has `enabled = false` and daily/monthly spend limits set to zero. The chat route rejects requests before calling a model while this policy is disabled.
+## Health and spend controls
 
-An administrator must explicitly choose and configure positive daily and monthly spend limits, plus appropriate request and token caps, before enabling inference. Rmango does not enable paid model usage automatically. The cloud route also rejects requests when published model pricing metadata is unavailable and reserves estimated usage before starting inference.
+Check:
 
-Once the server key and approved budget are in place, sign in to Rmango Desktop, use **Test cloud connection**, and confirm the cloud status says ready before sending a prompt.
+`https://rmango.abdosony222.workers.dev/api/health`
+
+A healthy result must confirm the Cloudflare AI binding, Supabase configuration, database reachability and enabled inference policy. The production deployment's CI smoke test checks these fields after deployment.
+
+The global Supabase `public.usage_policies` row is the final RMango-side inference gate. Its current verified configuration is enabled with a USD $0.10 daily spend limit and USD $1.00 monthly spend limit. Do not increase these limits without administrator approval. Cloudflare Workers AI usage is also subject to the Cloudflare account's applicable limits and billing.
+
+Per-user request/token quotas are enforced before inference. They do not replace account-level spend controls.
+
+## Desktop validation
+
+The desktop CI checks:
+
+- Saved cloud-session validation.
+- Built-in Roblox Studio MCP executable-path discovery.
+- Renderer and Electron TypeScript checks.
+- Renderer and Electron production builds.
+- Windows NSIS installer creation.
+
+The Cloudflare CI checks:
+
+- Cloud backend TypeScript.
+- Authentication URL and refresh-input tests.
+- Project source-search tests.
+- Studio connector heartbeat and approval timing tests.
+- OpenNext/Cloudflare build.
+- Production deployment and live health smoke test.
+
+A production health check is an infrastructure test, not a substitute for a real authenticated desktop sign-in, streamed AI response, private project upload/download, or a live Roblox Studio connection. Those user-session flows must be tested with an authorized account and an open Studio instance.
+
+## Release behavior
+
+Pushes to `main` create a versioned Windows setup artifact for testing. They do not automatically publish a stable GitHub Release or update feed. Public stable releases require explicit release intent and a valid trusted Windows signing certificate; the workflow verifies the setup EXE and `latest.yml` before publishing.
+
+Unsigned CI artifacts can be downloaded for testing but may show a Windows unknown-publisher warning.

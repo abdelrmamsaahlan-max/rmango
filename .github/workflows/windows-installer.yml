@@ -194,6 +194,14 @@ jobs:
         working-directory: app-src
         run: npm install --no-audit --no-fund
 
+      - name: Test saved cloud-session validation
+        working-directory: app-src
+        run: npm run test:session
+
+      - name: Test built-in Roblox Studio MCP path discovery
+        working-directory: app-src
+        run: npm run test:studio-mcp-path
+
       - name: Build and optionally publish Windows installer
         working-directory: app-src
         env:

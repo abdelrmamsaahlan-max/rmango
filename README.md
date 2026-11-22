@@ -13,7 +13,7 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 
 ## Current cloud deployment status
 
-- The production API target is `https://rmango.abdosony222.workers.dev`; the live deploy and health gate must pass before this cutover is considered complete.
+- The production API target is `https://rmango.abdosony222.workers.dev`; the Cloudflare deployment and live `/api/health` smoke test passed for the current production backend.
 - The dedicated Supabase project `rmango-cloud` is active in Frankfurt, and migration `202611210001_rmango_cloud.sql` has been applied.
 - `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and the server-only `SUPABASE_SECRET_KEY` are Cloudflare Worker runtime secrets. Never put the server key in the desktop app or source control.
 - The desktop build contains the public Cloudflare Worker endpoint in `app/cloud-config.json`; packaged apps use that committed URL and ignore machine-level legacy endpoint overrides.
@@ -39,7 +39,7 @@ Installed Windows builds check GitHub Releases shortly after startup and every f
 
 ## Automatic updates
 
-Every push to `main` builds a versioned Windows NSIS installer. When the public HTTPS cloud URL is configured, the workflow publishes the EXE and `latest.yml` to a public GitHub Release, which is the feed read by the in-app updater. A CI workflow artifact by itself is not discoverable by `electron-updater`.
+Every push to `main` builds and verifies a versioned Windows NSIS installer as a short-lived GitHub Actions artifact. A public GitHub Release and `latest.yml` update feed are published only through an explicitly requested stable release build with the required trusted Windows signing certificate. A CI workflow artifact by itself is not discoverable by `electron-updater`.
 
 Authenticode publisher signing is optional for the update feed because the desktop updater is configured to accept unsigned updates and validates the HTTPS release metadata and SHA-512 file hash. Unsigned installers do not have a trusted publisher identity and may trigger a Windows SmartScreen unknown-publisher warning. Configure the signing certificate secrets to add publisher identity. Builds older than the first cloud-enabled installer may need one manual install; cloud-enabled builds can update from the GitHub Releases feed.
 
@@ -95,7 +95,7 @@ Current source-file import is limited to 120 files, 512 KB per file and supporte
 ## Current limitations
 
 - The production health endpoint checks the Worker AI binding and Supabase usage-policy read. A full desktop sign-in, real hosted model response, private upload, Studio round-trip and ZIP export should still be tested end to end after each release.
-- Model profiles are dynamically selected from live Gateway catalogue metadata. Rmango skills are versioned Roblox engineering instruction packs, not separately trained/fine-tuned models. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
+- Model profiles are dynamically selected from the Cloudflare Workers AI supported-model catalogue. Rmango skills are versioned Roblox engineering instruction packs, not separately trained/fine-tuned models. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
 - Long-running agent work is not yet moved to a durable workflow/worker system; current chat requests and Studio tool calls have bounded request timeouts.
 - Admin usage dashboard, admin model-routing editor, durable task queue, PDF/DOCX parsing, vector RAG, full project dependency indexing and binary Roblox project import are not complete.
 - Current cloud usage policy defaults are 40 requests/day, 800/month, 120,000 tokens/day, 1.5 million tokens/month, and 4,096 max output tokens. Review Cloudflare Workers AI usage and the approved account spend limits.

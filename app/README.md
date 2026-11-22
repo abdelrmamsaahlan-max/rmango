@@ -26,7 +26,7 @@ Rmango is a Windows desktop workspace for Roblox development. **The user's PC is
 3. Build and verify a Cloudflare-configured Windows installer before replacing any older release.
 4. Keep inference fail-closed unless the administrator has approved the Supabase usage limits and Cloudflare AI spend.
 
-Cloud inference has a cost. User quotas are enforced in the database before the AI request starts, but they do not replace an administrator-configured provider/Gateway spending limit.
+Cloud inference has a cost. User quotas are enforced in the database before the AI request starts; Cloudflare Workers AI usage is also subject to the account's Cloudflare limits and billing.
 
 ## Download and install the Windows app
 
@@ -38,7 +38,7 @@ Installed Windows builds check GitHub Releases shortly after startup and every f
 
 ## Automatic updates
 
-Windows releases use the committed Cloudflare endpoint from `app/cloud-config.json`. The release workflow rejects any endpoint other than the approved `rmango.abdosony222.workers.dev` Worker and validates the installer and `latest.yml` before publishing.
+Windows releases use the committed Cloudflare endpoint from `app/cloud-config.json`. The Windows workflow rejects any endpoint other than the approved `rmango.abdosony222.workers.dev` Worker and validates every installer. Public releases and `latest.yml` are published only through an explicitly requested signed stable-release build.
 
 The last pre-cloud desktop release is local-AI based and cannot run the new cloud-only client. After the Cloudflare production health gate passes, install the first Cloudflare-enabled release manually once; later releases can be installed from inside Rmango. Current published build and signing state should be checked on the Releases page.
 
@@ -94,7 +94,7 @@ Current source-file import is limited to 120 files, 512 KB per file and supporte
 ## Current limitations
 
 - The Cloudflare runtime deploy and health gate must pass; full authenticated account/chat calls still require a real desktop-session test.
-- Model profiles are dynamically selected from Gateway catalogue metadata. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
+- Model profiles are dynamically selected from the Cloudflare Workers AI supported-model catalogue. No Rmango-specific benchmark runs have been performed; no benchmark scores are displayed as facts.
 - The desktop and cloud backend have CI build checks; full cloud login, hosted inference, quota enforcement against a live database, private upload, Studio bridge and ZIP export still require end-to-end tests after provisioning.
 - Long-running agent work is not yet moved to a durable workflow/worker system; current chat requests and Studio tool calls have bounded request timeouts.
 - Admin usage dashboard, admin model-routing editor, durable task queue, PDF/DOCX parsing, vector RAG, full project dependency indexing and binary Roblox project import are not complete.
