@@ -972,6 +972,13 @@ async function sendCloudMessage(payload: {
       void reader.cancel().catch(() => undefined);
       throw error;
     }
+    if (!content.trim()) {
+      const completedToolCount = Array.from(activityById.values())
+        .filter(item => item.status === 'completed').length;
+      throw new Error(completedToolCount > 0
+        ? 'The agent finished its tool steps but did not return a written summary. No final answer was received; ask Rmango to summarize the result.'
+        : 'The cloud model returned an empty response. No answer was received; check cloud status and try again.');
+    }
     const preferences = await readSettings();
     if (preferences.desktopNotifications && Notification.isSupported() && (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused() || mainWindow.isMinimized())) {
       new Notification({ title: 'Rmango response ready', body: 'Your Roblox development response has finished.' }).show();
