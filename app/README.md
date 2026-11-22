@@ -34,11 +34,11 @@ Open [GitHub Releases](https://github.com/abdelrmamsaahlan-max/rmango/releases) 
 
 The installer is a Windows setup EXE. GitHub's **Code → Download ZIP** is source code, not an installer.
 
-Installed Windows builds check GitHub Releases shortly after startup and every five minutes. They download updates in the background, then wait for the user to choose **Restart & install**. See [Automatic updates](#automatic-updates).
+Installed Windows builds check GitHub Releases shortly after startup and every five minutes. Updates download in the background and install on the next normal app exit; you can also choose **Restart & install** as soon as the download finishes. Stable release notes are generated from the commits and shown in the app's update panel. See [Automatic updates](#automatic-updates).
 
 ## Automatic updates
 
-Windows releases use the committed Cloudflare endpoint from `app/cloud-config.json`. The Windows workflow rejects any endpoint other than the approved `rmango.abdosony222.workers.dev` Worker and validates every installer. Public releases and `latest.yml` are published only through an explicitly requested signed stable-release build.
+Windows releases use the committed Cloudflare endpoint from `app/cloud-config.json`. The Windows workflow rejects any endpoint other than the approved `rmango.abdosony222.workers.dev` Worker and validates every installer. Public releases and `latest.yml` are published only through an explicitly requested signed stable-release build. The release workflow creates a categorized changelog (Added, Fixed, Improved, Maintenance and Other) from commit messages and writes it into the GitHub Release so the in-app updater can display it.
 
 The last pre-cloud desktop release is local-AI based and cannot run the new cloud-only client. After the Cloudflare production health gate passes, install the first Cloudflare-enabled release manually once; later releases can be installed from inside Rmango. Current published build and signing state should be checked on the Releases page.
 
