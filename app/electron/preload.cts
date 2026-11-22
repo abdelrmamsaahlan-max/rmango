@@ -9,6 +9,18 @@ const api = {
   getCloudState: () => ipcRenderer.invoke('cloud:state'),
   getCloudUsage: () => ipcRenderer.invoke('cloud:usage'),
   cloudSignIn: (credentials: { email: string; password: string }) => ipcRenderer.invoke('cloud:sign-in', credentials),
+  cloudOAuthSignIn: (provider: 'google' | 'roblox') => ipcRenderer.invoke('cloud:oauth-sign-in', provider),
+  onCloudOAuthResult: (callback: (result: { ok: boolean; message?: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, result: { ok: boolean; message?: string }) => callback(result);
+    ipcRenderer.on('cloud:oauth-result', listener);
+    void ipcRenderer.invoke('cloud:oauth-result:ready').then((pending: { ok: boolean; message?: string } | null) => {
+      if (pending) callback(pending);
+    }).catch(() => undefined);
+    return () => {
+      ipcRenderer.removeListener('cloud:oauth-result', listener);
+      void ipcRenderer.invoke('cloud:oauth-result:gone').catch(() => undefined);
+    };
+  },
   requestPasswordReset: (payload: { email: string }) => ipcRenderer.invoke('cloud:password-reset', payload),
   cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => ipcRenderer.invoke('cloud:sign-up', credentials),
   cloudSignOut: () => ipcRenderer.invoke('cloud:sign-out'),

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -74,6 +74,9 @@ type SettingsFile = {
   showInspectorByDefault: boolean;
 };
 type SettingsPatch = Partial<Omit<SettingsFile, 'projectPath'>>;
+type CloudOAuthProvider = 'google' | 'roblox';
+type CloudOAuthResult = { ok: boolean; message?: string };
+type PendingCloudOAuth = { provider: CloudOAuthProvider; codeVerifier: string; createdAt: number };
 type CloudSession = {
   accessToken: string;
   refreshToken: string;
@@ -126,6 +129,12 @@ const userData = () => app.getPath('userData');
 const settingsPath = () => path.join(userData(), 'settings.json');
 const sessionPath = () => path.join(userData(), 'session.json');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
+const cloudOAuthPendingPath = () => path.join(userData(), 'cloud-oauth-pending.enc');
+const CLOUD_OAUTH_MAX_AGE_MS = 10 * 60 * 1000;
+
+let cloudOAuthRendererReady = false;
+let queuedCloudOAuthResult: CloudOAuthResult | null = null;
+let queuedCloudOAuthDeepLink: string | null = null;
 
 let cloudAuthGeneration = 0;
 let cloudSessionWriteQueue: Promise<void> = Promise.resolve();
@@ -415,6 +424,166 @@ async function cloudSignIn(email: string, password: string) {
     if (selectedStudioId) await registerCloudStudioConnector();
   }
   return { ok: true, user: session.user };
+}
+
+async function writePendingCloudOAuth(pending: PendingCloudOAuth) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. RMango cannot safely start social sign-in on this device.');
+  }
+  await fs.mkdir(userData(), { recursive: true });
+  const filePath = cloudOAuthPendingPath();
+  const temporaryPath = filePath + '.' + randomUUID() + '.tmp';
+  const encrypted = safeStorage.encryptString(JSON.stringify(pending)).toString('base64');
+  try {
+    await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+    await fs.rename(temporaryPath, filePath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function readPendingCloudOAuth(): Promise<PendingCloudOAuth | null> {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return null;
+    const encrypted = await fs.readFile(cloudOAuthPendingPath(), 'utf8');
+    const pending = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64'))) as PendingCloudOAuth;
+    if (
+      (pending.provider !== 'google' && pending.provider !== 'roblox') ||
+      typeof pending.codeVerifier !== 'string' ||
+      pending.codeVerifier.length < 43 ||
+      pending.codeVerifier.length > 128 ||
+      !Number.isFinite(pending.createdAt) ||
+      Date.now() - pending.createdAt > CLOUD_OAUTH_MAX_AGE_MS ||
+      pending.createdAt > Date.now() + 60_000
+    ) {
+      await fs.rm(cloudOAuthPendingPath(), { force: true }).catch(() => undefined);
+      return null;
+    }
+    return pending;
+  } catch {
+    return null;
+  }
+}
+
+async function clearPendingCloudOAuth() {
+  await fs.rm(cloudOAuthPendingPath(), { force: true }).catch(() => undefined);
+}
+
+function notifyCloudOAuthResult(result: CloudOAuthResult) {
+  if (cloudOAuthRendererReady && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('cloud:oauth-result', result);
+  } else {
+    queuedCloudOAuthResult = result;
+  }
+}
+
+function queueCloudOAuthCallback(rawUrl: string) {
+  if (typeof rawUrl !== 'string' || !/^rmango:\/\//i.test(rawUrl)) return;
+  if (!app.isReady()) {
+    queuedCloudOAuthDeepLink = rawUrl;
+    return;
+  }
+  void completeCloudOAuthCallback(rawUrl);
+}
+
+async function cloudOAuthSignIn(provider: CloudOAuthProvider) {
+  if (provider !== 'google' && provider !== 'roblox') {
+    throw new Error('Choose Google or Roblox to continue.');
+  }
+  const codeVerifier = randomBytes(32).toString('base64url');
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+  const pending: PendingCloudOAuth = { provider, codeVerifier, createdAt: Date.now() };
+  await writePendingCloudOAuth(pending);
+
+  try {
+    const supabaseProvider = provider === 'roblox' ? 'custom:roblox' : 'google';
+    const payload = await cloudApiRequest<{ authorizeUrl: string }>('/api/auth/oauth/start', {
+      method: 'POST',
+      body: JSON.stringify({ provider: supabaseProvider, codeChallenge }),
+    }, false);
+    const authorizeUrl = new URL(payload.authorizeUrl);
+    if (
+      authorizeUrl.protocol !== 'https:' ||
+      authorizeUrl.username ||
+      authorizeUrl.password ||
+      authorizeUrl.pathname !== '/auth/v1/authorize'
+    ) {
+      throw new Error('The cloud service returned an invalid sign-in address.');
+    }
+    await shell.openExternal(authorizeUrl.toString());
+    return { ok: true };
+  } catch (error) {
+    await clearPendingCloudOAuth();
+    throw error;
+  }
+}
+
+async function completeCloudOAuthCallback(rawUrl: string) {
+  try {
+    const callback = new URL(rawUrl);
+    if (
+      callback.protocol !== 'rmango:' ||
+      callback.hostname !== 'auth' ||
+      callback.pathname !== '/callback'
+    ) return;
+
+    const pending = await readPendingCloudOAuth();
+    if (!pending) throw new Error('This sign-in request expired. Return to RMango and start again.');
+    if (callback.searchParams.has('error')) {
+      throw new Error('Sign-in was cancelled or could not be completed. You can try again.');
+    }
+    const code = callback.searchParams.get('code');
+    if (!code || code.length > 2048) {
+      throw new Error('The sign-in provider did not return a valid authorization code. Please try again.');
+    }
+
+    // Invalidate any refresh request started for the previously signed-in account
+    // before replacing its session with the OAuth result.
+    const previousSession = await readCloudSession();
+    resetCloudAuthRefreshState();
+    const payload = await cloudApiRequest<any>('/api/auth/oauth/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code, codeVerifier: pending.codeVerifier }),
+    }, false);
+    if (
+      !payload?.user ||
+      typeof payload.user.id !== 'string' ||
+      !payload.session ||
+      typeof payload.session.accessToken !== 'string' ||
+      typeof payload.session.refreshToken !== 'string'
+    ) {
+      throw new Error('RMango could not verify the account returned by the sign-in provider.');
+    }
+
+    const sameAccount = Boolean(previousSession && previousSession.user.id === payload.user.id);
+    const session: CloudSession = {
+      accessToken: payload.session.accessToken,
+      refreshToken: payload.session.refreshToken,
+      expiresAt: typeof payload.session.expiresAt === 'number' ? payload.session.expiresAt : undefined,
+      user: {
+        id: payload.user.id,
+        ...(typeof payload.user.email === 'string' ? { email: payload.user.email } : {}),
+      },
+      ...(sameAccount ? {
+        currentProjectId: previousSession?.currentProjectId,
+        currentConversationId: previousSession?.currentConversationId,
+      } : {}),
+    };
+    await writeCloudSession(session);
+    await clearPendingCloudOAuth();
+    if (mcpClient) {
+      await discoverStudioInstances().catch(() => []);
+      if (selectedStudioId) await registerCloudStudioConnector().catch(() => undefined);
+    }
+    notifyCloudOAuthResult({ ok: true });
+  } catch (error) {
+    await clearPendingCloudOAuth();
+    notifyCloudOAuthResult({
+      ok: false,
+      message: error instanceof Error ? error.message : 'Could not complete social sign-in.',
+    });
+  }
 }
 
 async function cloudRequestPasswordReset(email: string) {
@@ -1695,11 +1864,41 @@ function initializeAutoUpdates() {
   void readSettings().then(settings => configureAutoUpdateSchedule(settings.autoUpdatesEnabled));
 }
 
-app.whenReady().then(() => {
-  createWindow();
-  initializeAutoUpdates();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-});
+const ownsSingleInstanceLock = app.requestSingleInstanceLock();
+if (!ownsSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    const deepLink = commandLine.find(argument => /^rmango:\/\//i.test(argument));
+    if (deepLink) queueCloudOAuthCallback(deepLink);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    queueCloudOAuthCallback(url);
+  });
+  app.whenReady().then(() => {
+    if (app.isPackaged) {
+      app.setAsDefaultProtocolClient('rmango');
+    } else {
+      app.setAsDefaultProtocolClient('rmango', process.execPath, [app.getAppPath()]);
+    }
+    createWindow();
+    initializeAutoUpdates();
+    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+    const initialDeepLink = process.argv.find(argument => /^rmango:\/\//i.test(argument));
+    if (initialDeepLink) queueCloudOAuthCallback(initialDeepLink);
+    if (queuedCloudOAuthDeepLink) {
+      const queued = queuedCloudOAuthDeepLink;
+      queuedCloudOAuthDeepLink = null;
+      queueCloudOAuthCallback(queued);
+    }
+  });
+}
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => { void disconnectRoblox(); });
 
@@ -1793,6 +1992,19 @@ handleIpc('settings:appearance', async (_event, theme: AppearanceTheme) => {
 });
 
 handleIpc('cloud:state', () => getCloudState());
+handleIpc('cloud:oauth-sign-in', async (_event, provider: CloudOAuthProvider) => {
+  return cloudOAuthSignIn(provider);
+});
+handleIpc('cloud:oauth-result:ready', () => {
+  cloudOAuthRendererReady = true;
+  const result = queuedCloudOAuthResult;
+  queuedCloudOAuthResult = null;
+  return result;
+});
+handleIpc('cloud:oauth-result:gone', () => {
+  cloudOAuthRendererReady = false;
+  return { ok: true };
+});
 handleIpc('cloud:usage', () => getCloudUsage());
 handleIpc('cloud:sign-in', async (_event, payload: { email: string; password: string }) => {
   if (!payload || typeof payload.email !== 'string' || typeof payload.password !== 'string') {

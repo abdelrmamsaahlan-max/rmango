@@ -90,6 +90,14 @@
         "releaseType": "release",
         "publishAutoUpdate": true
       }
+    ],
+    "protocols": [
+      {
+        "name": "RMango Sign-in",
+        "schemes": [
+          "rmango"
+        ]
+      }
     ]
   },
   "engines": {

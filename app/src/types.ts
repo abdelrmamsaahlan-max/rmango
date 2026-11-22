@@ -207,6 +207,8 @@ declare global {
       getCloudState: () => Promise<CloudState>;
       getCloudUsage: () => Promise<CloudUsage>;
       cloudSignIn: (credentials: { email: string; password: string }) => Promise<{ ok: boolean; user: { id: string; email?: string } }>;
+      cloudOAuthSignIn: (provider: 'google' | 'roblox') => Promise<{ ok: boolean }>;
+      onCloudOAuthResult: (callback: (result: { ok: boolean; message?: string }) => void) => () => void;
       requestPasswordReset: (payload: { email: string }) => Promise<{ ok: boolean; message: string }>;
       cloudSignUp: (credentials: { email: string; password: string; displayName?: string }) => Promise<{ ok: boolean; requiresEmailConfirmation: boolean; user: { id: string; email?: string } }>;
       cloudSignOut: () => Promise<{ ok: boolean }>;

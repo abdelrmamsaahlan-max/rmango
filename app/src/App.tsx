@@ -153,6 +153,7 @@ function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
+  const [oauthBusy, setOauthBusy] = useState<'google' | 'roblox' | null>(null);
   const [authResetBusy, setAuthResetBusy] = useState(false);
   const [authResetSent, setAuthResetSent] = useState(false);
   const [search, setSearch] = useState('');
@@ -628,48 +629,79 @@ function App() {
           return;
         }
       }
-      setAuthPassword('');
-      const state = await refreshCloudState();
-      setMessages([]);
-      setActivities([]);
-      if (state.signedIn && state.currentConversationId) {
-        try {
-          const restored = await window.rmango.loadCloudConversation(state.currentConversationId);
-          setConversationId(restored.conversation.id);
-          setMessages(restored.messages);
-          const restoredProjectId = restored.conversation.project_id || null;
-          setCloudProjectId(restoredProjectId || undefined);
-          await window.rmango.setCurrentCloudProjectId(restoredProjectId);
-          setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
-        } catch (error) {
-          setConversationId(undefined);
-          setToast(error instanceof Error ? error.message : 'Signed in, but the last conversation could not be restored.');
-        }
-      } else {
-        setConversationId(undefined);
-      }
-      if (state.signedIn) {
-        try {
-          const [tasks, projects] = await Promise.all([
-            window.rmango.getCloudTasks(),
-            window.rmango.getCloudProjects(),
-          ]);
-          setCloudTasks(tasks);
-          setCloudProjects(projects);
-        } catch {
-          setCloudTasks([]);
-          setCloudProjects([]);
-        }
-      }
-      if (appState?.studioConnected) await refreshMcpState();
-      setToast(state.serviceReady ? 'Signed in to Rmango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
-      if (state.serviceReady) setSettingsOpen(false);
+      await completeCloudSignIn();
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not authenticate with Rmango Cloud.');
     } finally {
       setAuthBusy(false);
     }
   }
+
+  async function completeCloudSignIn() {
+    setAuthPassword('');
+    const state = await refreshCloudState();
+    setMessages([]);
+    setActivities([]);
+    if (state.signedIn && state.currentConversationId) {
+      try {
+        const restored = await window.rmango.loadCloudConversation(state.currentConversationId);
+        setConversationId(restored.conversation.id);
+        setMessages(restored.messages);
+        const restoredProjectId = restored.conversation.project_id || null;
+        setCloudProjectId(restoredProjectId || undefined);
+        await window.rmango.setCurrentCloudProjectId(restoredProjectId);
+        setCloudTasks(await window.rmango.getCloudTasks(restoredProjectId || undefined));
+      } catch (error) {
+        setConversationId(undefined);
+        setToast(error instanceof Error ? error.message : 'Signed in, but the last conversation could not be restored.');
+      }
+    } else {
+      setConversationId(undefined);
+    }
+    if (state.signedIn) {
+      try {
+        const [tasks, projects] = await Promise.all([
+          window.rmango.getCloudTasks(),
+          window.rmango.getCloudProjects(),
+        ]);
+        setCloudTasks(tasks);
+        setCloudProjects(projects);
+      } catch {
+        setCloudTasks([]);
+        setCloudProjects([]);
+      }
+    }
+    if (appState?.studioConnected) await refreshMcpState();
+    setToast(state.serviceReady ? 'Signed in to RMango Cloud.' : (state.message || 'Signed in, but cloud services need administrator setup.'));
+    if (state.serviceReady) setSettingsOpen(false);
+  }
+
+  async function handleOAuthSignIn(provider: 'google' | 'roblox') {
+    if (oauthBusy || authBusy) return;
+    setOauthBusy(provider);
+    try {
+      await window.rmango.cloudOAuthSignIn(provider);
+      setToast('Complete sign-in in your browser. RMango will reconnect automatically.');
+    } catch (error) {
+      setOauthBusy(null);
+      setToast(error instanceof Error ? error.message : 'Could not start social sign-in.');
+    }
+  }
+
+  useEffect(() => {
+    const unsubscribe = window.rmango.onCloudOAuthResult(result => {
+      setOauthBusy(null);
+      if (!result.ok) {
+        setToast(result.message || 'Social sign-in did not complete.');
+        return;
+      }
+      setAuthBusy(true);
+      void completeCloudSignIn()
+        .catch(error => setToast(error instanceof Error ? error.message : 'Signed in, but RMango could not refresh the account view.'))
+        .finally(() => setAuthBusy(false));
+    });
+    return unsubscribe;
+  }, [appState?.studioConnected]);
 
   async function savePreferences(patch: Partial<AppPreferences>) {
     try {
@@ -2347,6 +2379,18 @@ function App() {
                           <span className="provider-symbol local-symbol"><Plus size={15}/></span><span><strong>Create account</strong><small>New Rmango account</small></span>
                         </button>
                       </div>
+                      <div className="oauth-social-divider"><span>OR CONTINUE WITH</span></div>
+                      <div className="oauth-social-buttons">
+                        <button type="button" className="oauth-social-button" onClick={() => void handleOAuthSignIn('google')} disabled={Boolean(oauthBusy) || authBusy}>
+                          <span className="google-social-mark">G</span>
+                          <span>{oauthBusy === 'google' ? 'Opening Google…' : 'Continue with Google'}</span>
+                        </button>
+                        <button type="button" className="oauth-social-button" onClick={() => void handleOAuthSignIn('roblox')} disabled={Boolean(oauthBusy) || authBusy}>
+                          <span className="roblox-social-mark"><i/></span>
+                          <span>{oauthBusy === 'roblox' ? 'Opening Roblox…' : 'Continue with Roblox'}</span>
+                        </button>
+                      </div>
+                      <p className="oauth-social-note">A secure browser window opens for provider sign-in. Email and password login still works too.</p>
                       <form className="settings-auth-form" onSubmit={handleAuth}>
                         {authMode === 'sign-up' && <>
                           <label className="field-label" htmlFor="rmango-display-name">DISPLAY NAME</label>
