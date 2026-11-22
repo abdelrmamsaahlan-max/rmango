@@ -17,7 +17,7 @@ export async function GET(_request: Request) {
     try {
       // Read the global policy using the server-only key. The policy is the
       // final spend gate; report it separately from infrastructure readiness.
-      const { data: policy, error } = await createAdminClient()
+      const { data: policy, error } = await (await createAdminClient())
         .from("usage_policies")
         .select("id,enabled,daily_spend_limit_usd,monthly_spend_limit_usd")
         .eq("id", true)
