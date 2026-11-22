@@ -10,7 +10,8 @@
     "test:auth": "node --experimental-strip-types --test tests/auth-urls.test.mjs",
     "build:cloudflare": "wrangler types --env-interface CloudflareEnv && opennextjs-cloudflare build",
     "preview:cloudflare": "opennextjs-cloudflare build && wrangler dev",
-    "deploy:cloudflare": "node scripts/sync-runtime-secrets.mjs && opennextjs-cloudflare deploy"
+    "deploy:cloudflare": "node scripts/sync-runtime-secrets.mjs && opennextjs-cloudflare deploy",
+    "test:source-search": "node --experimental-strip-types --test tests/source-search.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.119.2",
