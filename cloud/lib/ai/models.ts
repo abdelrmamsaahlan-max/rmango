@@ -195,8 +195,8 @@ export async function resolveProfile(profile: ModelProfile) {
     .split(",")
     .map(item => item.trim())
     .filter(Boolean)
-    .map(id => map.get(id))
-    .filter((item): item is CloudflareAIModel => Boolean(item))
+    .map(id => map.get(id as CloudflareLanguageModelId))
+    .filter((item): item is CloudflareAIModel => item !== undefined)
     .filter(item => item.id !== primary.id && supportsProfile(item, profile) && noMoreExpensive(item))
     .map(item => item.id);
 
@@ -208,7 +208,7 @@ export async function resolveProfile(profile: ModelProfile) {
   );
   const fallbackIds = configuredFallbacks.length
     ? configuredFallbacks
-    : [automaticFallback?.id].filter((value): value is string => Boolean(value));
+    : [automaticFallback?.id].filter((value): value is CloudflareLanguageModelId => value !== undefined);
 
   return { primary: normalise(primary, profile), fallbackIds };
 }
