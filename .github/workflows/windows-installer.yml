@@ -37,6 +37,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Prepare editable app source
         shell: pwsh
@@ -303,6 +305,91 @@ jobs:
           }
           Write-Host "Published release $tag with installer and latest.yml."
           Write-Host "Release URL: $($release.html_url)"
+
+      - name: Generate and publish release changelog
+        if: >-
+          steps.cloud-config.outputs.configured == 'true' &&
+          steps.signing.outputs.has_certificate == 'true' &&
+          ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+           (github.event_name == 'workflow_dispatch' && inputs.publish_stable_release == true))
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $version = "${{ steps.version.outputs.version }}"
+          $base = "https://api.github.com/repos/abdelrmamsaahlan-max/rmango"
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+
+          # The current build can be triggered by a tag or by workflow_dispatch.
+          # Use that tag when it exists; otherwise use the current main commit.
+          $target = "HEAD"
+          git rev-parse --verify "$tag^{commit}" *> $null
+          if ($LASTEXITCODE -eq 0) { $target = $tag }
+
+          $previousTag = @(git tag --list "v*" --sort=-version:refname |
+            Where-Object { $_ -and $_.Trim() -ne $tag } |
+            Select-Object -First 1)
+          if ($previousTag.Count -gt 0) {
+            $subjects = @(git log "$($previousTag[0])..$target" --pretty=format:%s --no-merges)
+          } else {
+            $subjects = @(git log -25 $target --pretty=format:%s --no-merges)
+          }
+
+          $categories = [ordered]@{
+            Added = [System.Collections.Generic.List[string]]::new()
+            Fixed = [System.Collections.Generic.List[string]]::new()
+            Improved = [System.Collections.Generic.List[string]]::new()
+            Maintenance = [System.Collections.Generic.List[string]]::new()
+            Other = [System.Collections.Generic.List[string]]::new()
+          }
+
+          foreach ($subject in $subjects) {
+            $line = ([string]$subject).Trim()
+            if (-not $line) { continue }
+            $clean = $line -replace '^[A-Za-z]+(\([^)]+\))?!?:\s*', ''
+            if ($line -match '^(feat|feature|add)(\([^)]+\))?!?:') {
+              $categories.Added.Add($clean)
+            } elseif ($line -match '^(fix|bug)(\([^)]+\))?!?:') {
+              $categories.Fixed.Add($clean)
+            } elseif ($line -match '^(perf|improve|refactor|ui|design)(\([^)]+\))?!?:') {
+              $categories.Improved.Add($clean)
+            } elseif ($line -match '^(docs|test|chore|ci|build|release)(\([^)]+\))?!?:') {
+              $categories.Maintenance.Add($clean)
+            } else {
+              $categories.Other.Add($line)
+            }
+          }
+
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $lines.Add("# RMango $version")
+          $lines.Add("")
+          $lines.Add("Released: $(Get-Date -Format 'yyyy-MM-dd')")
+          $lines.Add("")
+          foreach ($category in $categories.Keys) {
+            if ($categories[$category].Count -eq 0) { continue }
+            $lines.Add("## $category")
+            foreach ($entry in ($categories[$category] | Select-Object -First 25)) {
+              $lines.Add("- $entry")
+            }
+            if ($categories[$category].Count -gt 25) {
+              $lines.Add("- Plus $($categories[$category].Count - 25) additional changes.")
+            }
+            $lines.Add("")
+          }
+
+          if ($lines.Count -le 4) {
+            $lines.Add("## Changes")
+            $lines.Add("- This release includes maintenance and stability updates. See the commit history for details.")
+          }
+          $release = Invoke-RestMethod -Uri "$base/releases/tags/$tag" -Headers $headers -Method Get
+          $payload = @{ body = ($lines -join "`n") } | ConvertTo-Json -Depth 5
+          $null = Invoke-RestMethod -Uri "$base/releases/$($release.id)" -Headers $headers -Method Patch -ContentType "application/json" -Body $payload
+          Write-Host "Published categorized release notes for $tag."
 
       - name: Save setup EXE as a workflow artifact
         uses: actions/upload-artifact@v4
