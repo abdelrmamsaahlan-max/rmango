@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { isValidStoredCloudSession } from './cloud-session-validation.js';
-import { sendWithCloudSessionRefresh } from './cloud-session-request.js';
+import { selectCurrentSessionForRefresh, sendWithCloudSessionRefresh } from './cloud-session-request.js';
 import { findStudioMcpExecutable } from './studio-mcp-path.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -256,6 +256,16 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
   if (currentFlight && currentFlight.refreshToken === session.refreshToken && currentFlight.generation === generation) {
     return currentFlight.promise;
   }
+
+  // A parallel request may already have rotated this refresh token and written
+  // the new session. Never send an older one to Supabase after that happens.
+  const requestedSession = session;
+  const storedBeforeRefresh = await readCloudSession();
+  if (generation !== cloudAuthGeneration) {
+    throw new Error('Your Rmango account changed while the session was being refreshed. Please retry.');
+  }
+  session = selectCurrentSessionForRefresh(requestedSession, storedBeforeRefresh);
+  if (session.refreshToken !== requestedSession.refreshToken) return session;
 
   const promise = (async () => {
     const baseUrl = await getCloudApiBaseUrl();
