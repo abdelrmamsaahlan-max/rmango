@@ -128,6 +128,7 @@ const sessionPath = () => path.join(userData(), 'session.json');
 const cloudSessionPath = () => path.join(userData(), 'cloud-session.enc');
 
 let cloudAuthGeneration = 0;
+let cloudSessionWriteQueue: Promise<void> = Promise.resolve();
 let cloudRefreshFlight: {
   refreshToken: string;
   generation: number;
@@ -240,13 +241,30 @@ async function writeCloudSession(session: CloudSession) {
   if (!safeStorage.isEncryptionAvailable()) {
     throw new Error('Windows secure storage is unavailable. Rmango cannot safely store your cloud session on this device.');
   }
-  await fs.mkdir(userData(), { recursive: true });
-  const encrypted = safeStorage.encryptString(JSON.stringify(session)).toString('base64');
-  await fs.writeFile(cloudSessionPath(), encrypted, { encoding: 'utf8', mode: 0o600 });
+
+  // Serialize writes and replace the encrypted file atomically. Other auth or
+  // project requests must never read a half-written session during a refresh.
+  const write = cloudSessionWriteQueue.then(async () => {
+    await fs.mkdir(userData(), { recursive: true });
+    const filePath = cloudSessionPath();
+    const temporaryPath = filePath + '.' + randomUUID() + '.tmp';
+    const encrypted = safeStorage.encryptString(JSON.stringify(session)).toString('base64');
+    try {
+      await fs.writeFile(temporaryPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+      await fs.rename(temporaryPath, filePath);
+    } catch (error) {
+      await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  });
+  cloudSessionWriteQueue = write.then(() => undefined, () => undefined);
+  await write;
 }
 
 async function clearCloudSession() {
   await stopStudioConnectorPolling();
+  // Wait for writes already in flight so sign-out/invalid-session cleanup wins.
+  await cloudSessionWriteQueue;
   try { await fs.rm(cloudSessionPath(), { force: true }); } catch { /* file may not exist */ }
 }
 
@@ -316,7 +334,7 @@ async function refreshCloudSession(session: CloudSession): Promise<CloudSession>
     if (stored && stored.refreshToken !== session.refreshToken) return stored;
 
     const next: CloudSession = {
-      ...session,
+      ...(stored ?? session),
       accessToken: payload.session.accessToken,
       refreshToken: payload.session.refreshToken,
       expiresAt: payload.session.expiresAt,
