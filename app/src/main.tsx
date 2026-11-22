@@ -4,6 +4,7 @@ import App from './App';
 import './styles.css';
 import './ui-polish.css';
 import './rmango-visual-refresh.css';
+import './rmango-state-assets.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
