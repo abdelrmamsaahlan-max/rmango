@@ -1,5 +1,5 @@
 export function getPasswordRecoveryRedirect(configuredPublicUrl?: string): string {
-  const candidate = configuredPublicUrl?.trim() || "https://rmango-cloud.vercel.app";
+  const candidate = configuredPublicUrl?.trim() || "https://rmango.abdosony222.workers.dev";
   let parsed: URL;
   try {
     parsed = new URL(candidate);
