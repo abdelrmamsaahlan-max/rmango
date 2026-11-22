@@ -1,6 +1,28 @@
 import "server-only";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
-import { getSupabaseServerKey, requiredEnv } from "@/lib/env";
+import { getSupabaseServerKey, type SupabaseRuntimeEnv } from "@/lib/env";
+
+/**
+ * Resolve secrets from the active Worker request first. Cloudflare bindings
+ * are the source of truth in production; process.env is only a fallback for
+ * local environments that don't have an OpenNext Worker context.
+ */
+function getRuntimeSupabaseEnv(): SupabaseRuntimeEnv {
+  try {
+    return getCloudflareContext().env as SupabaseRuntimeEnv;
+  } catch {
+    return process.env;
+  }
+}
+
+function requiredRuntimeEnv(name: keyof SupabaseRuntimeEnv, env: SupabaseRuntimeEnv): string {
+  const value = env[name]?.trim();
+  if (!value) {
+    throw new Error("Cloud backend is not configured: missing " + name + ".");
+  }
+  return value;
+}
 
 /**
  * Supabase's newer sb_secret_* keys are opaque API keys, not JWTs. supabase-js
@@ -21,14 +43,15 @@ export type AuthContext = {
 };
 
 export function createAdminClient() {
-  const serverKey = getSupabaseServerKey();
+  const runtimeEnv = getRuntimeSupabaseEnv();
+  const serverKey = getSupabaseServerKey(runtimeEnv);
   if (!serverKey) {
     throw new Error(
       "Cloud backend is not configured: add the server-only SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY) to the cloud environment.",
     );
   }
 
-  return createClient(requiredEnv("SUPABASE_URL"), serverKey, {
+  return createClient(requiredRuntimeEnv("SUPABASE_URL", runtimeEnv), serverKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
@@ -43,8 +66,9 @@ export function createAdminClient() {
 }
 
 export function createAuthClient(accessToken?: string) {
-  const url = requiredEnv("SUPABASE_URL");
-  const key = requiredEnv("SUPABASE_PUBLISHABLE_KEY");
+  const runtimeEnv = getRuntimeSupabaseEnv();
+  const url = requiredRuntimeEnv("SUPABASE_URL", runtimeEnv);
+  const key = requiredRuntimeEnv("SUPABASE_PUBLISHABLE_KEY", runtimeEnv);
   return createClient(url, key, {
     auth: {
       autoRefreshToken: false,
@@ -59,7 +83,7 @@ export function createAuthClient(accessToken?: string) {
 
 export async function getAuthContext(request: Request): Promise<AuthContext> {
   const authorization = request.headers.get("authorization") || "";
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  const match = authorization.match(/^Bearer\\s+(.+)$/i);
   if (!match) throw new Error("Sign in to your Rmango account first.");
 
   const token = match[1];
