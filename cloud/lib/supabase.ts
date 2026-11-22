@@ -65,6 +65,14 @@ export function createAdminClient() {
   });
 }
 
+export function getSupabasePublicConfig() {
+  const runtimeEnv = getRuntimeSupabaseEnv();
+  return {
+    url: requiredRuntimeEnv("SUPABASE_URL", runtimeEnv),
+    publishableKey: requiredRuntimeEnv("SUPABASE_PUBLISHABLE_KEY", runtimeEnv),
+  };
+}
+
 export function createAuthClient(accessToken?: string) {
   const runtimeEnv = getRuntimeSupabaseEnv();
   const url = requiredRuntimeEnv("SUPABASE_URL", runtimeEnv);
