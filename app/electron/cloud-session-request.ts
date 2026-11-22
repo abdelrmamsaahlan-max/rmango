@@ -16,9 +16,7 @@ export function selectCurrentSessionForRefresh<T extends CloudRefreshSession>(
   if (!currentSession || currentSession.user.id !== requestedSession.user.id) {
     throw new Error("Your Rmango account session is no longer available. Sign in again.");
   }
-  return currentSession.refreshToken === requestedSession.refreshToken
-    ? requestedSession
-    : currentSession;
+  return currentSession;
 }
 
 /**
