@@ -1,5 +1,3 @@
-import "server-only";
-
 const CREATOR_HUB_ORIGIN = "https://create.roblox.com";
 const INDEX_SOURCES = [
   { area: "all", path: "/docs/llms.txt" },
