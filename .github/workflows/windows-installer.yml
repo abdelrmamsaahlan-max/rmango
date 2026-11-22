@@ -198,6 +198,10 @@ jobs:
         working-directory: app-src
         run: npm run test:session
 
+      - name: Test cloud chat session refresh and retry
+        working-directory: app-src
+        run: npm run test:cloud-session-request
+
       - name: Test built-in Roblox Studio MCP path discovery
         working-directory: app-src
         run: npm run test:studio-mcp-path
