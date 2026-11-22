@@ -264,7 +264,11 @@ jobs:
           }
 
       - name: Verify public GitHub Release contains the update feed
-        if: steps.cloud-config.outputs.configured == 'true' && steps.signing.outputs.has_certificate == 'true'
+        if: >-
+          steps.cloud-config.outputs.configured == 'true' &&
+          steps.signing.outputs.has_certificate == 'true' &&
+          ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+           (github.event_name == 'workflow_dispatch' && inputs.publish_stable_release == true))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
