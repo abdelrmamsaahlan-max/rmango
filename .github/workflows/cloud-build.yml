@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rmango-cloud-build-${{ github.ref }}
+  group: rmango-cloud-build-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -90,7 +90,6 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     needs:
       - cloud
-      - desktop
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -103,7 +102,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Confirm this is the latest main commit
+        id: latest_revision
+        run: |
+          latest_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$latest_sha" = "$GITHUB_SHA" ]; then
+            echo "is_latest=true" >> "$GITHUB_OUTPUT"
+            echo "This is the latest main commit; deployment may proceed."
+          else
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping deployment for stale commit $GITHUB_SHA; main is $latest_sha."
+          fi
+
       - name: Set up Node.js
+        if: steps.latest_revision.outputs.is_latest == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -111,9 +123,11 @@ jobs:
           cache-dependency-path: cloud/package.json
 
       - name: Install dependencies
+        if: steps.latest_revision.outputs.is_latest == 'true'
         run: npm install --no-audit --no-fund
 
       - name: Verify existing Cloudflare runtime secrets
+        if: steps.latest_revision.outputs.is_latest == 'true'
         run: |
           node --input-type=module <<'NODE'
           const token = process.env.CLOUDFLARE_API_TOKEN;
@@ -146,6 +160,7 @@ jobs:
           NODE
 
       - name: Set canonical Supabase project URL secret
+        if: steps.latest_revision.outputs.is_latest == 'true'
         env:
           SUPABASE_PROJECT_URL: https://jqkcrtnbxewyqrdpnqap.supabase.co
         run: |
@@ -179,12 +194,15 @@ jobs:
           NODE
 
       - name: Build Cloudflare Worker bundle for this deploy job
+        if: steps.latest_revision.outputs.is_latest == 'true'
         run: npm run build:cloudflare
 
       - name: Deploy Worker while preserving existing Supabase secrets
+        if: steps.latest_revision.outputs.is_latest == 'true'
         run: npx opennextjs-cloudflare deploy
 
       - name: Smoke-test live Cloudflare health endpoint
+        if: steps.latest_revision.outputs.is_latest == 'true'
         working-directory: .
         env:
           RMANGO_HEALTH_URL: https://rmango.abdosony222.workers.dev/api/health
