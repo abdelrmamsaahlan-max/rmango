@@ -21,13 +21,25 @@ export async function GET(request: Request) {
         .select("id,enabled,daily_spend_limit_usd,monthly_spend_limit_usd")
         .eq("id", true)
         .maybeSingle();
+      if (error) {
+        // Log only safe diagnostics: never include request headers, API keys,
+        // credentials, or full request URLs in public health output.
+        console.error("[rmango-health] Supabase usage-policy query failed", {
+          code: error.code || "unknown",
+          status: error.status || null,
+          name: error.name || "PostgrestError",
+        });
+      }
       databaseReachable = !error && Boolean(policy);
       inferenceEnabled = Boolean(
         policy?.enabled &&
         Number(policy.daily_spend_limit_usd) > 0 &&
         Number(policy.monthly_spend_limit_usd) > 0
       );
-    } catch {
+    } catch (cause) {
+      console.error("[rmango-health] Supabase usage-policy connection failed", {
+        name: cause instanceof Error ? cause.name : "UnknownError",
+      });
       databaseReachable = false;
       inferenceEnabled = false;
     }
