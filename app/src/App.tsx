@@ -41,21 +41,15 @@ const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour
 
 function MangoMark({ size = 34, className = '' }: { size?: number; className?: string }) {
   return (
-    <svg className={className} width={size} height={size} viewBox="0 0 64 64" fill="none" role="img" aria-label="Rmango mango mark">
-      <defs>
-        <linearGradient id="mango-body" x1="12" y1="8" x2="53" y2="57" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFE36C"/><stop offset=".52" stopColor="#FFC43F"/><stop offset="1" stopColor="#EE941E"/>
-        </linearGradient>
-        <linearGradient id="mango-leaf" x1="36" y1="4" x2="58" y2="23" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#B7E87B"/><stop offset="1" stopColor="#4A9B4B"/>
-        </linearGradient>
-      </defs>
-      <path d="M34.6 13.3C27.8 7.7 17.9 11.1 12.7 18.1 5.4 27.7 9.2 43.7 18.2 52.3c7.3 7 17.9 5.6 25.2-1.9 7.6-7.8 11.2-20.1 6.5-29.1-3-5.7-8.6-7.2-15.3-8Z" fill="url(#mango-body)"/>
-      <path d="M34.8 13.6c5.2-6.3 12.7-8.8 20.4-6.1-2.3 8.7-8.6 13.5-17.6 13.2-2.6-.1-4.7-1.8-5.2-4.2-.3-1 .4-2 2.4-2.9Z" fill="url(#mango-leaf)"/>
-      <path d="M35.5 16.8c4.4-2.4 8.6-4.4 14-6.2" stroke="#286F3D" strokeWidth="1.8" strokeLinecap="round"/>
-      <path d="M19 23.4c2.2-4.5 5.5-6.9 9.1-7.8" stroke="#FFF0A9" strokeWidth="3" strokeLinecap="round" opacity=".8"/>
-      <path d="M16.7 35c.1 5.3 2.5 10 6.2 13" stroke="#F9A829" strokeWidth="1.4" strokeLinecap="round" opacity=".55"/>
-    </svg>
+    <img
+      className={className}
+      src="/rmango-mascot.svg"
+      width={size}
+      height={size}
+      alt="RMango mascot"
+      draggable={false}
+      style={{ width: size, height: size, objectFit: 'contain', display: 'block' }}
+    />
   );
 }
 
@@ -162,6 +156,9 @@ function App() {
   const [authResetBusy, setAuthResetBusy] = useState(false);
   const [authResetSent, setAuthResetSent] = useState(false);
   const [search, setSearch] = useState('');
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState('');
+  const [commandActiveIndex, setCommandActiveIndex] = useState(0);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [pendingApproval, setPendingApproval] = useState<StudioApprovalRequest | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
@@ -172,6 +169,8 @@ function App() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const commandInputRef = useRef<HTMLInputElement>(null);
+  const newChatShortcutRef = useRef<() => void>(() => undefined);
   const activeRequestIdRef = useRef<string | null>(null);
   const cancelledRequestIdRef = useRef<string | null>(null);
   const pendingDeltasRef = useRef<Map<string, string>>(new Map());
@@ -191,6 +190,39 @@ function App() {
     window.addEventListener('keydown', onSettingsShortcut);
     return () => window.removeEventListener('keydown', onSettingsShortcut);
   }, [settingsOpen]);
+
+  useEffect(() => {
+    const onWorkspaceShortcut = (event: globalThis.KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || settingsOpen || pendingApproval || projectDialog) return;
+      const key = event.key.toLowerCase();
+      if (key === 'k') {
+        event.preventDefault();
+        setCommandQuery('');
+        setCommandActiveIndex(0);
+        setCommandPaletteOpen(true);
+      } else if (key === 'b') {
+        event.preventDefault();
+        setLeftSidebarOpen(value => !value);
+      } else if (key === 'j') {
+        event.preventDefault();
+        setRightPanelOpen(value => !value);
+      } else if (key === 'l') {
+        event.preventDefault();
+        composerRef.current?.focus();
+      } else if (key === 'n') {
+        event.preventDefault();
+        newChatShortcutRef.current();
+      }
+    };
+    window.addEventListener('keydown', onWorkspaceShortcut);
+    return () => window.removeEventListener('keydown', onWorkspaceShortcut);
+  }, [settingsOpen, pendingApproval, projectDialog]);
+
+  useEffect(() => {
+    if (commandPaletteOpen) {
+      window.setTimeout(() => commandInputRef.current?.focus(), 0);
+    }
+  }, [commandPaletteOpen]);
 
   useEffect(() => {
     const unsubscribeUpdates = window.rmango.onUpdateStatus(state => setUpdateState(state));
@@ -524,6 +556,8 @@ function App() {
       setToast(error instanceof Error ? error.message : 'Could not create a new conversation.');
     }
   }
+
+  newChatShortcutRef.current = () => { void handleNewConversation(); };
 
   async function handleSelectConversation(id: string) {
     if (busy || loadingConversationId || id === conversationId) return;
@@ -1267,6 +1301,98 @@ function App() {
     },
   ];
 
+  const commandItems = [
+    {
+      id: "new-chat",
+      title: "New conversation",
+      description: "Start a fresh cloud chat in the selected project.",
+      shortcut: "Ctrl N",
+      icon: <MessageSquare size={15}/>,
+      disabled: busy || Boolean(loadingConversationId),
+      action: () => { void handleNewConversation(); },
+    },
+    {
+      id: "open-project",
+      title: "Open local project folder",
+      description: "Choose a Roblox project folder on this computer.",
+      icon: <FolderOpen size={15}/>,
+      action: () => { void handleOpenProject(); },
+    },
+    {
+      id: "toggle-sidebar",
+      title: leftSidebarOpen ? "Hide project sidebar" : "Show project sidebar",
+      description: "Toggle the project explorer and recent chats.",
+      shortcut: "Ctrl B",
+      icon: <FolderOpen size={15}/>,
+      action: () => setLeftSidebarOpen(value => !value),
+    },
+    {
+      id: "toggle-inspector",
+      title: rightPanelOpen ? "Hide workspace inspector" : "Show workspace inspector",
+      description: "Toggle the Studio, project and activity panel.",
+      shortcut: "Ctrl J",
+      icon: <PanelRight size={15}/>,
+      action: () => setRightPanelOpen(value => !value),
+    },
+    {
+      id: "focus-chat",
+      title: "Focus chat composer",
+      description: "Jump directly to the message box.",
+      shortcut: "Ctrl L",
+      icon: <Send size={15}/>,
+      action: () => composerRef.current?.focus(),
+    },
+    {
+      id: "open-settings",
+      title: "Open settings",
+      description: "Manage appearance, account, privacy and updates.",
+      shortcut: "Ctrl ,",
+      icon: <Settings2 size={15}/>,
+      action: () => { setSettingsSection("general"); setSettingsOpen(true); },
+    },
+    {
+      id: "open-models",
+      title: "AI & model settings",
+      description: "Choose the default cloud AI profile and view model capabilities.",
+      icon: <Cpu size={15}/>,
+      action: () => { setSettingsSection("ai"); setSettingsOpen(true); },
+    },
+    {
+      id: "open-account",
+      title: "Account and sign-in",
+      description: "Manage the RMango Cloud account.",
+      icon: <LockKeyhole size={15}/>,
+      action: () => { setSettingsSection("account"); setSettingsOpen(true); },
+    },
+    {
+      id: "connect-studio",
+      title: studioReady ? "Disconnect Roblox Studio" : "Connect or refresh Roblox Studio",
+      description: "Use the existing local MCP connector and approval flow.",
+      icon: <Gamepad2 size={15}/>,
+      disabled: connecting,
+      action: () => { void (studioConnected && studioReady ? handleDisconnect() : handleConnect()); },
+    },
+    {
+      id: "studio-diagnostics",
+      title: "Run Studio diagnostics",
+      description: "Check the live Studio connector and place state.",
+      icon: <Activity size={15}/>,
+      disabled: !studioReady || diagnosing,
+      action: () => { void handleDiagnostics(); },
+    },
+    {
+      id: "create-cloud-project",
+      title: "Create cloud project",
+      description: "Create a project for scripts, conversations and project memory.",
+      icon: <Layers3 size={15}/>,
+      disabled: !cloudReady || !cloudState?.signedIn,
+      action: () => setProjectDialog({ mode: "create", name: "", description: "" }),
+    },
+  ];
+  const filteredCommandItems = commandItems.filter(item =>
+    (item.title + " " + item.description + " " + item.id).toLocaleLowerCase().includes(commandQuery.trim().toLocaleLowerCase())
+  );
+
   return (
     <div
       className="app-shell"
@@ -1287,6 +1413,9 @@ function App() {
         </div>
         <div className="topbar-divider"/>
         <button type="button" className="workspace-crumb" title={appState?.projectPath || "Open a Roblox project folder"} onClick={() => void handleOpenProject()}><FolderOpen size={15}/><span>{appState?.projectPath ? appState.projectPath.split(String.fromCharCode(92)).pop()?.split('/').pop() : "Open project"}</span><ChevronDown size={13}/></button>
+        <button type="button" className="top-command-trigger" title="Search RMango commands (Ctrl+K)" onClick={() => { setCommandQuery(''); setCommandActiveIndex(0); setCommandPaletteOpen(true); }}>
+          <Search size={13}/><span>Search commands…</span><kbd>Ctrl K</kbd>
+        </button>
         <div className="topbar-spacer"/>
         <button className={'runtime-pill ' + (cloudReady ? 'ready' : '')} onClick={() => { setSettingsSection('usage'); setSettingsOpen(true); }}>
           <span className="runtime-dot"/>{cloudStatusLabel}
@@ -1339,6 +1468,61 @@ function App() {
           {updateState.status === 'error' && <button className="update-retry-button" onClick={() => void handleCheckUpdates()}>Retry</button>}
         </div>
       )}
+
+      {commandPaletteOpen && <div className="command-palette-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setCommandPaletteOpen(false); }}>
+        <section className="command-palette" role="dialog" aria-modal="true" aria-label="RMango command palette">
+          <div className="command-palette-search">
+            <Search size={17}/>
+            <input
+              ref={commandInputRef}
+              value={commandQuery}
+              onChange={event => { setCommandQuery(event.target.value); setCommandActiveIndex(0); }}
+              onKeyDown={event => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setCommandPaletteOpen(false);
+                } else if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setCommandActiveIndex(index => Math.min(index + 1, Math.max(0, filteredCommandItems.length - 1)));
+                } else if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setCommandActiveIndex(index => Math.max(0, index - 1));
+                } else if (event.key === 'Enter') {
+                  event.preventDefault();
+                  const item = filteredCommandItems[commandActiveIndex] || filteredCommandItems[0];
+                  if (item && !item.disabled) {
+                    setCommandPaletteOpen(false);
+                    item.action();
+                  }
+                }
+              }}
+              placeholder="Search commands, panels and settings…"
+              aria-label="Search RMango commands"
+            />
+            <kbd>ESC</kbd>
+          </div>
+          <div className="command-palette-heading"><span>COMMANDS</span><span>↑ ↓ to navigate · Enter to open</span></div>
+          <div className="command-palette-list">
+            {filteredCommandItems.length === 0
+              ? <div className="command-palette-empty">No commands match that search.</div>
+              : filteredCommandItems.map((item, index) =>
+                  <button
+                    type="button"
+                    key={item.id}
+                    className={'command-palette-item ' + (index === commandActiveIndex ? 'active' : '')}
+                    disabled={item.disabled}
+                    onMouseEnter={() => setCommandActiveIndex(index)}
+                    onClick={() => { setCommandPaletteOpen(false); item.action(); }}
+                  >
+                    <span className="command-palette-icon">{item.icon}</span>
+                    <span className="command-palette-copy"><strong>{item.title}</strong><small>{item.description}</small></span>
+                    {item.shortcut && <kbd>{item.shortcut}</kbd>}
+                  </button>
+                )}
+          </div>
+          <div className="command-palette-footer"><span><kbd>Ctrl K</kbd> Open palette</span><span><kbd>Ctrl B</kbd> Project panel</span><span><kbd>Ctrl J</kbd> Inspector</span></div>
+        </section>
+      </div>}
 
       <div className="workspace-layout">
         <nav className="activity-rail">
@@ -1917,6 +2101,26 @@ function App() {
                     <div className="settings-shortcut-row">
                       <div><strong>Open Settings</strong><small>Open this panel from anywhere in Rmango.</small></div>
                       <kbd>Ctrl</kbd><span>+</span><kbd>,</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Command palette</strong><small>Search actions, panels, Studio and settings commands.</small></div>
+                      <kbd>Ctrl</kbd><span>+</span><kbd>K</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Show or hide project sidebar</strong><small>Toggle the project explorer and recent conversations.</small></div>
+                      <kbd>Ctrl</kbd><span>+</span><kbd>B</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Show or hide inspector</strong><small>Toggle the Studio and activity workspace panel.</small></div>
+                      <kbd>Ctrl</kbd><span>+</span><kbd>J</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>Focus chat composer</strong><small>Jump to the message input from anywhere.</small></div>
+                      <kbd>Ctrl</kbd><span>+</span><kbd>L</kbd>
+                    </div>
+                    <div className="settings-shortcut-row">
+                      <div><strong>New conversation</strong><small>Create a new cloud conversation in the selected project.</small></div>
+                      <kbd>Ctrl</kbd><span>+</span><kbd>N</kbd>
                     </div>
                   </section>
 

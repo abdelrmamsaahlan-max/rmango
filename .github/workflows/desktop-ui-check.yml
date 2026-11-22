@@ -1,0 +1,42 @@
+name: RMango Desktop UI Checks
+
+on:
+  push:
+    branches: [rmango-brand-ui-refresh]
+    paths:
+      - "app/**"
+      - ".github/workflows/desktop-ui-check.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/desktop-ui-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ui-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Typecheck and build desktop app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test saved cloud-session validation
+        run: npm run test:session
+      - name: Typecheck and build
+        run: npm run build

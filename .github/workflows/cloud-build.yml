@@ -58,6 +58,9 @@ jobs:
       - name: Test canonical password recovery redirects
         run: npm run test:auth
 
+      - name: Test bounded project source search
+        run: npm run test:source-search
+
       - name: Build Cloudflare Worker artifact
         run: npm run build:cloudflare
 

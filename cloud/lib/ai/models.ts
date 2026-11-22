@@ -72,6 +72,18 @@ const WORKERS_AI_CATALOG: CloudflareAIModel[] = [
     supported_parameters: ["tools", "reasoning"],
   },
   {
+    id: "@cf/openai/gpt-oss-20b",
+    name: "GPT-OSS 20B",
+    description: "Open-weight reasoning model with function calling for more involved planning, tool use and development tasks.",
+    type: "language",
+    tags: ["reasoning", "tool-use", "agentic"],
+    modalities: { input: ["text"], output: ["text"] },
+    context_window: 128000,
+    max_tokens: 4096,
+    pricing: { input: "0.0000002", output: "0.0000003" },
+    supported_parameters: ["tools", "reasoning"],
+  },
+  {
     id: "@cf/google/gemma-4-26b-a4b-it",
     name: "Gemma 4 26B A4B",
     description: "Long-context multimodal reasoning model with function calling, tool use and vision.",
@@ -88,7 +100,7 @@ const WORKERS_AI_CATALOG: CloudflareAIModel[] = [
 const DEFAULT_MODEL_IDS: Record<ModelProfile, string> = {
   fast: "@cf/zai-org/glm-4.7-flash",
   developer: "@cf/zai-org/glm-4.7-flash",
-  think: "@cf/google/gemma-4-26b-a4b-it",
+  think: "@cf/openai/gpt-oss-20b",
   vision: "@cf/google/gemma-4-26b-a4b-it",
   agent: "@cf/zai-org/glm-4.7-flash",
 };

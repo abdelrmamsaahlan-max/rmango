@@ -16,9 +16,9 @@
   --text:#eef2f7;
   --muted:#8f9bab;
   --muted2:#b5c0cd;
-  --gold:#ffad4e;
-  --gold-soft:#ffd08a;
-  --green:#98d5b1;
+  --gold:#ffbf32;
+  --gold-soft:#ffe08a;
+  --green:#9bdc78;
   --green-deep:#214735;
   --mono:"Cascadia Code",Consolas,monospace;
 }
@@ -36,12 +36,12 @@ button:disabled{cursor:not-allowed;opacity:.5}
 }
 .topbar{
   height:62px;flex:none;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;
-  padding:0 19px;gap:15px;background:rgba(12,27,18,.96);z-index:5;
+  padding:0 19px;gap:15px;background:rgba(13,17,25,.96);z-index:5;
 }
 .brand-wrap{display:flex;align-items:center;gap:9px;min-width:174px}
-.brand-tile{width:36px;height:36px;border-radius:12px;background:linear-gradient(145deg,#fce58b,#e9ad27);display:flex;align-items:center;justify-content:center;box-shadow:0 5px 22px rgba(247,190,54,.14);border:1px solid rgba(255,238,154,.4)}
-.brand-name{font-size:20px;letter-spacing:-1.1px;font-weight:850;color:#fff7d9}
-.brand-version{font:8px var(--mono);letter-spacing:.8px;color:#cbe39e;border:1px solid #456344;padding:4px 6px;border-radius:5px;background:#17291d}
+.brand-tile{width:36px;height:36px;border-radius:12px;background:linear-gradient(145deg,#15243a,#0b1423);display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 5px 22px rgba(28,145,91,.22);border:1px solid rgba(126,204,121,.34)}
+.brand-name{font-size:20px;letter-spacing:-1.1px;font-weight:850;color:#f4f7fb}
+.brand-version{font:8px var(--mono);letter-spacing:.8px;color:#d7e8c5;border:1px solid #344b3b;padding:4px 6px;border-radius:5px;background:#142019}
 .topbar-divider{height:23px;width:1px;background:var(--line)}
 .workspace-crumb{display:flex;align-items:center;gap:8px;color:#c4d2bb;font-size:12px}
 .workspace-crumb svg:first-child{color:var(--gold)}

@@ -138,6 +138,27 @@ For scene lighting, define a coherent global baseline (Lighting technology and t
     ].join("\n"),
   },
   {
+    id: "project-code-navigation",
+    version: "1.0.0",
+    label: "Project-wide Code Search and Dependency Tracing",
+    description: "Finds implementations, definitions, references and callers across uploaded Roblox source projects before editing.",
+    triggers: [
+      /search.*(code|source|project)/i,
+      /find.*(implementation|caller|reference|function|definition|handler)/i,
+      /where.*(implemented|defined|saved|called|handled|triggered)/i,
+      /dependency|call graph|data flow|project audit/i,
+      /trace.*(event|function|module|request|data)/i,
+    ],
+    instructions: [
+      "Treat the uploaded project as unknown until inspected; never infer its architecture from a project name or common Roblox conventions.",
+      "Use search_project_code for content/identifier search and search_project_files for filenames and paths. The content search is bounded and may skip generated or large files; state that limitation when it affects the result.",
+      "Read only the strongest matching files with read_project_file. Search for definitions and callers separately when tracing a feature, RemoteEvent, datastore key, service, UI action or state transition.",
+      "Build a concise dependency map: entry point, caller chain, server/client/shared ownership, data contract, remotes, persistence and cleanup responsibilities.",
+      "For edits spanning modules, order proposed changes by dependency and preserve existing public contracts. Do not replace a subsystem until its callers and dependents have been inspected.",
+      "Distinguish cloud-uploaded source files from the live Roblox Studio DataModel. Use the connected Studio read/search tools for live instances; do not claim one search covered both.",
+    ].join("\n"),
+  },
+  {
     id: "document-evidence-analysis",
     version: "1.0.0",
     label: "Document and Specification Analysis",
@@ -191,7 +212,7 @@ export function buildSkillContext(input: string, options?: { hasImage?: boolean;
   );
   return {
     ids: skills.map(skill => skill.id),
-    version: "1.2.0",
+    version: "1.3.0",
     systemText: [
       "ACTIVE RMANGO SKILLS — versioned, locally selected without an extra model call.",
       "Use only the skills relevant to this turn; do not repeat the whole playbook to the user.",

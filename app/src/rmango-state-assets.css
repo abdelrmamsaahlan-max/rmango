@@ -1,0 +1,25 @@
+/* Original RMango state assets used inside status and approval surfaces. */
+.local-status-icon > svg { display: none; }
+.local-status-icon::after {
+  content: "";
+  width: 26px;
+  height: 26px;
+  display: block;
+  background: url('/assets/rmango-agent-working.svg') center / contain no-repeat;
+}
+.studio-status-icon:not(.live) > svg { display: none; }
+.studio-status-icon:not(.live)::after {
+  content: "";
+  width: 27px;
+  height: 25px;
+  display: block;
+  background: url('/assets/rmango-studio-offline.svg') center / contain no-repeat;
+}
+.approval-icon > svg { display: none; }
+.approval-icon::after {
+  content: "";
+  width: 29px;
+  height: 29px;
+  display: block;
+  background: url('/assets/rmango-pixel-check.svg') center / contain no-repeat;
+}
