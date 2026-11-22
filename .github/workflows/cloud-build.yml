@@ -145,6 +145,39 @@ jobs:
           console.log("All three existing Supabase Worker secrets are present. Their values were not read or changed.");
           NODE
 
+      - name: Set canonical Supabase project URL secret
+        env:
+          SUPABASE_PROJECT_URL: https://jqkcrtnbxewyqrdpnqap.supabase.co
+        run: |
+          node --input-type=module <<'NODE'
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const projectUrl = process.env.SUPABASE_PROJECT_URL;
+          if (!token?.trim() || !accountId?.trim() || projectUrl !== "https://jqkcrtnbxewyqrdpnqap.supabase.co") {
+            throw new Error("The canonical RMango Supabase project URL or Cloudflare deploy credentials are missing. No deployment was started.");
+          }
+          const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/rmango/secrets`;
+          const response = await fetch(url, {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              accept: "application/json",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              name: "SUPABASE_URL",
+              type: "secret_text",
+              text: projectUrl,
+            }),
+            signal: AbortSignal.timeout(15000),
+          });
+          const payload = await response.json();
+          if (!response.ok || payload.success !== true) {
+            throw new Error(`Could not set the canonical Supabase project URL secret (HTTP ${response.status}). No Worker deployment was started.`);
+          }
+          console.log("Set SUPABASE_URL to the verified RMango Supabase project URL. SUPABASE_PUBLISHABLE_KEY and SUPABASE_SECRET_KEY were not read or changed.");
+          NODE
+
       - name: Build Cloudflare Worker bundle for this deploy job
         run: npm run build:cloudflare
 
