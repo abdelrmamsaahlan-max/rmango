@@ -98,7 +98,7 @@ type AppUpdateState = {
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const APPROVAL_TIMEOUT_MS = 120_000;
+const APPROVAL_TIMEOUT_MS = 60_000;
 
 let mainWindow: BrowserWindow | null = null;
 let mcpClient: Client | null = null;
