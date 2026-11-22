@@ -1323,7 +1323,7 @@ function App() {
       title: leftSidebarOpen ? "Hide project sidebar" : "Show project sidebar",
       description: "Toggle the project explorer and recent chats.",
       shortcut: "Ctrl B",
-      icon: <PanelLeft size={15}/>,
+      icon: <FolderOpen size={15}/>,
       action: () => setLeftSidebarOpen(value => !value),
     },
     {
