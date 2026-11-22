@@ -73,30 +73,29 @@ jobs:
           }
           Write-Host "Windows mango icon generated successfully."
 
-      - name: Configure public Rmango Cloud API URL
+      - name: Configure Cloudflare Workers API URL
         id: cloud-config
         shell: pwsh
-        env:
-          RMANGO_CLOUD_API_URL: ${{ vars.RMANGO_CLOUD_API_URL }}
         run: |
           $configPath = "app-src/cloud-config.json"
-          # An Actions variable can override the endpoint, but the committed public
-          # RMango URL is the safe default for normal builds.
-          $apiUrl = ($env:RMANGO_CLOUD_API_URL ?? "").Trim().TrimEnd("/")
-          if (-not $apiUrl -and (Test-Path $configPath)) {
-            try {
-              $existingConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-              $apiUrl = ([string]$existingConfig.apiBaseUrl).Trim().TrimEnd("/")
-            } catch {
-              throw "app/cloud-config.json is not valid JSON: $($_.Exception.Message)"
-            }
+          if (-not (Test-Path $configPath)) {
+            throw "Missing app/cloud-config.json. A Cloudflare API endpoint must be committed with the desktop app."
+          }
+          try {
+            $existingConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+            $apiUrl = ([string]$existingConfig.apiBaseUrl).Trim().TrimEnd("/")
+          } catch {
+            throw "app/cloud-config.json is not valid JSON: $($_.Exception.Message)"
           }
           if (-not $apiUrl) {
-            throw "No Rmango Cloud URL is configured. Set RMANGO_CLOUD_API_URL or provide apiBaseUrl in app/cloud-config.json."
+            throw "No Cloudflare API URL is configured in app/cloud-config.json."
           }
           $parsed = [Uri]::new($apiUrl)
           if ($parsed.Scheme -ne "https" -or -not $parsed.IsAbsoluteUri) {
-            throw "RMANGO_CLOUD_API_URL must be an absolute HTTPS URL."
+            throw "The RMango Cloud API URL must be an absolute HTTPS URL."
+          }
+          if ($parsed.Host -ne "rmango.abdosony222.workers.dev") {
+            throw "The desktop release must target the approved RMango Cloudflare Worker, not a legacy or unverified host."
           }
           @{ apiBaseUrl = $apiUrl } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
           "configured=true" >> $env:GITHUB_OUTPUT
