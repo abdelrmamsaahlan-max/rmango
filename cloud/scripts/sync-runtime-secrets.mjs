@@ -19,8 +19,19 @@ for (const name of requiredSecrets) {
   }
 }
 
-if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(values.SUPABASE_URL)) {
-  throw new Error("SUPABASE_URL is not a valid Supabase project URL.");
+let parsedSupabaseUrl;
+try {
+  parsedSupabaseUrl = new URL(values.SUPABASE_URL);
+} catch {
+  throw new Error("SUPABASE_URL must be a valid HTTPS URL.");
+}
+if (
+  parsedSupabaseUrl.protocol !== "https:" ||
+  !parsedSupabaseUrl.hostname ||
+  parsedSupabaseUrl.username ||
+  parsedSupabaseUrl.password
+) {
+  throw new Error("SUPABASE_URL must be a valid HTTPS project URL without embedded credentials.");
 }
 if (!values.SUPABASE_PUBLISHABLE_KEY.startsWith("sb_publishable_")) {
   throw new Error("SUPABASE_PUBLISHABLE_KEY must be the project's sb_publishable_ key.");
