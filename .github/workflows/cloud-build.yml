@@ -55,6 +55,9 @@ jobs:
       - name: Type-check cloud backend
         run: npm run typecheck
 
+      - name: Test canonical password recovery redirects
+        run: npm run test:auth
+
       - name: Build Cloudflare Worker artifact
         run: npm run build:cloudflare
 
@@ -72,8 +75,6 @@ jobs:
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: 22
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
