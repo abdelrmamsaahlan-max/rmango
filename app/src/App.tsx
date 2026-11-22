@@ -1159,6 +1159,27 @@ function App() {
       pendingDeltasRef.current.delete(requestId);
       const wasCancelled = cancelledRequestIdRef.current === requestId;
       const failureMessage = error instanceof Error ? error.message : 'The Rmango cloud request failed.';
+      if (/session|sign in|unauthori[sz]ed/i.test(failureMessage)) {
+        // A failed refresh can invalidate the saved token while the account
+        // card still holds an older signed-in snapshot. Reconcile the UI with
+        // Electron's current encrypted session instead of leaving it stale.
+        try {
+          const latestCloudState = await window.rmango.getCloudState();
+          setCloudState(latestCloudState);
+          if (!latestCloudState.signedIn) {
+            setCloudModels(null);
+            setCloudUsage(null);
+            setCloudConversations([]);
+            setCloudTasks([]);
+            setCloudProjects([]);
+            setCloudProjectId(undefined);
+            setConversationId(undefined);
+          }
+        } catch {
+          // Keep the last known account view if the verification request itself
+          // fails because the network is temporarily unavailable.
+        }
+      }
       setActivities(current => [...current, {
         id: 'request-result',
         requestId,
