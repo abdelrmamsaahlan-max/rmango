@@ -45,7 +45,7 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Generate Cloudflare Worker binding types
-        run: npx wrangler types
+        run: npx wrangler types --env-interface CloudflareEnv
 
       - name: Type-check cloud backend
         run: npm run typecheck
