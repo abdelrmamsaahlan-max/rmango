@@ -13,7 +13,9 @@
     "deploy:cloudflare": "node scripts/sync-runtime-secrets.mjs && opennextjs-cloudflare deploy",
     "test:source-search": "node --experimental-strip-types --test tests/source-search.test.mjs",
     "test:studio-heartbeat": "node --experimental-strip-types --test tests/studio-heartbeat.test.mjs",
-    "test:studio-command-timing": "node --experimental-strip-types --test tests/studio-command-timing.test.mjs"
+    "test:studio-command-timing": "node --experimental-strip-types --test tests/studio-command-timing.test.mjs",
+    "test:runtime-env": "node --experimental-strip-types --test tests/supabase-runtime-env.test.mjs",
+    "test:roblox-docs": "node --experimental-strip-types --test tests/roblox-docs.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.119.2",
