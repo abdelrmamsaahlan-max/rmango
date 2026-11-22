@@ -41,21 +41,15 @@ const displayTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour
 
 function MangoMark({ size = 34, className = '' }: { size?: number; className?: string }) {
   return (
-    <svg className={className} width={size} height={size} viewBox="0 0 64 64" fill="none" role="img" aria-label="Rmango mango mark">
-      <defs>
-        <linearGradient id="mango-body" x1="12" y1="8" x2="53" y2="57" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFE36C"/><stop offset=".52" stopColor="#FFC43F"/><stop offset="1" stopColor="#EE941E"/>
-        </linearGradient>
-        <linearGradient id="mango-leaf" x1="36" y1="4" x2="58" y2="23" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#B7E87B"/><stop offset="1" stopColor="#4A9B4B"/>
-        </linearGradient>
-      </defs>
-      <path d="M34.6 13.3C27.8 7.7 17.9 11.1 12.7 18.1 5.4 27.7 9.2 43.7 18.2 52.3c7.3 7 17.9 5.6 25.2-1.9 7.6-7.8 11.2-20.1 6.5-29.1-3-5.7-8.6-7.2-15.3-8Z" fill="url(#mango-body)"/>
-      <path d="M34.8 13.6c5.2-6.3 12.7-8.8 20.4-6.1-2.3 8.7-8.6 13.5-17.6 13.2-2.6-.1-4.7-1.8-5.2-4.2-.3-1 .4-2 2.4-2.9Z" fill="url(#mango-leaf)"/>
-      <path d="M35.5 16.8c4.4-2.4 8.6-4.4 14-6.2" stroke="#286F3D" strokeWidth="1.8" strokeLinecap="round"/>
-      <path d="M19 23.4c2.2-4.5 5.5-6.9 9.1-7.8" stroke="#FFF0A9" strokeWidth="3" strokeLinecap="round" opacity=".8"/>
-      <path d="M16.7 35c.1 5.3 2.5 10 6.2 13" stroke="#F9A829" strokeWidth="1.4" strokeLinecap="round" opacity=".55"/>
-    </svg>
+    <img
+      className={className}
+      src="/rmango-mascot.svg"
+      width={size}
+      height={size}
+      alt="RMango mascot"
+      draggable={false}
+      style={{ width: size, height: size, objectFit: 'contain', display: 'block' }}
+    />
   );
 }
 
