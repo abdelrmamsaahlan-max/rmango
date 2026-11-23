@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   if (response) return response;
 
   const { user } = context!;
-  const admin = createAdminClient();
+  const admin = await createAdminClient();
   const now = new Date();
   // Match Postgres date_trunc('day'/'month', now()), which uses the database UTC timezone.
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));

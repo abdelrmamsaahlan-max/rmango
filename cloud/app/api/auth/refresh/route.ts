@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   }
   const payload = parsed.data;
 
-  const supabase = createAuthClient();
+  const supabase = await createAuthClient();
   const { data, error } = await supabase.auth.refreshSession({ refresh_token: payload.refreshToken });
   if (error || !data.session || !data.user) {
     return NextResponse.json({ error: error?.message || "Your session has expired. Sign in again." }, { status: 401 });

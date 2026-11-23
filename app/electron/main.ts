@@ -972,6 +972,13 @@ async function sendCloudMessage(payload: {
       void reader.cancel().catch(() => undefined);
       throw error;
     }
+    if (!content.trim()) {
+      const completedToolCount = Array.from(activityById.values())
+        .filter(item => item.status === 'completed').length;
+      throw new Error(completedToolCount > 0
+        ? 'The agent finished its tool steps but did not return a written summary. No final answer was received; ask Rmango to summarize the result.'
+        : 'The cloud model returned an empty response. No answer was received; check cloud status and try again.');
+    }
     const preferences = await readSettings();
     if (preferences.desktopNotifications && Notification.isSupported() && (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused() || mainWindow.isMinimized())) {
       new Notification({ title: 'Rmango response ready', body: 'Your Roblox development response has finished.' }).show();
@@ -1804,9 +1811,10 @@ function initializeAutoUpdates() {
   }
 
   // NSIS + electron-updater is the supported Windows self-update path.
-  // Downloads happen in the background; installation always waits for the user's click.
+  // Updates download in the background and install on the next normal app exit.
+  // The explicit Restart & install button remains available for immediate updates.
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.logger = console;
@@ -1839,7 +1847,7 @@ function initializeAutoUpdates() {
       availableVersion: info.version,
       progress: 100,
       releaseNotes: formatReleaseNotes(info.releaseNotes),
-      message: 'Version ' + info.version + ' is ready to install.',
+      message: 'Version ' + info.version + ' is ready. Restart now or close Rmango normally to install it.',
     });
   });
 

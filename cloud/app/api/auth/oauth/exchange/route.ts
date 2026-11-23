@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const config = getSupabasePublicConfig();
+    const config = await getSupabasePublicConfig();
     const tokenUrl = new URL("/auth/v1/token?grant_type=pkce", config.url);
     const tokenResponse = await fetch(tokenUrl, {
       method: "POST",
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
     const accessToken = tokenPayload.access_token;
     const refreshToken = tokenPayload.refresh_token;
-    const { data, error } = await createAuthClient(accessToken).auth.getUser(accessToken);
+    const { data, error } = await (await createAuthClient(accessToken)).auth.getUser(accessToken);
     if (error || !data.user) {
       return NextResponse.json({ error: "The returned account could not be verified. Please sign in again." }, {
         status: 401,

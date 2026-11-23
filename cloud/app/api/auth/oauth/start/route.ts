@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const config = getSupabasePublicConfig();
+    const config = await getSupabasePublicConfig();
     const authorizeUrl = createSupabaseOAuthAuthorizeUrl(config.url, payload.provider, payload.codeChallenge);
     return NextResponse.json({ authorizeUrl }, {
       headers: { "Cache-Control": "no-store" },

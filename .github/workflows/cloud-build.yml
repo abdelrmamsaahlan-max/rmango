@@ -67,6 +67,12 @@ jobs:
       - name: Test Studio approval timing
         run: npm run test:studio-command-timing
 
+      - name: Test Supabase runtime binding selection
+        run: npm run test:runtime-env
+
+      - name: Test official Roblox documentation retrieval
+        run: npm run test:roblox-docs
+
       - name: Build Cloudflare Worker artifact
         run: npm run build:cloudflare
 

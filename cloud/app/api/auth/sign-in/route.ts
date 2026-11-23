@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter your account email and password." }, { status: 400 });
   }
 
-  const supabase = createAuthClient();
+  const supabase = await createAuthClient();
   const { data, error } = await supabase.auth.signInWithPassword({
     email: payload.email.toLowerCase(),
     password: payload.password,

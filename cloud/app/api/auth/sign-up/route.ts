@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter a valid email and a password with at least 10 characters." }, { status: 400 });
   }
 
-  const supabase = createAuthClient();
+  const supabase = await createAuthClient();
   const { data, error } = await supabase.auth.signUp({
     email: payload.email,
     password: payload.password,
